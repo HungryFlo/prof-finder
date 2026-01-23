@@ -9,7 +9,7 @@ from rich.table import Table
 
 from ..db import get_db
 from ..models import UserProfile
-from ..parser import MarkdownParser, LaTeXParser, ParsedResume, EducationEntry, ExperienceEntry, ProjectEntry
+from ..parser import SmartParser, ParsedResume, EducationEntry, ExperienceEntry, ProjectEntry
 from .utils import (
     get_current_user,
     display_parsed_resume,
@@ -26,6 +26,7 @@ def upload_resume(
     file_path: Path = typer.Argument(..., help="Path to resume file (.md or .tex)"),
     title: Optional[str] = typer.Option(None, "--title", "-t", help="Profile title"),
     user: Optional[str] = typer.Option(None, "--user", "-u", help="Username"),
+    no_llm: bool = typer.Option(False, "--no-llm", help="Disable LLM parsing, use regex only"),
 ) -> None:
     """Upload and parse a resume file."""
     # Check file exists
@@ -33,21 +34,22 @@ def upload_resume(
         console.print(f"[red]错误: 文件不存在: {file_path}[/red]")
         raise typer.Exit(1)
 
-    # Determine parser based on extension
+    # Check supported extensions
     ext = file_path.suffix.lower()
+    supported_extensions = [".md", ".markdown", ".tex", ".latex"]
     
-    if ext in MarkdownParser.supported_extensions():
-        parser = MarkdownParser()
-        source_format = "markdown"
-    elif ext in LaTeXParser.supported_extensions():
-        parser = LaTeXParser()
-        source_format = "latex"
-    else:
+    if ext not in supported_extensions:
         console.print(f"[red]错误: 不支持的文件格式 '{ext}'[/red]")
         console.print("[yellow]支持的格式: .md, .markdown, .tex, .latex[/yellow]")
         raise typer.Exit(1)
 
-    # Read and parse file
+    # Determine source format
+    if ext in [".tex", ".latex"]:
+        source_format = "latex"
+    else:
+        source_format = "markdown"
+
+    # Read file
     try:
         content = file_path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
@@ -55,7 +57,21 @@ def upload_resume(
         raise typer.Exit(1)
 
     console.print(f"[cyan]正在解析文件: {file_path}[/cyan]")
-    parsed = parser.parse(content)
+    
+    # Use SmartParser with LLM-first strategy
+    smart_parser = SmartParser(prefer_llm=not no_llm)
+    parsed, method = smart_parser.parse(content, ext)
+    
+    # Show which parsing method was used
+    if method == "llm":
+        console.print("[green]✓ 使用 LLM 解析成功[/green]")
+    elif method == "regex":
+        if not no_llm:
+            console.print("[yellow]⚠ 回退到正则解析[/yellow]")
+        else:
+            console.print("[cyan]使用正则解析[/cyan]")
+    elif method == "empty":
+        console.print("[yellow]⚠ 文件内容为空[/yellow]")
 
     # Get user and generate title
     current_user = get_current_user(user)

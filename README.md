@@ -4,7 +4,7 @@
 
 ## 功能特点
 
-- **简历解析**：支持 Markdown 和 LaTeX 格式的简历自动解析
+- **智能简历解析**：支持 Markdown 和 LaTeX 格式，优先使用 LLM 进行语义理解，自动回退到正则解析
 - **教授信息爬取**：通过 Google Scholar 自动获取教授信息、论文和研究方向
 - **智能匹配**：基于研究方向、技能和经历进行智能匹配推荐
 - **邮件生成**：使用 DeepSeek API 生成个性化的学术联络邮件
@@ -67,12 +67,17 @@ DEFAULT_USER=default
 **方式一：上传简历文件**
 
 ```bash
-# 上传 Markdown 简历
+# 上传 Markdown 简历（默认使用 LLM 智能解析）
 prof-finder profile upload resume.md --title "NLP方向申请"
 
 # 上传 LaTeX 简历
 prof-finder profile upload cv.tex --title "ML方向申请"
+
+# 禁用 LLM 解析，仅使用正则解析
+prof-finder profile upload resume.md --no-llm
 ```
+
+> **注意**：LLM 解析需要配置 DeepSeek API Key。如果 API 调用失败，系统会自动回退到正则解析。
 
 **方式二：手动输入**
 
@@ -157,10 +162,11 @@ prof-finder professor add --scholar "..." --user alice
 prof-finder/
 ├── src/prof_finder/
 │   ├── cli/            # 命令行接口
-│   ├── parser/         # 简历解析器
+│   ├── parser/         # 简历解析器（含 LLM 和正则解析）
+│   ├── prompts/        # LLM Prompt 模板
 │   ├── crawler/        # 网页爬虫
 │   ├── matcher/        # 匹配算法
-│   ├── llm/            # LLM 集成
+│   ├── llm/            # LLM 集成（邮件生成）
 │   ├── models/         # 数据模型
 │   └── db/             # 数据库操作
 ├── tests/              # 测试用例

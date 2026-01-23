@@ -101,12 +101,12 @@ class KeywordMatcher:
 
         # From research experience
         for exp in (profile.research_experience or []):
-            desc = exp.get("description", "") + " " + exp.get("title", "")
+            desc = (exp.get("description") or "") + " " + (exp.get("title") or "")
             keywords.update(self._extract_keywords(desc))
 
         # From projects
         for proj in (profile.projects or []):
-            desc = proj.get("description", "") + " " + proj.get("name", "")
+            desc = (proj.get("description") or "") + " " + (proj.get("name") or "")
             keywords.update(self._extract_keywords(desc))
 
         return keywords
@@ -175,7 +175,7 @@ class KeywordMatcher:
             return 0.0, []
 
         # Extract keywords from publication titles
-        pub_text = " ".join(pub.get("title", "") for pub in publications[:10])
+        pub_text = " ".join((pub.get("title") or "") for pub in publications[:10])
         pub_keywords = self._extract_keywords(pub_text)
 
         matches = []
@@ -203,13 +203,13 @@ class KeywordMatcher:
 
         # Extract keywords from experiences
         exp_text = " ".join(
-            exp.get("description", "") + " " + exp.get("title", "")
+            (exp.get("description") or "") + " " + (exp.get("title") or "")
             for exp in experiences
         )
         exp_keywords = self._extract_keywords(exp_text)
 
         # Extract keywords from publications
-        pub_text = " ".join(pub.get("title", "") for pub in publications[:10])
+        pub_text = " ".join((pub.get("title") or "") for pub in publications[:10])
         pub_keywords = self._extract_keywords(pub_text)
 
         # Find common keywords
@@ -233,7 +233,7 @@ class KeywordMatcher:
         # Check for PhD or Master's degree
         has_advanced_degree = False
         for edu in education:
-            degree = edu.get("degree", "").lower()
+            degree = (edu.get("degree") or "").lower()
             if "博士" in degree or "phd" in degree:
                 has_advanced_degree = True
                 break
