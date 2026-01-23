@@ -1,0 +1,720 @@
+%
+%Academic CV LaTeX Template
+% Author: Dubasi Pavan Kumar
+% LinkedIn: https://www.linkedin.com/in/im-pavankumar/
+% License: MIT
+%
+% For errors, suggestions, or improvements, please contact:
+% Email: pavankumard.pg19.ma@nitp.ac.in
+%
+
+
+
+\documentclass[a4paper,11pt]{article}
+
+% Package imports
+\usepackage{latexsym}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{ragged2e}
+\usepackage[empty]{fullpage}
+\usepackage{wrapfig}
+\usepackage{lipsum}
+\usepackage{tabularx}
+\usepackage{titlesec}
+\usepackage{geometry}
+\usepackage{marvosym}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{multicol}
+\usepackage{graphicx}
+\usepackage{cfr-lm}
+\usepackage[T1]{fontenc}
+\usepackage{fontawesome5}
+
+% Color definitions
+\definecolor{darkblue}{RGB}{0,0,139}
+
+% Page layout
+\setlength{\multicolsep}{0pt} 
+\pagestyle{fancy}
+\fancyhf{} % clear all header and footer fields
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+\geometry{left=1.4cm, top=1.4cm, right=1.4cm, bottom=1.4cm}
+\setlength{\footskip}{5pt} % Addressing fancyhdr warning
+
+% Hyperlink setup (moved after fancyhdr to address warning)
+\usepackage[hidelinks]{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=darkblue,
+    filecolor=darkblue,
+    urlcolor=darkblue,
+}
+
+% Custom box settings
+\usepackage[most]{tcolorbox}
+\tcbset{
+    frame code={},
+    center title,
+    left=0pt,
+    right=0pt,
+    top=0pt,
+    bottom=0pt,
+    colback=gray!20,
+    colframe=white,
+    width=\dimexpr\textwidth\relax,
+    enlarge left by=-2mm,
+    boxsep=4pt,
+    arc=0pt,outer arc=0pt,
+}
+
+% URL style
+\urlstyle{same}
+
+% Text alignment
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+% Section formatting
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-7pt}]
+
+% Custom commands
+\newcommand{\resumeItem}[2]{
+  \item{
+    \textbf{#1}{\hspace{0.5mm}#2 \vspace{-0.5mm}}
+  }
+}
+
+\newcommand{\resumePOR}[3]{
+\vspace{-0.2mm}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+        \textbf{#1}\hspace{0.3mm}#2 & \textit{\small{#3}} 
+    \end{tabular*}
+    \vspace{-2mm}
+}
+
+\newcommand{\resumeSubheading}[4]{
+\vspace{0.5mm}\item
+    \begin{tabular*}{0.98\textwidth}[t]{l@{\extracolsep{\fill}}r}
+        \textbf{#1} & \textit{\footnotesize{#4}} \\
+        \textit{\footnotesize{#3}} &  \footnotesize{#2}\\
+    \end{tabular*}
+    \vspace{-2.4mm}
+}
+
+\newcommand{\resumeProject}[4]{
+\vspace{0.5mm}\item
+    \begin{tabular*}{0.98\textwidth}[t]{l@{\extracolsep{\fill}}r}
+        \textbf{#1} & \textit{\footnotesize{#3}} \\
+        \footnotesize{\textit{#2}} & \footnotesize{#4}
+    \end{tabular*}
+    \vspace{-2.4mm}
+}
+
+\newcommand{\resumeSubItem}[2]{\resumeItem{#1}{#2}\vspace{-4pt}}
+
+\renewcommand{\labelitemi}{$\vcenter{\hbox{\tiny$\bullet$}}$}
+\renewcommand{\labelitemii}{$\vcenter{\hbox{\tiny$\circ$}}$}
+
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=*,labelsep=1mm]}
+\newcommand{\resumeHeadingSkillStart}{\begin{itemize}[leftmargin=*,itemsep=1.7mm, rightmargin=2ex]}
+\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=8mm,labelsep=3mm,itemsep=0.5mm]}
+
+% \newcommand{\resumeRespItemListStart}{\begin{itemize}[leftmargin=0mm, labelsep=3mm, itemsep=0.5mm]}
+
+% \newcommand{\resumeRespItemListEnd}{\end{itemize}\vspace{-2mm}}
+
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}\vspace{2mm}}
+\newcommand{\resumeHeadingSkillEnd}{\end{itemize}\vspace{-2mm}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-2mm}}
+\newcommand{\cvsection}[1]{%
+\vspace{2mm}
+\begin{tcolorbox}
+    \textbf{\large #1}
+\end{tcolorbox}
+    \vspace{-4mm}
+}
+
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}%
+\newcolumntype{R}{>{\raggedleft\arraybackslash}X}%
+\newcolumntype{C}{>{\centering\arraybackslash}X}%
+
+% Commands for icon sizing and positioning
+\newcommand{\socialicon}[1]{\raisebox{-0.05em}{\resizebox{!}{1em}{#1}}}
+\newcommand{\ieeeicon}[1]{\raisebox{-0.3em}{\resizebox{!}{1.3em}{#1}}}
+
+% Font options
+\newcommand{\headerfonti}{\fontfamily{phv}\selectfont} % Helvetica-like (similar to Arial/Calibri)
+\newcommand{\headerfontii}{\fontfamily{ptm}\selectfont} % Times-like (similar to Times New Roman)
+\newcommand{\headerfontiii}{\fontfamily{ppl}\selectfont} % Palatino (elegant serif)
+\newcommand{\headerfontiv}{\fontfamily{pbk}\selectfont} % Bookman (readable serif)
+\newcommand{\headerfontv}{\fontfamily{pag}\selectfont} % Avant Garde-like (similar to Trebuchet MS)
+\newcommand{\headerfontvi}{\fontfamily{cmss}\selectfont} % Computer Modern Sans Serif
+\newcommand{\headerfontvii}{\fontfamily{qhv}\selectfont} % Quasi-Helvetica (another Arial/Calibri alternative)
+\newcommand{\headerfontviii}{\fontfamily{qpl}\selectfont} % Quasi-Palatino (another elegant serif option)
+\newcommand{\headerfontix}{\fontfamily{qtm}\selectfont} % Quasi-Times (another Times New Roman alternative)
+\newcommand{\headerfontx}{\fontfamily{bch}\selectfont} % Charter (clean serif font)
+
+\begin{document}
+\headerfontiii
+
+% Header
+\begin{center}
+    {\Huge\textbf{Feiyang HAO}}
+\end{center}
+\vspace{-5mm}
+
+\begin{center}
+    \small{
+    \href{mailto:youhaofeiyang@foxmail.com}{youhaofeiyang@foxmail.com} |
+    +86 133-8353-6923 | 
+    \href{https://hungryflo.github.io}{https://hungryflo.github.io}
+    }
+\end{center}
+% \vspace{-6mm}
+
+% \begin{center}
+%     \small{
+%     \socialicon{\faLinkedin} \href{https://www.linkedin.com/in/your-profile/}{your-profile} | 
+%     \socialicon{\faGithub} \href{https://github.com/your-username}{your-username} | 
+%     \ieeeicon{\includegraphics[height=1.3em]{ieee_collabratec_icon.png}} \href{https://ieee-collabratec.ieee.org/app/p/your-profile}{your-profile} |
+%     \socialicon{\faTwitter} \href{https://twitter.com/your-handle}{your-handle}
+%     }
+% \end{center}
+\vspace{-8mm}
+\begin{center}
+    \small{No.28, Xianning West Road, Xi'an, Shaanxi, P.R. China, 710049}
+\end{center}
+
+\vspace{-6mm}
+
+\section{\textbf{Education}}
+\vspace{-0.4mm}
+\resumeSubHeadingListStart
+
+\resumeSubheading
+{Xi'an Jiaotong University (XJTU)}{Xi'an, P. R. China}
+{Bachelor in Software Engineering}{Sept. 2022 - Jul. 2026}
+\resumeItemListStart
+\item GPA: 4.02/4.3 ~ Grade: 92.5321/100.0
+\item Rank: \textbf{1/134}
+\item \textbf{National Scholarship}
+% \item English proficiency: IELTS 7.0 (one shot)
+\resumeItemListEnd
+
+\resumeSubheading
+{The University of Hong Kong (HKU)}{Hong Kong SAR, P. R. China}
+{Exchange in Department of Computer Science, Faculty of Engineering}{Sept. 2024 - Dec. 2024}
+\resumeItemListStart
+\item Fung Scholarship ($\sim$20000 HKD)
+\item Four major courses grades: A+, A, A-, B+
+% \item Computer \& Communication Network (A+) ~ Principles of Operating System (A-)
+% \\ Emerging Technology for VR/AR (A)
+% ~ Introduction to deep learning for computer vision (B+)
+\resumeItemListEnd
+
+\resumeSubHeadingListEnd
+\vspace{-6mm}
+
+
+
+\section{\textbf{Publication}}
+
+% \vspace{-0.4mm}
+
+\resumeItemListStart
+
+\item \textbf{CalliReader: Contextualizing Chinese Calligraphy via an Embedding-Aligned Vision-Language Model}. Yuxuan Luo*, Jiaqi Tang*, Chenyi Huang, \textbf{Feiyang Hao}, Zhouhui Lian$^{\dag}$. \\
+
+ICCV 2025 Accepted ~  \href{https://arxiv.org/pdf/2503.06472}{\textcolor{darkblue}{[arxiv]}}
+
+\resumeItemListEnd
+\vspace{-3mm}
+
+% \section{\textbf{Internship}}
+% \vspace{-0.4mm}
+%   \resumeSubHeadingListStart
+%   \resumeSubheading
+%     {Peking University}{Beijing, P. R. China}
+%     {Research Internship}{Apr. 2024 - Mar. 2025}
+%     \resumeItemListStart
+%         \item IGCL Group, Wangxuan Institute of Computer Technology
+%         \item Guided by Prof. Zhouhui LIAN
+%         \item Focus on Multimodal Large Language Models (MLLMs).
+%     \resumeItemListEnd
+%   \resumeSubheading
+%     {Software Engineering Project Development Practice}{Xi'an, P. R. China}
+%     {Development Internship}{Jul. 2024}
+%     \resumeItemListStart
+%       \item Guided by Engineer Xinpei LU (Suncaper Data Co., Ltd. (Sichuan))
+%       \item Developed a dormitory management system with data panels that allows users to manage with multi-granularity.
+%       \item Implemented with Vue.js, Spring Boot, and MyBatis.
+%     \resumeItemListEnd
+%   \resumeSubHeadingListEnd
+% \vspace{-6mm}
+
+
+\section{\textbf{Research Experience}}
+\vspace{-0.4mm}
+\resumeSubHeadingListStart
+
+\resumeProject
+{CalliReader: A Vision-Language Model for \textbf{C}hinese \textbf{C}alligraphy \textbf{C}ontextualization}
+{IGCL,  Wangxuan Institute of Computer Technology, Peking University}
+{Jul. 2024 - Mar. 2025}{Prof. Zhouhui LIAN}
+\resumeItemListStart
+    \item \textbf{Overview:} A VLM equipped with character-wise slicing, \textit{CalliAlign} module, and fine-tuned with Embedding Instruction Tuning (e-IT) along with a benchmark-CalliBench.
+    \item \textbf{Responsibilities:} 
+    \vspace{-1.5mm}
+    \resumeItemListStart
+    \item Developed an annotation tool featuring shortcuts, navigation, instant save, tagging, and bookmarking, significantly speeding up the data annotation process.
+    \item Conducted benchmarking of existing methods, including OCR techniques and VLMs.
+    \item Collaborated to fine-tune InternLM-2 using embedding instruction tuning (e-IT), enhancing its ability to follow user instructions for recognizing, interpreting, and inferring context knowledge.
+    \item Designed an LLM-as-a-Judge system for intent analysis, using strategies such as role-playing, structured output, Chain-of-Thought (CoT), and multi-dimensional evaluation to create prompts that enhance fairness and accuracy.
+    \resumeItemListEnd
+    \item \textbf{Preprint Paper Link:} \href{https://arxiv.org/pdf/2503.06472}{\textcolor{darkblue}{https://arxiv.org/pdf/2503.06472}}
+    % \item Completed paper writing and figure drawing with collaborators.
+% \item Vision-Language Models (VLMs), Instruction Tuning, Module Design, Contextual Reasoning
+%   \item \textbf{Task:} Create a versatile VLM for Chinese calligraphy contextualization ($CC^2$), including full-page/region-wise recognition, multilingual interpretation, and intent analysis.
+%   \item \textbf{Ideas:} Proposed character-wise slicing to simplify recognition, introduced the CalliAlign module for embedding alignment, developed Embedding Instruction Tuning (e-IT) to enhance interpretation, and created CalliBench — the first comprehensive benchmark for full-page calligraphic contextualization.
+%   \item \textbf{Job:} Conducted a literature review of OCR methods and reasoning benchmarks for VLMs, performed comparisons between our model, state-of-the-art (SOTA) OCR methods, and other competitive VLMs, and participated in benchmark construction, model fine-tuning, ablation study, and paper writing.
+  
+\resumeItemListEnd
+
+\resumeProject
+{IntE: Unstructured Society Research Interview Data Evaluation Method}
+{VisLab, Department of Computer Science and Engineering, The Hong Kong University of Science and Technology}
+{Aug. 2024 - Dec. 2024}{Prof. Linping YUAN}
+\resumeItemListStart
+  \item \textbf{Overview:} A statistical unstructured society research interview data evaluation method based on inter-data distribution valued by LLM-powered conditional semantic text similarity.
+  % \item Post-training, Human-Computer Interaction (HCI), LLMs, UI Design
+  % \item \textbf{Task:} Create a phased evaluation system to address credibility gaps in open-ended survey results for HCI research.
+  % \item \textbf{Ideas:} Decomposed the process into stages such as prompt refinement, answer generation, analysis, and credibility assessment, leveraging role-specific LLM collaboration and researcher-centric UI design.
+  \item \textbf{Responsibilities:} 
+  \vspace{-1.2mm}
+  \resumeItemListStart
+  \item Co-designed the \textit{ICL Setting Determining with Adversarial AI-Human Interaction Loop}, leveraging multi-agent collaboration to optimize prompt development, reduce costs, and improve system adaptability and robustness.
+  \item Created an intuitive and accessible user interface that empowered non-technical researchers to seamlessly interact with the multi-agent system.
+  \item Conducted comprehensive ablation studies across multiple LLMs and condition pairs (with and without specific modules) to evaluate performance and identify key drivers of system effectiveness.
+  \resumeItemListEnd
+\resumeItemListEnd
+
+\resumeProject
+{CalliLayout: A Calligraphy Layout Generative Model}
+{IGCL,  Wangxuan Institute of Computer Technology, Peking University}
+{Apr. 2024 - Jun. 2024}{Prof. Zhouhui LIAN}
+\resumeItemListStart
+  \item \textbf{Overview:} An efficient calligraphy layout generation solution based on fine-tuned LLM.
+  \item \textbf{Responsibilities:} 
+  \vspace{-1.2mm}
+  \resumeItemListStart
+  \item Curated a specialized calligraphy image dataset and evaluated baseline methods.
+  \item Selected an optimal base model by analyzing performance and computational efficiency.
+  \item Applied q-LoRA fine-tuning methods to the chosen model, achieving better results while significantly reducing costs compared to existing approaches.
+  \resumeItemListEnd
+  
+\resumeItemListEnd
+%  to overcome cost and quality limitations of traditional methods using LLMs and prompt engineering.
+
+
+\resumeProject
+{FinES$^2$: Financial Competencies Evaluation based on Semi-Structured Tests}
+{Xi'an Jiaotong University}{Mar. 2024-Jul. 2024}{Team Project}
+\resumeItemListStart
+  \item \textbf{Overview:} An evaluation framework on semi-structured financial test data based on conditional semantic text similarity (C-STS).
+  \item \textbf{Responsibilities:} 
+  \vspace{-1.2mm}
+  \resumeItemListStart
+  \item Constructed a multi-dimensional financial QA dataset encompassing knowledge, behavior, and awareness using LLMs through advanced prompting techniques.
+  % such as Chain of Thought (CoT), In-Context Learning (ICL), and role-playing.
+  \item Conducted comprehensive literature reviews on financial competency assessment, C-STS methodologies, and model fine-tuning strategies.
+  \resumeItemListEnd
+    % \item \textbf{Task:} Develop an LLM-based evaluation framework to address efficiency and fairness challenges in open-ended financial competency assessments for recruitment and customer capability evaluations.
+    % \item \textbf{Ideas:} Designed domain-specific open-ended questions and a multi-dimensional C-STS assessment framework, generated high-quality datasets, and optimized model performance using active learning techniques.
+    % \item \textbf{Job:} Built a multi-dimensional (knowledge, behavior, awareness) financial QA dataset via Chain of Thought (CoT) / In Context Learning (ICL) / role-playing prompting, and conducted literature reviews.
+\resumeItemListEnd
+\resumeSubHeadingListEnd
+\vspace{-6mm}
+
+
+% \resumeProject
+%   {PokeFusionLab: Fine-tune a Diffusion Model with Various Datasets}
+%   {Introduction to Deep Learning for Computer Vision, The University of Hong Kong}
+%   {2024.11-2024.12}{Prof. Xihui LIU}
+% \resumeItemListStart
+%   \item Fine-tuned latent diffusion models using Low-Rank Adaptation (LoRA) to generate images in specific styles, experimenting with single-image and Pokémon dataset training.
+%   \item Utilized Qwen2-VL-7b to re-annotate datasets with varying caption detail levels, fine-tuning models to analyze the impact of detailed captions on text-to-image generation performance.
+% \resumeItemListEnd
+
+% \resumeProject
+%   {ChatInTerminal: Multithreaded Optimized Terminal AI Chatbot}
+%   {Principles of Operating System, The University of Hong Kong}
+%   {2024.10-2024.12}{Prof. Chenshu WU}
+% \resumeItemListStart
+%   \item Developed a terminal-based AI chatbot using multithreading techniques, implementing thread pools to accelerate tensor calculations for model inference and using another thread to handle user interface.
+%   \item Synchronized threads using system signals, conditional variables, and semaphores, and analyzed efficiency under varying thread counts and scheduling policies.
+% \resumeItemListEnd
+
+
+\section{\textbf{Featured Projects}}
+\vspace{-0.4mm}
+
+\resumeSubHeadingListStart
+
+\resumeProject
+  {XJTUSEBot: A RAG-based Academic Assistant for XJTUSE Students}{Individual Project}
+  {Nov. 2024-Dec. 2024}{}
+\resumeItemListStart
+    \item Based on RAGFlow and Ollama.
+    \item Conducted research on RAG methods and frameworks, deployed models using Ollama, and built the academic assistant using the RAGFlow framework using XJTUSE-Guide materials.
+\resumeItemListEnd
+
+
+
+% \resumeProject
+%   {LumiFlora: A VR Music Firework Show Created with Unity 3D}{Leader, Course Project for Emerging Technology for VR/AR, The University of Hong Kong}
+%   {Nov. 2024-Dec. 2024}{Prof. Evan Yifan PENG}
+% \resumeItemListStart
+%   % \item \textbf{Overview:} An immersive VR experience enabling users to enjoy dynamic fireworks displays synchronized with music across multiple scenic backgrounds.
+% %   \item \textbf{Responsibilities:} 
+% %   \vspace{-1.2mm}
+% % \resumeItemListStart
+%     % \item Led project planning, task delegation, and overall progress management.
+%     \item Developed three captivating scenes and integrated background music and firework sound effects.
+%     \item Enhanced interactivity by implementing VR controls using the Google Cardboard SDK.
+% % \resumeItemListEnd
+% \resumeItemListEnd
+
+\resumeProject
+  {Dormanager: A Multi-granularity Dormitory Management System}
+  {Leader, Project for Development Exercising Program, Xi'an Jiaotong University}
+  {Jun. 2024-Jul. 2024}{Engineer Xinpei LU}
+\resumeItemListStart
+  % \item \textbf{Overview:} A dormitory management system built using 
+  \item Based on Vue.js, Spring Boot, MyBatis, and MySQL.
+  % , featuring multi-granularity data panels for streamlined administration. 
+  % Core functionalities include room allocation, data retrieval, and user access control.
+  % \item \textbf{Responsibilities:}
+  % \vspace{-1.2mm}
+  % \resumeItemListStart
+    % \item Managed project codebase maintenance and ensured smooth development workflows.
+    \item Designed and developed three functional web pages, implementing features such as dormitory allocation, data search and visualization, and user permission management.
+  % \resumeItemListEnd
+\resumeItemListEnd
+
+\resumeSubHeadingListEnd
+\vspace{-6mm}
+
+
+
+
+
+
+\section{\textbf{Internship}}
+\resumeSubHeadingListStart
+\resumeProject
+    {Peking University (PKU)}{Research Internship,  Wangxuan Institute of Computer Technology}
+    {Apr. 2024 - Mar. 2025}{Prof. Zhouhui LIAN}
+    \resumeItemListStart
+        % \item Prof. Zhouhui LIAN, Intelligent Graphics Computing Lab (IGCL)
+        \item Intelligent Graphics Computing Lab (IGCL)
+        \item Research Focus: Multimodal Large Language Model (MLLM)
+    \resumeItemListEnd
+
+\resumeSubHeadingListEnd
+\vspace{-6mm}
+
+
+
+% \section{\textbf{Selected Projects}}
+% \resumeSubHeadingListStart
+
+% % \resumeProject
+% %   {Sudoku Adventure}
+% %   {Java Swing}
+% %   {}{}
+% % \resumeItemListStart
+% %   \item Developed a Sudoku game with customizable parameters of varying difficulty levels.
+% % \resumeItemListEnd
+
+% \resumeSubHeadingListEnd
+
+
+
+\section{\textbf{Selected Awards}}
+\vspace{0.6mm}
+\resumeSubHeadingListStart
+\resumePOR{Outstanding Student Cadre}
+    {, Xi'an Jiaotong University}
+    {2024}
+
+\resumePOR
+  {Second Prize}
+  {, National University Students Electrical Math Modeling Competition}
+  {2024}
+
+\resumePOR
+  {Outstanding Student}
+  {, Xi'an Jiaotong University}
+  {2023}
+
+\resumePOR
+  {Second Prize}
+  {, National English Competition for College Students}
+  {2023}
+
+\resumePOR
+  {Second Prize}
+  {, FLTRP Uchallenge English Reading Competition}
+  {2023}
+
+\resumeSubHeadingListEnd
+\vspace{-6mm}
+
+\section{\textbf{Leadership \& Extracurricular Activities}}
+\vspace{0.6mm}
+\resumeSubHeadingListStart
+\resumePOR
+  {Youth League Secretary}
+  {, Branch No.2202}
+  {2023-2024}
+
+\resumePOR
+  {President}
+  {, Class No.2227}
+  {2022-2023}
+
+\resumePOR
+  {Member}
+  {, XJTU Red Cross}
+  {2022-2023}
+
+\resumePOR
+  {Campus Ambassador}
+  {, The Admissions Office of XJTU}
+  {2022}
+
+\resumePOR
+  {Volunteer Teacher}
+  {, Pingbian No.1 Middle School, Yunnan Province}
+  {2022}
+\resumeSubHeadingListEnd
+\vspace{-6mm}
+
+
+\section{\textbf{Additional Information}}
+\vspace{0.6mm}
+\textbf{Languages:} English proficiency(IELTS: 7.0; CET4: 603; CET6: 570)
+
+\textbf{Interests:} Traveling, Sports, Calligraphy, Musicals
+
+
+% \section{\textbf{Objective}}
+% \vspace{1mm}
+% \small{
+% Seeking a challenging position in [your field] to leverage my expertise in [your key skills]. Aiming to contribute to innovative projects at the intersection of [your interests] and practical problem-solving in fields such as [specific areas of interest].
+% }
+% \vspace{-2mm}
+
+
+
+% \section{\textbf{Patents and Publications} \hfill \textcolor{darkblue}{\scriptsize C=Conference, J=Journal, P=Patent, S=In Submission, T=Thesis}}
+% \vspace{0.2mm}
+% \small{
+% \begin{enumerate}[leftmargin=*, labelsep=0.5em, align=left, widest={[\textbf{S.1}]}, itemindent=0em, label={\textbf{[\arabic*]}]}]
+% \item[\textbf{[C.1]}] Your Name, et al. (Year). \href{https://doi.org/XX.XXXX/XXXXXXX.XXXX.XXXXXXX}{\textbf{Title of Conference Paper}}. In \textit{Name of Conference Proceedings}, pp. XX-XX. Publisher. Date, Location. DOI: XX.XXXX/XXXXXXX.XXXX.XXXXXXX
+
+% \item[\textbf{[S.1]}] Your Name, et al. (Year). \textbf{Title of Submitted Paper}. Manuscript submitted for publication in \textit{Journal Name}.
+
+% \item[\textbf{[P.1]}] Inventor 1, Your Name, Inventor 3, et al. (Year). \href{https://patentoffice.gov/patent/XXXXXXXXX}{\textbf{Title of Patent}}. Patent Office, Patent No. XXXXXXXXX. Registration Date: Date, Grant Date: Date, Publication Date: Date.
+
+% \item[\textbf{[J.1]}] Author 1, Your Name, Author 3, et al. (Year). \href{https://doi.org/XX.XXXX/XXXXX.XXXX.XXXXXXX}{\textbf{Title of Journal Article}}. \textit{Journal Name}, Vol. XX, Issue X, pp. XXX-XXX. DOI: XX.XXXX/XXXXX.XXXX.XXXXXXX
+% \end{enumerate}
+% }
+
+% \section{\textbf{Skills}}
+% \vspace{-0.4mm}
+%  \resumeHeadingSkillStart
+%   \resumeSubItem{Programming Languages:}
+%     {Language 1, Language 2, Language 3, Language 4, Language 5}
+%   \resumeSubItem{Web Technologies:}
+%     {Technology 1, Technology 2, Technology 3, Technology 4, Technology 5}
+%   \resumeSubItem{Database Systems:}
+%     {Database 1, Database 2, Database 3}
+%   \resumeSubItem{Data Science \& Machine Learning:}
+%     {Tool 1, Tool 2, Tool 3, Tool 4, Tool 5, Tool 6}
+% \resumeSubItem{Cloud Technologies:}
+%     {Cloud Platform 1, Cloud Platform 2, Cloud Platform 3}
+%   \resumeSubItem{DevOps \& Version Control:}
+%     {Tool 1, Tool 2, Tool 3, Tool 4, Tool 5}
+%   \resumeSubItem{Specialized Area:}
+%     {Skill 1, Skill 2, Skill 3, Skill 4}
+%   \resumeSubItem{Mathematical \& Statistical Tools:}
+%     {Tool 1, Tool 2, Tool 3, Tool 4, Tool 5}
+%   \resumeSubItem{Other Tools \& Technologies:}
+%     {Tool 1, Tool 2, Tool 3, Tool 4, Tool 5}
+%   \resumeSubItem{Research Skills:}{Skill 1, Skill 2, Skill 3, Skill 4, Skill 5, Skill 6}
+%  \resumeHeadingSkillEnd
+
+% \section{\textbf{Honors and Awards}}
+% \vspace{-0.4mm}
+% \resumeSubHeadingListStart
+
+% \resumeProject
+%   {Award Name A}
+%   {Awarding Institution/Organization}
+%   {Month Year}
+%   {{}[\href{https://award-link-a.com}{\textcolor{darkblue}{\faIcon{globe}}}]}
+% \resumeItemListStart
+%   \item Brief description of the award and its significance
+%   \item Impact or recognition associated with the award
+% \resumeItemListEnd
+
+% \resumeProject
+%   {Award Name B}
+%   {Awarding Institution/Organization}
+%   {Month Year}
+%   {{}[\href{https://award-link-b.com}{\textcolor{darkblue}{\faIcon{globe}}}]}
+% \resumeItemListStart
+%   \item Brief description of the award and its significance
+%   \item Impact or recognition associated with the award
+% \resumeItemListEnd
+
+% \resumeProject
+%   {Competition Achievement}
+%   {Competition Name, Organizing Body}
+%   {Month Year}
+%   {{}[\href{https://competition-link.com}{\textcolor{darkblue}{\faIcon{globe}}}]}
+% \resumeItemListStart
+%   \item Specific achievement or rank in the competition
+%   \item Skills or abilities demonstrated through this achievement
+% \resumeItemListEnd
+
+% \resumeSubHeadingListEnd
+
+% \vspace{-6mm}
+% \section{\textbf{Leadership Experience}}
+% \vspace{-0.4mm}
+% \resumeSubHeadingListStart
+% \resumeProject
+%   {Leadership Role A}
+%   {Organization/Institution Name}
+%   {Month Year - Month Year}
+%   {{}[\href{https://organization-a-link.com}{\textcolor{darkblue}{\faIcon{globe}}}]}
+% \resumeItemListStart
+%   \item Key responsibility or achievement in this role
+%   \item Quantifiable impact or improvement made during tenure
+%   \item Initiative taken or project led
+% \resumeItemListEnd
+
+% \resumeProject
+%   {Leadership Role B}
+%   {Organization/Institution Name}
+%   {Month Year - Month Year}
+%   {{}[\href{https://organization-b-link.com}{\textcolor{darkblue}{\faIcon{globe}}}]}
+% \resumeItemListStart
+%   \item Key responsibility or achievement in this role
+%   \item Quantifiable impact or improvement made during tenure
+%   \item Initiative taken or project led
+% \resumeItemListEnd
+
+% \resumeSubHeadingListEnd
+
+% \vspace{-6mm}
+
+% \section{\textbf{Volunteer Experience}}
+% \vspace{-0.4mm}
+% \resumeSubHeadingListStart
+% \resumeProject
+%   {Volunteer Role A}
+%   {Organization Name}
+%   {Month Year - Month Year}
+%   {{}[\href{https://volunteer-org-a-link.com}{\textcolor{darkblue}{\faIcon{globe}}}]}
+% \resumeItemListStart
+%   \item Key responsibility or contribution in this role
+%   \item Impact of your volunteer work
+%   \item Skills developed or applied during this experience
+% \resumeItemListEnd
+
+% \resumeProject
+%   {Volunteer Role B}
+%   {Organization Name}
+%   {Month Year - Present}
+%   {{}[\href{https://volunteer-org-b-link.com}{\textcolor{darkblue}{\faIcon{globe}}}]}
+% \resumeItemListStart
+%   \item Key responsibility or contribution in this role
+%   \item Impact of your volunteer work
+%   \item Skills developed or applied during this experience
+% \resumeItemListEnd
+
+% \resumeSubHeadingListEnd
+% \vspace{-6mm}
+
+% \section{\textbf{Professional Memberships}}
+% \vspace{-0.4mm}
+% \resumeSubHeadingListStart
+% \resumePOR{Professional Organization A}
+%     {, Membership ID: XXXXXXXX}
+%     {Month Year - Present}
+% \resumePOR{Professional Organization B}
+%     {, \href{https://membership-certificate-link.com}{Membership ID: XXXXXXXX}}
+%     {Month Year - Present}
+% \resumePOR{Professional Organization C}
+%     {, \href{https://membership-certificate-link.com}{Membership ID: XXXXXXXX}}
+%     {Month Year - Present}
+
+% \resumeSubHeadingListEnd
+% \vspace{-6mm}
+
+% \section{\textbf{Certifications}}
+% \vspace{-0.2mm}
+% \resumeSubHeadingListStart
+% \resumePOR{}{\href{https://certification-link-a.com}{
+% \textbf{Certification A}
+% }}{Month Year}
+% \resumePOR{}{
+% \textbf{Certifying Body:} {{\href{https://certification-link-b.com}{Certification B}}}}{Month Year}
+% \resumePOR{}{
+% \textbf{Certifying Body:} {{\href{https://certification-link-c.com}{Certification C}}}}{Month Year}
+% \resumePOR{}{\href{https://certification-link-d.com}{
+% \textbf{Certification D}
+% }}{Month Year}
+
+% \resumeSubHeadingListEnd
+% \vspace{-6mm}
+
+
+% \section{\textbf{References}}
+% \vspace{-0.2mm}
+% \small{
+% \begin{enumerate}[leftmargin=*,labelsep=2mm]
+% \item \textbf{Reference Person 1}\\
+%    Job Title, Department\\
+%    Organization/Institution Name\\
+%    Email: email1@example.com\\
+%    Phone: +X-XXX-XXX-XXXX\\
+%    \textit{Relationship: [e.g., Thesis Advisor, Manager, etc.]}
+
+% \item \textbf{Reference Person 2}\\
+%    Job Title, Department\\
+%    Organization/Institution Name\\
+%    Email: email2@example.com\\
+%    Phone: +X-XXX-XXX-XXXX\\
+%    \textit{Relationship: [e.g., Project Supervisor, Colleague, etc.]}
+
+% \item \textbf{Reference Person 3}\\
+%    Job Title, Department\\
+%    Organization/Institution Name\\
+%    Email: email3@example.com\\
+%    Phone: +X-XXX-XXX-XXXX\\
+%    \textit{Relationship: [e.g., Mentor, Collaborator, etc.]}
+% \end{enumerate}
+% }
+
+\end{document}
