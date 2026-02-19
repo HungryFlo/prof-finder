@@ -1,0 +1,191 @@
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+import { tasksApi } from '@/api/tasks'
+import { useAuthStore } from '@/stores/auth'
+import type { TaskType, TaskStatus } from '@/types'
+
+export interface TaskEntry {
+  taskId: string
+  taskType: TaskType
+  taskName: string
+  status: TaskStatus
+  current: number
+  total: number
+  message: string
+  errorMessage: string
+  eventSource?: EventSource
+}
+
+export const useTaskStore = defineStore('tasks', () => {
+  const activeTasks = ref<Map<string, TaskEntry>>(new Map())
+
+  // ---------------------------------------------------------------------------
+  // Computed
+  // ---------------------------------------------------------------------------
+
+  const taskList = computed(() => Array.from(activeTasks.value.values()))
+
+  const runningCount = computed(
+    () => taskList.value.filter((t) => t.status === 'running' || t.status === 'pending').length
+  )
+
+  const failedCount = computed(() => taskList.value.filter((t) => t.status === 'failed').length)
+
+  // ---------------------------------------------------------------------------
+  // Internal helpers
+  // ---------------------------------------------------------------------------
+
+  function _buildEntry(
+    taskId: string,
+    taskType: TaskType,
+    taskName: string,
+    total: number
+  ): TaskEntry {
+    return {
+      taskId,
+      taskType,
+      taskName,
+      status: 'pending',
+      current: 0,
+      total,
+      message: '',
+      errorMessage: '',
+    }
+  }
+
+  function _connectSSE(taskId: string, onComplete?: () => void): void {
+    const authStore = useAuthStore()
+    const token = authStore.accessToken ?? ''
+    const url = tasksApi.getProgressUrl(taskId, token)
+
+    const es = new EventSource(url)
+
+    es.addEventListener('progress', (e: MessageEvent) => {
+      const entry = activeTasks.value.get(taskId)
+      if (!entry) return
+      try {
+        const data = JSON.parse(e.data)
+        entry.current = data.current ?? entry.current
+        entry.total = data.total ?? entry.total
+        entry.status = data.status ?? entry.status
+        entry.message = data.message ?? entry.message
+      } catch {
+        // malformed event — ignore
+      }
+    })
+
+    es.addEventListener('complete', () => {
+      const entry = activeTasks.value.get(taskId)
+      if (entry) entry.status = 'completed'
+      es.close()
+      // Auto-remove successful tasks
+      activeTasks.value.delete(taskId)
+      onComplete?.()
+    })
+
+    es.addEventListener('cancelled', () => {
+      es.close()
+      activeTasks.value.delete(taskId)
+    })
+
+    es.addEventListener('failed', (e: MessageEvent) => {
+      const entry = activeTasks.value.get(taskId)
+      if (!entry) return
+      entry.status = 'failed'
+      try {
+        const data = JSON.parse(e.data)
+        entry.errorMessage = data.error_message ?? '任务失败'
+      } catch {
+        entry.errorMessage = '任务失败'
+      }
+      es.close()
+    })
+
+    es.onerror = () => {
+      const entry = activeTasks.value.get(taskId)
+      if (entry && entry.status !== 'completed' && entry.status !== 'failed') {
+        entry.status = 'failed'
+        entry.errorMessage = '连接失败，任务状态未知'
+      }
+      es.close()
+    }
+
+    // Store EventSource reference so it can be closed on manual removal
+    const entry = activeTasks.value.get(taskId)
+    if (entry) entry.eventSource = es
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public actions
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Register a new task and open an SSE connection to track its progress.
+   *
+   * @param taskId   - ID returned by the API when the task was started.
+   * @param taskType - Task type string from the API.
+   * @param taskName - Human-readable task name.
+   * @param total    - Total items to process (used for progress bar).
+   * @param onComplete - Optional callback invoked once the task succeeds.
+   */
+  function addTask(
+    taskId: string,
+    taskType: TaskType,
+    taskName: string,
+    total: number,
+    onComplete?: () => void
+  ): void {
+    const entry = _buildEntry(taskId, taskType, taskName, total)
+    activeTasks.value.set(taskId, entry)
+    _connectSSE(taskId, onComplete)
+  }
+
+  /**
+   * Manually remove a task (e.g. after dismissing a failed task).
+   * Also closes the associated EventSource if still open.
+   */
+  function removeTask(taskId: string): void {
+    const entry = activeTasks.value.get(taskId)
+    if (entry?.eventSource) {
+      entry.eventSource.close()
+    }
+    activeTasks.value.delete(taskId)
+  }
+
+  /**
+   * Call GET /api/tasks on startup to recover tasks that are still running
+   * on the backend after a page refresh.
+   */
+  async function restoreFromServer(): Promise<void> {
+    try {
+      const tasks = await tasksApi.listTasks()
+      for (const t of tasks) {
+        if (!activeTasks.value.has(t.task_id)) {
+          const entry = _buildEntry(t.task_id, t.task_type, t.task_name, t.total)
+          entry.status = t.status
+          entry.current = t.current
+          entry.message = t.message
+          entry.errorMessage = t.error_message
+          activeTasks.value.set(t.task_id, entry)
+
+          // For running/pending tasks, reconnect SSE; failed tasks need no SSE
+          if (t.status === 'running' || t.status === 'pending') {
+            _connectSSE(t.task_id)
+          }
+        }
+      }
+    } catch {
+      // Server may be unavailable; fail silently
+    }
+  }
+
+  return {
+    activeTasks,
+    taskList,
+    runningCount,
+    failedCount,
+    addTask,
+    removeTask,
+    restoreFromServer,
+  }
+})
