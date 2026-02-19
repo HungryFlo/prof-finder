@@ -42,8 +42,13 @@
   - mypy (类型检查)
 - **Testing**: pytest
 
+### Frontend (已实现)
+- **Framework**: Vue 3 + TypeScript + Vite
+- **UI Library**: Naive UI
+- **State**: Pinia
+- **Router**: Vue Router
+
 ### Future Considerations
-- **Frontend** (待实现): React/Vue.js
 - **Advanced Scraping**: Playwright/Selenium (处理JS渲染页面)
 
 ## Project Conventions
@@ -68,8 +73,9 @@
 **项目结构**
 ```
 prof-finder/
-├── src/
+├── backend/              # 后端代码
 │   ├── prof_finder/
+│   │   ├── api/          # FastAPI REST API
 │   │   ├── cli/          # 命令行界面
 │   │   ├── crawler/      # 网页爬虫模块
 │   │   ├── parser/       # 简历解析模块
@@ -77,8 +83,19 @@ prof-finder/
 │   │   ├── llm/          # LLM集成模块
 │   │   ├── db/           # 数据库操作
 │   │   └── models/       # 数据模型
-│   └── tests/
-├── scholarly/            # Google Scholar爬虫（git submodule）
+│   └── tests/            # 后端测试
+├── frontend/             # Vue 3 前端
+│   ├── src/
+│   │   ├── api/          # API 请求
+│   │   ├── components/    # Vue 组件
+│   │   ├── layouts/      # 布局组件
+│   │   ├── router/       # 路由配置
+│   │   ├── stores/       # Pinia 状态
+│   │   ├── types/        # TypeScript 类型
+│   │   └── views/        # 页面组件
+│   └── package.json
+├── scholarly/            # Google Scholar 爬虫（可选 vendored 副本）
+├── openspec/             # OpenSpec 规格文档
 ├── data/                 # 数据存储目录
 ├── .env.example          # 环境变量模板
 ├── pyproject.toml        # 项目配置
@@ -243,6 +260,8 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 DATABASE_PATH=./data/prof_finder.db
 SCHOLARLY_PROXY=
 REQUEST_DELAY=3
+ADMIN_USERNAME=root
+ADMIN_PASSWORD=root123
 ```
 
 ## Extensibility Considerations
@@ -254,9 +273,11 @@ REQUEST_DELAY=3
 - ✅ DeepSeek API生成联络邮件
 - ✅ CLI命令行交互
 - ✅ SQLite本地存储
+- ✅ Web 前端界面（Vue 3 + FastAPI REST API）
+- ✅ 多用户认证（JWT）
+- ✅ 后台任务面板（SSE 进度推送）
 
 ### 后续扩展方向
-- 🔄 Web前端界面（FastAPI提供REST API）
 - 🔄 大学官网爬虫适配器（插件化设计）
 - 🔄 更复杂的匹配算法（TF-IDF、向量相似度）
 - 🔄 支持PDF/DOCX简历格式

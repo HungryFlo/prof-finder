@@ -9,15 +9,18 @@
 - **智能匹配**：基于研究方向、技能和经历进行智能匹配推荐
 - **邮件生成**：使用 DeepSeek API 生成个性化的学术联络邮件
 - **多用户支持**：每个用户有独立的简历和教授数据库
+- **Web 界面**：基于 Vue 3 + Naive UI 的现代 Web 前端
 
-## 安装
+## 快速开始
 
 ### 前置要求
 
 - Python 3.9+
-- Poetry (推荐) 或 pip
+- Node.js 18+
+- Poetry (Python 包管理)
+- Conda (推荐，用于环境管理)
 
-### 使用 Poetry 安装
+### 安装
 
 ```bash
 # 克隆项目
@@ -27,19 +30,44 @@ cd prof-finder
 # 激活 conda 环境
 conda activate prof-finder
 
-# 安装依赖
+# 安装后端依赖
 poetry install
+
+# 安装前端依赖
+cd frontend
+npm install
+cd ..
 
 # 复制配置文件
 cp .env.example .env
 # 编辑 .env 文件，填入你的 DeepSeek API Key
 ```
 
-### 使用 pip 安装
+### 运行
+
+**启动后端 API 服务**
 
 ```bash
-pip install -e .
+# 在项目根目录下
+uvicorn backend.prof_finder.api.main:app --reload --port 8000
 ```
+
+**启动前端开发服务器**
+
+```bash
+# 在另一个终端
+cd frontend
+npm run dev
+```
+
+然后访问 http://localhost:5173 即可使用 Web 界面。
+
+**默认管理员账号**
+
+- 用户名：`root`
+- 密码：`root123`（首次登录需修改）
+
+可通过环境变量 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 自定义。
 
 ## 配置
 
@@ -56,15 +84,19 @@ DATABASE_PATH=./data/prof_finder.db
 # 爬虫配置
 REQUEST_DELAY=3  # 请求间隔（秒），避免被封
 
-# 默认用户名
-DEFAULT_USER=default
+# 管理员账号（可选，默认 root/root123）
+ADMIN_USERNAME=root
+ADMIN_PASSWORD=root123
+
+# JWT 配置（可选，自动生成）
+# JWT_SECRET_KEY=your_secret_key
 ```
 
-## 使用方法
+## CLI 使用方法
+
+除了 Web 界面，你也可以使用命令行工具：
 
 ### 1. 添加个人简历
-
-**方式一：上传简历文件**
 
 ```bash
 # 上传 Markdown 简历（默认使用 LLM 智能解析）
@@ -77,116 +109,118 @@ prof-finder profile upload cv.tex --title "ML方向申请"
 prof-finder profile upload resume.md --no-llm
 ```
 
-> **注意**：LLM 解析需要配置 DeepSeek API Key。如果 API 调用失败，系统会自动回退到正则解析。
-
-**方式二：手动输入**
-
-```bash
-prof-finder profile input --title "我的简历"
-# 然后按提示输入教育背景、科研经历、技能等
-```
-
-### 2. 管理简历
-
-```bash
-# 查看当前激活的简历
-prof-finder profile show
-
-# 列出所有简历
-prof-finder profile list
-
-# 切换激活的简历
-prof-finder profile activate <profile_id>
-```
-
-### 3. 添加教授
+### 2. 添加教授
 
 ```bash
 # 通过 Google Scholar 链接添加
-prof-finder professor add --scholar "https://scholar.google.com/citations?user=JicYPdAAAAAJ"
+prof-finder professor add --scholar "https://scholar.google.com/citations?user=xxx"
 
 # 搜索教授
 prof-finder professor search "Andrew Ng"
-
-# 手动添加（稍后可补充 Scholar 信息）
-prof-finder professor add --name "Dr. Smith" --affiliation "Stanford CS"
 ```
 
-### 4. 管理教授
+### 3. 执行匹配
 
 ```bash
-# 列出所有教授
-prof-finder professor list
-
-# 查看教授详情（包含论文）
-prof-finder professor show <professor_id> --publications
-
-# 更新教授信息
-prof-finder professor update <professor_id>
-```
-
-### 5. 执行匹配
-
-```bash
-# 运行匹配算法
 prof-finder match run
-
-# 查看匹配结果
 prof-finder match show --top 10
 ```
 
-### 6. 生成联络邮件
+### 4. 生成联络邮件
 
 ```bash
-# 为特定教授生成邮件
 prof-finder letter generate <professor_id>
-
-# 为 Top N 匹配的教授批量生成
 prof-finder letter batch --top 5
-
-# 查看已生成的邮件
-prof-finder letter show <professor_id>
-```
-
-### 多用户使用
-
-```bash
-# 为特定用户操作
-prof-finder profile list --user alice
-prof-finder professor add --scholar "..." --user alice
 ```
 
 ## 项目结构
 
 ```
 prof-finder/
-├── src/prof_finder/
-│   ├── cli/            # 命令行接口
-│   ├── parser/         # 简历解析器（含 LLM 和正则解析）
-│   ├── prompts/        # LLM Prompt 模板
-│   ├── crawler/        # 网页爬虫
-│   ├── matcher/        # 匹配算法
-│   ├── llm/            # LLM 集成（邮件生成）
-│   ├── models/         # 数据模型
-│   └── db/             # 数据库操作
-├── tests/              # 测试用例
-├── data/               # 数据存储
-├── openspec/           # 项目规格文档
-└── pyproject.toml      # 项目配置
+├── backend/                 # 后端代码
+│   ├── prof_finder/
+│   │   ├── api/             # FastAPI REST API
+│   │   ├── cli/             # 命令行接口
+│   │   ├── parser/          # 简历解析器
+│   │   ├── crawler/         # 网页爬虫
+│   │   ├── matcher/         # 匹配算法
+│   │   ├── llm/             # LLM 集成
+│   │   ├── models/          # 数据模型
+│   │   └── db/              # 数据库操作
+│   └── tests/               # 后端测试
+├── frontend/                # Vue 3 前端
+│   ├── src/
+│   │   ├── api/             # API 请求
+│   │   ├── components/      # Vue 组件
+│   │   ├── layouts/         # 布局组件
+│   │   ├── router/          # 路由配置
+│   │   ├── stores/          # Pinia 状态
+│   │   ├── types/           # TypeScript 类型
+│   │   └── views/           # 页面组件
+│   └── package.json
+├── openspec/                # 项目规格文档
+├── pyproject.toml           # Python 项目配置
+└── README.md
 ```
 
 ## 开发
 
+### 开发环境准备
+
 ```bash
-# 运行测试
-pytest
+# 创建并激活 conda 环境（首次）
+conda create -n prof-finder python=3.9+
+conda activate prof-finder
+
+# 安装依赖
+poetry install
+cd frontend && npm install && cd ..
+
+# 复制环境变量
+cp .env.example .env
+# 编辑 .env，至少设置 DEEPSEEK_API_KEY
+```
+
+### 常用命令
+
+```bash
+# 运行后端测试
+python -m pytest backend/tests/ -v
 
 # 代码格式化
-black src/
+black backend/
 
 # 类型检查
-mypy src/
+mypy backend/
+
+# 前端开发
+cd frontend
+npm run dev
+
+# 前端构建
+npm run build
 ```
+
+### 本地联调
+
+同时启动后端和前端进行开发：
+
+```bash
+# 终端 1：后端
+uvicorn backend.prof_finder.api.main:app --reload --port 8000
+
+# 终端 2：前端
+cd frontend && npm run dev
+```
+
+前端默认代理 `/api` 到 `http://localhost:8000`，无需额外配置。
+
+## API 文档
+
+启动后端服务后，访问以下地址查看 API 文档：
+
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
 
 ## License
 
