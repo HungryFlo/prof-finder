@@ -209,3 +209,6 @@ __marimo__/
 # Prof-Finder data
 data/
 *.db
+
+# Scholarly vendored copy (optional; use pip install scholarly)
+scholarly/
