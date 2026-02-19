@@ -1,0 +1,364 @@
+"""Pydantic schemas for API request/response validation."""
+
+from datetime import datetime
+from typing import Optional, List, Any
+
+from pydantic import BaseModel, Field
+
+
+# ============= Auth Schemas =============
+
+class UserRegister(BaseModel):
+    """User registration request."""
+    username: str = Field(..., min_length=2, max_length=50)
+    password: str = Field(..., min_length=6, max_length=100)
+
+
+class UserLogin(BaseModel):
+    """User login request."""
+    username: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    """JWT token response."""
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    must_change_password: bool = False
+
+
+class TokenRefresh(BaseModel):
+    """Token refresh request."""
+    refresh_token: str
+
+
+class PasswordChange(BaseModel):
+    """Password change request."""
+    current_password: str
+    new_password: str = Field(..., min_length=6, max_length=100)
+
+
+class PasswordReset(BaseModel):
+    """Admin password reset request."""
+    new_password: str = Field(..., min_length=6, max_length=100)
+
+
+class UserResponse(BaseModel):
+    """User info response."""
+    id: int
+    username: str
+    is_admin: bool
+    must_change_password: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class UserListResponse(BaseModel):
+    """User list response for admin."""
+    id: int
+    username: str
+    is_admin: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ============= Profile Schemas =============
+
+class EducationItem(BaseModel):
+    """Education entry."""
+    degree: Optional[str] = None
+    school: Optional[str] = None
+    major: Optional[str] = None
+    period: Optional[str] = None
+
+
+class ResearchItem(BaseModel):
+    """Research experience entry."""
+    title: Optional[str] = None
+    organization: Optional[str] = None
+    description: Optional[str] = None
+    period: Optional[str] = None
+
+
+class ProjectItem(BaseModel):
+    """Project entry."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ProfileCreate(BaseModel):
+    """Profile creation request."""
+    title: str = Field(..., min_length=1, max_length=200)
+    name: Optional[str] = None
+    education: List[EducationItem] = []
+    research_experience: List[ResearchItem] = []
+    projects: List[ProjectItem] = []
+    skills: List[str] = []
+    raw_content: Optional[str] = None
+    source_format: str = "manual"
+
+
+class ProfileUpdate(BaseModel):
+    """Profile update request."""
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    name: Optional[str] = None
+    education: Optional[List[EducationItem]] = None
+    research_experience: Optional[List[ResearchItem]] = None
+    projects: Optional[List[ProjectItem]] = None
+    skills: Optional[List[str]] = None
+
+
+class ProfileResponse(BaseModel):
+    """Profile response."""
+    id: int
+    title: str
+    name: Optional[str]
+    is_active: bool
+    education: List[dict]
+    research_experience: List[dict]
+    projects: List[dict]
+    skills: List[str]
+    source_format: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ProfileUploadResponse(BaseModel):
+    """Response after uploading and parsing a resume file."""
+    parsed_data: ProfileCreate
+    message: str
+
+
+class BatchDeleteRequest(BaseModel):
+    """Batch delete request."""
+    ids: List[int]
+
+
+# ============= Professor Schemas =============
+
+class PublicationItem(BaseModel):
+    """Publication entry."""
+    title: str
+    year: Optional[int] = None
+    citations: Optional[int] = None
+    authors: Optional[str] = None
+
+
+class ProfessorCreate(BaseModel):
+    """Professor creation request (manual)."""
+    name: str = Field(..., min_length=1, max_length=200)
+    affiliation: Optional[str] = None
+    email: Optional[str] = None
+    homepage: Optional[str] = None
+    research_interests: List[str] = []
+
+
+class ProfessorUpdate(BaseModel):
+    """Professor update request."""
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    affiliation: Optional[str] = None
+    email: Optional[str] = None
+    homepage: Optional[str] = None
+    research_interests: Optional[List[str]] = None
+
+
+class ProfessorScholarAdd(BaseModel):
+    """Add professor by Google Scholar URL."""
+    url: str
+
+
+class ProfessorSearchRequest(BaseModel):
+    """Search Google Scholar request."""
+    query: str
+    limit: int = Field(default=10, ge=1, le=50)
+
+
+class ProfessorResponse(BaseModel):
+    """Professor response."""
+    id: int
+    name: str
+    affiliation: Optional[str]
+    email: Optional[str]
+    homepage: Optional[str]
+    google_scholar_id: Optional[str]
+    google_scholar_url: Optional[str]
+    research_interests: List[str]
+    publications: List[dict]
+    h_index: Optional[int]
+    total_citations: Optional[int]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ProfessorListResponse(BaseModel):
+    """Professor list item (without full publications)."""
+    id: int
+    name: str
+    affiliation: Optional[str]
+    research_interests: List[str]
+    h_index: Optional[int]
+    publication_count: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ScholarSearchResult(BaseModel):
+    """Google Scholar search result."""
+    name: str
+    affiliation: Optional[str]
+    scholar_id: str
+    scholar_url: str
+    interests: List[str]
+    citations: Optional[int]
+
+
+# ============= Match Schemas =============
+
+class MatchRunResponse(BaseModel):
+    """Match run response."""
+    message: str
+    total_professors: int
+    results_count: int
+
+
+class MatchResultResponse(BaseModel):
+    """Match result response."""
+    professor_id: int
+    professor_name: str
+    professor_affiliation: Optional[str]
+    score: float
+    match_reasons: List[str]
+    letter_generated: bool
+
+    class Config:
+        from_attributes = True
+
+
+class MatchDetailResponse(BaseModel):
+    """Detailed match result."""
+    professor_id: int
+    professor_name: str
+    professor_affiliation: Optional[str]
+    professor_interests: List[str]
+    score: float
+    match_reasons: List[str]
+    letter_content: Optional[str]
+    letter_generated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+# ============= Letter Schemas =============
+
+class LetterGenerateResponse(BaseModel):
+    """Letter generation response."""
+    professor_id: int
+    professor_name: str
+    content: str
+    generated_at: datetime
+
+
+class LetterUpdate(BaseModel):
+    """Letter update request."""
+    content: str
+
+
+class LetterResponse(BaseModel):
+    """Letter response."""
+    professor_id: int
+    professor_name: str
+    content: Optional[str]
+    generated_at: Optional[datetime]
+    is_generated: bool
+
+
+class BatchLetterRequest(BaseModel):
+    """Batch letter generation request."""
+    professor_ids: Optional[List[int]] = None
+    top: Optional[int] = Field(None, ge=1, le=50)
+
+
+# ============= Settings Schemas =============
+
+class UserSettingsUpdate(BaseModel):
+    """User settings update request."""
+    deepseek_api_key: Optional[str] = None
+    deepseek_base_url: Optional[str] = None
+    request_delay: Optional[int] = Field(None, ge=1, le=60)
+
+
+class UserSettingsResponse(BaseModel):
+    """User settings response."""
+    deepseek_api_key_masked: Optional[str]  # Only show first/last 4 chars
+    deepseek_base_url: str
+    request_delay: int
+
+    class Config:
+        from_attributes = True
+
+
+# ============= Task Schemas =============
+
+class TaskStartResponse(BaseModel):
+    """Task start response."""
+    task_id: str
+    message: str
+
+
+class TaskCancelResponse(BaseModel):
+    """Task cancel response."""
+    message: str
+    completed_count: int
+
+
+class TaskListItemResponse(BaseModel):
+    """Summary of a task returned by GET /api/tasks."""
+    task_id: str
+    task_type: str
+    task_name: str
+    status: str
+    current: int
+    total: int
+    message: str
+    error_message: str
+
+
+class BatchCrawlRequest(BaseModel):
+    """Batch crawl request."""
+    scholar_urls: List[str]
+
+
+# ============= Common Schemas =============
+
+class PaginatedResponse(BaseModel):
+    """Paginated response wrapper."""
+    items: List[Any]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+
+class MessageResponse(BaseModel):
+    """Simple message response."""
+    message: str
+
+
+class ErrorResponse(BaseModel):
+    """Error response."""
+    error: str
+    detail: str

@@ -2,9 +2,16 @@
 
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
 
 from ..models import UserProfile, Professor
+
+
+def _get_attr(obj: Union[dict, object], key: str, default=None):
+    """Get attribute from object or dict."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
 
 
 @dataclass
@@ -40,15 +47,15 @@ class KeywordMatcher:
         """Initialize the matcher."""
         pass
 
-    def match(self, profile: UserProfile, professor: Professor) -> MatchResult:
+    def match(self, profile: Union[UserProfile, dict], professor: Union[Professor, dict]) -> tuple[float, list[str]]:
         """Calculate match score between a profile and professor.
         
         Args:
-            profile: User profile to match.
-            professor: Professor to match against.
+            profile: User profile to match (can be object or dict).
+            professor: Professor to match against (can be object or dict).
             
         Returns:
-            MatchResult with score and reasons.
+            Tuple of (score, reasons).
         """
         score = 0.0
         reasons = []
@@ -57,55 +64,59 @@ class KeywordMatcher:
         profile_keywords = self._extract_profile_keywords(profile)
         
         # Match research interests
+        professor_interests = _get_attr(professor, 'research_interests') or []
         interest_score, interest_reasons = self._match_interests(
-            profile_keywords, professor.research_interests or []
+            profile_keywords, professor_interests
         )
         score += interest_score * self.WEIGHTS["research_interest"] / 100
         reasons.extend(interest_reasons)
 
         # Match skills with publications
+        profile_skills = _get_attr(profile, 'skills') or []
+        professor_publications = _get_attr(professor, 'publications') or []
         skill_score, skill_reasons = self._match_skills_with_publications(
-            profile.skills or [], professor.publications or []
+            profile_skills, professor_publications
         )
         score += skill_score * self.WEIGHTS["skill"] / 100
         reasons.extend(skill_reasons)
 
         # Match research experience with publications
+        profile_research = _get_attr(profile, 'research_experience') or []
         pub_score, pub_reasons = self._match_experience_with_publications(
-            profile.research_experience or [], professor.publications or []
+            profile_research, professor_publications
         )
         score += pub_score * self.WEIGHTS["publication"] / 100
         reasons.extend(pub_reasons)
 
         # Education bonus (having relevant degree)
+        profile_education = _get_attr(profile, 'education') or []
+        professor_affiliation = _get_attr(professor, 'affiliation') or ""
         edu_score, edu_reasons = self._match_education(
-            profile.education or [], professor.affiliation or ""
+            profile_education, professor_affiliation
         )
         score += edu_score * self.WEIGHTS["education"] / 100
         reasons.extend(edu_reasons)
 
-        return MatchResult(
-            professor_id=professor.id,
-            professor_name=professor.name,
-            score=min(score, 100.0),  # Cap at 100
-            reasons=reasons,
-        )
+        return min(score, 100.0), reasons  # Cap at 100
 
-    def _extract_profile_keywords(self, profile: UserProfile) -> set[str]:
+    def _extract_profile_keywords(self, profile: Union[UserProfile, dict]) -> set[str]:
         """Extract keywords from user profile."""
         keywords = set()
 
         # From skills
-        for skill in (profile.skills or []):
+        skills = _get_attr(profile, 'skills') or []
+        for skill in skills:
             keywords.add(skill.lower())
 
         # From research experience
-        for exp in (profile.research_experience or []):
+        research_experience = _get_attr(profile, 'research_experience') or []
+        for exp in research_experience:
             desc = (exp.get("description") or "") + " " + (exp.get("title") or "")
             keywords.update(self._extract_keywords(desc))
 
         # From projects
-        for proj in (profile.projects or []):
+        projects = _get_attr(profile, 'projects') or []
+        for proj in projects:
             desc = (proj.get("description") or "") + " " + (proj.get("name") or "")
             keywords.update(self._extract_keywords(desc))
 

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A tool to help students find potential PhD/MPhil supervisors"
 authors = ["Your Name <your.email@example.com>"]
 readme = "README.md"
-packages = [{include = "prof_finder", from = "src"}]
+packages = [{include = "prof_finder", from = "backend"}]
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -19,6 +19,13 @@ pylatexenc = "^2.10"
 rich = "^13.0.0"
 scholarly = "^1.7.0"
 pyyaml = "^6.0"
+# Web API dependencies
+fastapi = "^0.109.0"
+uvicorn = {extras = ["standard"], version = "^0.27.0"}
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+python-multipart = "^0.0.6"
+sse-starlette = "^2.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"

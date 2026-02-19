@@ -26,14 +26,44 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(100), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=True)  # Nullable for legacy CLI users
+    is_admin = Column(Boolean, default=False)
+    must_change_password = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
     profiles = relationship("UserProfile", back_populates="user", cascade="all, delete-orphan")
     professors = relationship("Professor", back_populates="user", cascade="all, delete-orphan")
+    settings = relationship("UserSettings", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
-        return f"<User(id={self.id}, username='{self.username}')>"
+        return f"<User(id={self.id}, username='{self.username}', is_admin={self.is_admin})>"
+
+
+class UserSettings(Base):
+    """User settings model for storing API keys and preferences."""
+
+    __tablename__ = "user_settings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+
+    # API configuration
+    deepseek_api_key = Column(String(255))  # Encrypted in production
+    deepseek_base_url = Column(String(500), default="https://api.deepseek.com/v1")
+
+    # Crawler settings
+    request_delay = Column(Integer, default=3)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = relationship("User", back_populates="settings")
+
+    def __repr__(self) -> str:
+        return f"<UserSettings(user_id={self.user_id})>"
 
 
 class UserProfile(Base):

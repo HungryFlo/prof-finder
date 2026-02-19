@@ -1,10 +1,17 @@
 """Letter generation using LLM (DeepSeek API)."""
 
-from typing import Optional
+from typing import Optional, Union
 from openai import OpenAI
 
 from ..config import settings
 from ..models import UserProfile, Professor
+
+
+def _get_attr(obj: Union[dict, object], key: str, default=None):
+    """Get attribute from object or dict."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
 
 
 class LetterGenerator:
@@ -22,28 +29,36 @@ class LetterGenerator:
 
 请直接输出邮件正文，不需要添加任何解释或前言。"""
 
-    def __init__(self):
-        """Initialize the letter generator."""
-        if not settings.deepseek_api_key:
-            raise ValueError("DEEPSEEK_API_KEY is not configured in .env")
+    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
+        """Initialize the letter generator.
+        
+        Args:
+            api_key: DeepSeek API key. Falls back to settings if not provided.
+            base_url: API base URL. Falls back to settings if not provided.
+        """
+        actual_api_key = api_key or settings.deepseek_api_key
+        actual_base_url = base_url or settings.deepseek_base_url
+        
+        if not actual_api_key:
+            raise ValueError("DEEPSEEK_API_KEY is not configured")
 
         self.client = OpenAI(
-            api_key=settings.deepseek_api_key,
-            base_url=settings.deepseek_base_url,
+            api_key=actual_api_key,
+            base_url=actual_base_url,
         )
 
     def generate(
         self,
-        profile: UserProfile,
-        professor: Professor,
+        profile: Union[UserProfile, dict],
+        professor: Union[Professor, dict],
         match_reasons: Optional[list[str]] = None,
         language: str = "zh",
     ) -> str:
         """Generate a contact letter.
         
         Args:
-            profile: User profile with background information.
-            professor: Professor to contact.
+            profile: User profile with background information (object or dict).
+            professor: Professor to contact (object or dict).
             match_reasons: Optional list of matching reasons.
             language: "zh" for Chinese, "en" for English.
             
@@ -87,17 +102,19 @@ class LetterGenerator:
 
         return response.choices[0].message.content
 
-    def _format_student_info(self, profile: UserProfile) -> str:
+    def _format_student_info(self, profile: Union[UserProfile, dict]) -> str:
         """Format student profile for the prompt."""
         parts = []
 
-        if profile.name:
-            parts.append(f"姓名：{profile.name}")
+        name = _get_attr(profile, 'name')
+        if name:
+            parts.append(f"姓名：{name}")
 
         # Education
-        if profile.education:
+        education = _get_attr(profile, 'education') or []
+        if education:
             edu_lines = []
-            for edu in profile.education:
+            for edu in education:
                 line = f"- {edu.get('degree', '未知')}: {edu.get('school', '未知')}"
                 if edu.get('major'):
                     line += f" ({edu['major']})"
@@ -105,9 +122,10 @@ class LetterGenerator:
             parts.append("教育背景：\n" + "\n".join(edu_lines))
 
         # Research experience
-        if profile.research_experience:
+        research_experience = _get_attr(profile, 'research_experience') or []
+        if research_experience:
             exp_lines = []
-            for exp in profile.research_experience:
+            for exp in research_experience:
                 line = f"- {exp.get('title', '研究经历')}"
                 if exp.get('organization'):
                     line += f" @ {exp['organization']}"
@@ -117,32 +135,38 @@ class LetterGenerator:
             parts.append("科研经历：\n" + "\n".join(exp_lines))
 
         # Projects
-        if profile.projects:
-            proj_lines = [f"- {p.get('name', '项目')}" for p in profile.projects]
+        projects = _get_attr(profile, 'projects') or []
+        if projects:
+            proj_lines = [f"- {p.get('name', '项目')}" for p in projects]
             parts.append("项目经历：\n" + "\n".join(proj_lines))
 
         # Skills
-        if profile.skills:
-            parts.append(f"技能专长：{', '.join(profile.skills)}")
+        skills = _get_attr(profile, 'skills') or []
+        if skills:
+            parts.append(f"技能专长：{', '.join(skills)}")
 
         return "\n\n".join(parts) if parts else "无详细信息"
 
-    def _format_professor_info(self, professor: Professor) -> str:
+    def _format_professor_info(self, professor: Union[Professor, dict]) -> str:
         """Format professor info for the prompt."""
         parts = []
 
-        parts.append(f"姓名：{professor.name}")
+        name = _get_attr(professor, 'name')
+        parts.append(f"姓名：{name}")
         
-        if professor.affiliation:
-            parts.append(f"单位：{professor.affiliation}")
+        affiliation = _get_attr(professor, 'affiliation')
+        if affiliation:
+            parts.append(f"单位：{affiliation}")
 
-        if professor.research_interests:
-            parts.append(f"研究方向：{', '.join(professor.research_interests)}")
+        research_interests = _get_attr(professor, 'research_interests') or []
+        if research_interests:
+            parts.append(f"研究方向：{', '.join(research_interests)}")
 
         # Include some publications
-        if professor.publications:
+        publications = _get_attr(professor, 'publications') or []
+        if publications:
             pub_lines = []
-            for pub in professor.publications[:5]:
+            for pub in publications[:5]:
                 title = pub.get('title', '')
                 year = pub.get('year', '')
                 if title:
@@ -150,7 +174,8 @@ class LetterGenerator:
             if pub_lines:
                 parts.append("代表论文：\n" + "\n".join(pub_lines))
 
-        if professor.h_index:
-            parts.append(f"H-Index：{professor.h_index}")
+        h_index = _get_attr(professor, 'h_index')
+        if h_index:
+            parts.append(f"H-Index：{h_index}")
 
         return "\n".join(parts)
