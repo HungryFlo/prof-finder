@@ -342,6 +342,19 @@ class BatchCrawlRequest(BaseModel):
     scholar_urls: List[str]
 
 
+# ============= University Crawler Schemas =============
+
+class UniversityCrawlerInfo(BaseModel):
+    """Metadata for one registered university crawler (for frontend selector)."""
+    university_id: str
+    display_name: str
+
+
+class UniversityCrawlRequest(BaseModel):
+    """Request body for starting a university crawl task."""
+    university_id: str
+
+
 # ============= Common Schemas =============
 
 class PaginatedResponse(BaseModel):

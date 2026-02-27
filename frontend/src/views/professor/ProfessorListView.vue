@@ -19,11 +19,16 @@ import {
   NListItem,
   NPagination,
   NDynamicTags,
+  NRadioGroup,
+  NRadio,
+  NSpin,
+  NEmpty,
   useMessage,
   useDialog,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { professorsApi } from '@/api/professors'
+import type { UniversityCrawlerInfo } from '@/api/professors'
 import { useTaskStore } from '@/stores/tasks'
 import type { ProfessorListItem, Professor, PaginatedResponse } from '@/types'
 
@@ -47,6 +52,52 @@ const currentPage = ref(1)
 const showScholarModal = ref(false)
 const scholarLoading = ref(false)
 const scholarUrl = ref('')
+
+// University crawl modal
+const showUniversityModal = ref(false)
+const universityLoading = ref(false)
+const universityCrawlers = ref<UniversityCrawlerInfo[]>([])
+const selectedUniversityId = ref<string>('')
+const crawlersLoading = ref(false)
+
+async function openUniversityModal() {
+  showUniversityModal.value = true
+  if (universityCrawlers.value.length === 0) {
+    crawlersLoading.value = true
+    try {
+      universityCrawlers.value = await professorsApi.getUniversityCrawlers()
+      if (universityCrawlers.value.length > 0) {
+        selectedUniversityId.value = universityCrawlers.value[0].university_id
+      }
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } }
+      message.error(err.response?.data?.detail || '获取院校列表失败')
+    } finally {
+      crawlersLoading.value = false
+    }
+  }
+}
+
+async function handleCrawlUniversity() {
+  if (!selectedUniversityId.value) {
+    message.warning('请选择目标院校')
+    return
+  }
+  universityLoading.value = true
+  try {
+    const { task_id, message: msg } = await professorsApi.crawlUniversity(selectedUniversityId.value)
+    showUniversityModal.value = false
+    message.success(msg || '爬取任务已启动')
+    taskStore.addTask(task_id, 'university-crawl', '院校批量导入', 0, () => {
+      fetchProfessors()
+    })
+  } catch (error: unknown) {
+    const err = error as { response?: { data?: { detail?: string } } }
+    message.error(err.response?.data?.detail || '启动任务失败')
+  } finally {
+    universityLoading.value = false
+  }
+}
 
 // Add manually modal
 const showManualModal = ref(false)
@@ -276,6 +327,9 @@ onMounted(() => {
           >
             批量删除 ({{ selectedRowKeys.length }})
           </n-button>
+          <n-button type="success" @click="openUniversityModal">
+            院校官网批量添加
+          </n-button>
           <n-button type="primary" @click="showScholarModal = true">
             Scholar 链接添加
           </n-button>
@@ -289,6 +343,7 @@ onMounted(() => {
         :loading="loading"
         :row-key="(row: ProfessorListItem) => row.id"
         v-model:checked-row-keys="selectedRowKeys"
+        :scroll-x="1050"
       />
 
       <n-space justify="end" style="margin-top: 16px">
@@ -302,6 +357,44 @@ onMounted(() => {
         />
       </n-space>
     </n-card>
+
+    <!-- University Crawl Modal -->
+    <n-modal
+      v-model:show="showUniversityModal"
+      preset="dialog"
+      title="院校官网批量添加"
+      positive-text="开始爬取"
+      negative-text="取消"
+      :positive-button-props="{ loading: universityLoading, disabled: !selectedUniversityId }"
+      @positive-click="handleCrawlUniversity"
+      style="width: 480px"
+    >
+      <div style="padding: 8px 0">
+        <p style="color: #666; margin-bottom: 16px; font-size: 13px">
+          选择目标院校，系统将自动爬取该院系教授列表并导入。爬取过程在后台运行，可通过右下角任务面板查看进度。
+        </p>
+        <n-spin :show="crawlersLoading">
+          <div v-if="!crawlersLoading && universityCrawlers.length === 0">
+            <n-empty description="暂无可用的院校爬虫" />
+          </div>
+          <n-radio-group
+            v-else
+            v-model:value="selectedUniversityId"
+            style="width: 100%"
+          >
+            <n-space vertical>
+              <n-radio
+                v-for="crawler in universityCrawlers"
+                :key="crawler.university_id"
+                :value="crawler.university_id"
+              >
+                {{ crawler.display_name }}
+              </n-radio>
+            </n-space>
+          </n-radio-group>
+        </n-spin>
+      </div>
+    </n-modal>
 
     <!-- Add by Scholar Modal -->
     <n-modal

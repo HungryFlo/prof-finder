@@ -10,12 +10,11 @@ class TestMatchRun:
     """Tests for running matching."""
 
     def test_run_match_success(self, test_client: TestClient, auth_headers: dict, test_db):
-        """Test successful match run."""
+        """Test that POST /match/run starts an async task and returns task_id."""
         with test_db.session() as session:
             from prof_finder.models.schema import User
             user = session.query(User).filter(User.username == "testuser").first()
-            
-            # Create active profile
+
             profile = UserProfile(
                 user_id=user.id,
                 title="Test Resume",
@@ -26,8 +25,7 @@ class TestMatchRun:
             )
             session.add(profile)
             session.flush()
-            
-            # Create professors
+
             professors = [
                 Professor(
                     user_id=user.id,
@@ -39,13 +37,13 @@ class TestMatchRun:
             ]
             session.add_all(professors)
             session.commit()
-        
+
         response = test_client.post("/api/match/run", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        assert "匹配完成" in data["message"]
-        assert data["total_professors"] == 3
-        assert data["results_count"] == 3
+        # Route is async: returns task_id immediately, not a completed result.
+        assert "task_id" in data
+        assert "匹配任务已启动" in data["message"]
 
     def test_run_match_no_active_profile(self, test_client: TestClient, auth_headers: dict):
         """Test match run without active profile."""

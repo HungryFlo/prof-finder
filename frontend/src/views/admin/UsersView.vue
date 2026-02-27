@@ -120,6 +120,7 @@ onMounted(() => {
         :data="users"
         :loading="loading"
         :row-key="(row: User) => row.id"
+        :scroll-x="650"
       />
     </n-card>
 

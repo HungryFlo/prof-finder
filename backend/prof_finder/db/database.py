@@ -5,7 +5,7 @@ from pathlib import Path
 from contextlib import contextmanager
 from typing import Generator, Optional
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 
 from ..config import settings
@@ -45,8 +45,19 @@ class Database:
         self._init_tables()
 
     def _init_tables(self) -> None:
-        """Create all tables if they don't exist."""
+        """Create all tables if they don't exist, then apply incremental migrations."""
         Base.metadata.create_all(bind=self.engine)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Apply incremental schema changes that create_all cannot handle."""
+        with self.engine.connect() as conn:
+            # Add professors.embedding column if missing (added in semantic-matching change)
+            result = conn.execute(text("PRAGMA table_info(professors)"))
+            existing_columns = {row[1] for row in result}
+            if "embedding" not in existing_columns:
+                conn.execute(text("ALTER TABLE professors ADD COLUMN embedding JSON"))
+                conn.commit()
 
     @contextmanager
     def session(self) -> Generator[Session, None, None]:

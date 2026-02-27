@@ -179,6 +179,7 @@ onMounted(() => {
         :data="data.items"
         :loading="loading"
         :row-key="(row: Letter) => row.professor_id"
+        :scroll-x="900"
       />
 
       <n-space justify="end" style="margin-top: 16px">

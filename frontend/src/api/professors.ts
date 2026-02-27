@@ -2,6 +2,11 @@ import client from './client'
 import type { Professor, ProfessorListItem, ScholarSearchResult, PaginatedResponse } from '@/types'
 import type { TaskStartResponse } from './tasks'
 
+export interface UniversityCrawlerInfo {
+  university_id: string
+  display_name: string
+}
+
 export interface ProfessorCreate {
   name: string
   affiliation?: string
@@ -70,6 +75,18 @@ export const professorsApi = {
 
   async batchDelete(ids: number[]): Promise<{ message: string }> {
     const response = await client.post<{ message: string }>('/professors/batch-delete', { ids })
+    return response.data
+  },
+
+  async getUniversityCrawlers(): Promise<UniversityCrawlerInfo[]> {
+    const response = await client.get<UniversityCrawlerInfo[]>('/professors/university-crawlers')
+    return response.data
+  },
+
+  async crawlUniversity(universityId: string): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>('/professors/crawl-university', {
+      university_id: universityId,
+    })
     return response.data
   },
 }

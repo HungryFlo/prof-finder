@@ -20,12 +20,15 @@ from ..schemas import (
     MessageResponse,
     PaginatedResponse,
     TaskStartResponse,
+    UniversityCrawlerInfo,
+    UniversityCrawlRequest,
 )
 from ..task_manager import (
     create_task,
     cleanup_old_tasks,
     extract_scholar_id_from_url,
     execute_single_crawl,
+    execute_university_crawl,
 )
 
 router = APIRouter(prefix="/professors", tags=["教授管理"])
@@ -200,6 +203,59 @@ def search_scholar(
         )
         for r in results
     ]
+
+
+@router.get("/university-crawlers", response_model=List[UniversityCrawlerInfo])
+def list_university_crawlers(
+    current_user: User = Depends(get_current_user),
+):
+    """Return metadata for all registered university crawlers.
+
+    Used by the frontend to populate the university selector modal.
+    """
+    from ...crawler.universities.registry import get_crawler_info_list
+
+    return [
+        UniversityCrawlerInfo(university_id=item["university_id"], display_name=item["display_name"])
+        for item in get_crawler_info_list()
+    ]
+
+
+@router.post("/crawl-university", response_model=TaskStartResponse)
+async def crawl_university(
+    data: UniversityCrawlRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Start a background task to crawl professors from a university department website.
+
+    Args:
+        data: Request body containing the ``university_id``.
+        current_user: Authenticated user.
+
+    Returns:
+        Task ID for SSE progress tracking.
+    """
+    from ...crawler.universities.registry import REGISTRY
+
+    if data.university_id not in REGISTRY:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"不支持该院校: {data.university_id}",
+        )
+
+    crawler_cls = REGISTRY[data.university_id]
+    display_name = crawler_cls.display_name
+
+    cleanup_old_tasks()
+    task = create_task(
+        task_type="university-crawl",
+        task_name=f"爬取 {display_name}",
+        user_id=current_user.id,
+        total=0,
+    )
+    asyncio.create_task(execute_university_crawl(task, data.university_id))
+
+    return TaskStartResponse(task_id=task.task_id, message=f"已启动爬取任务：{display_name}")
 
 
 @router.get("/{professor_id}", response_model=ProfessorResponse)

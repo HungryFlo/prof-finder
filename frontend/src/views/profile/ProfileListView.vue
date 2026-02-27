@@ -267,6 +267,7 @@ onMounted(() => {
         :loading="loading"
         :row-key="(row: Profile) => row.id"
         v-model:checked-row-keys="selectedRowKeys"
+        :scroll-x="1000"
       />
     </n-card>
 

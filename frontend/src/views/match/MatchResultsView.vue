@@ -78,11 +78,30 @@ const columns: DataTableColumns<MatchResult> = [
     render(row) {
       return h(
         NSpace,
-        { size: 'small' },
+        { size: 'small', wrap: true },
         () =>
           row.match_reasons.slice(0, 2).map((reason) =>
-            h(NTag, { size: 'small' }, { default: () => reason })
-          )
+            h(
+              NTag,
+              { size: 'small', title: reason },
+              {
+                default: () =>
+                  h(
+                    'span',
+                    {
+                      style: {
+                        maxWidth: '200px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        display: 'block',
+                      },
+                    },
+                    reason,
+                  ),
+              },
+            ),
+          ),
       )
     },
   },
@@ -231,6 +250,7 @@ onMounted(() => {
         :data="data.items"
         :loading="loading"
         :row-key="(row: MatchResult) => row.professor_id"
+        :scroll-x="1100"
       />
 
       <n-space justify="end" style="margin-top: 16px">

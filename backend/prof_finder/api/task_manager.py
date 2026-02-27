@@ -347,14 +347,40 @@ async def execute_single_crawl(task: TaskState, scholar_url: str) -> None:
         task.error_message = f"爬取失败: {str(e)}"
 
 
+def _run_encoding_in_thread(
+    professor_texts: list[str],
+    profile_text: str,
+) -> tuple[list[list[float]], list[float]]:
+    """Run model load + encode in a worker thread to avoid blocking the event loop.
+
+    Returns (professor_embeddings, profile_embedding).
+    """
+    from ..matcher.semantic_matcher import encode_texts
+
+    prof_vecs = []
+    if professor_texts:
+        vecs = encode_texts(professor_texts)
+        prof_vecs = [v.tolist() for v in vecs]
+    profile_vec = encode_texts([profile_text])[0].tolist()
+    return prof_vecs, profile_vec
+
+
 async def execute_match(task: TaskState, profile_id: int) -> None:
-    """Run the keyword matching algorithm against all professors."""
+    """Run semantic matching against all professors using allenai-specter embeddings.
+
+    Model loading and encoding run in a thread pool so the event loop stays responsive
+    (SSE, task list, other requests work while model downloads/encodes).
+    """
     from ..db.database import get_db
     from ..models.schema import UserProfile, Professor, MatchRecord
-    from ..matcher.keyword_matcher import KeywordMatcher
+    from ..matcher.semantic_matcher import (
+        SemanticMatcher,
+        build_professor_text,
+        build_profile_text,
+    )
 
     task.status = TaskStatus.RUNNING
-    task.message = "正在运行匹配算法..."
+    task.message = "正在加载语义匹配模型..."
     db = get_db()
 
     try:
@@ -377,12 +403,15 @@ async def execute_match(task: TaskState, profile_id: int) -> None:
                 task.error_message = "请先添加教授"
                 return
 
-            # Clear existing match records for this profile
-            session.query(MatchRecord).filter(
-                MatchRecord.user_profile_id == profile_id
-            ).delete(synchronize_session=False)
+            # Reset scores/reasons for this profile but keep generated letters.
+            # Deleting records would destroy letter_content stored on MatchRecord.
+            existing_records: dict[int, MatchRecord] = {
+                r.professor_id: r
+                for r in session.query(MatchRecord).filter(
+                    MatchRecord.user_profile_id == profile_id
+                ).all()
+            }
 
-            matcher = KeywordMatcher()
             profile_data = {
                 "name": active_profile.name,
                 "education": active_profile.education or [],
@@ -390,6 +419,33 @@ async def execute_match(task: TaskState, profile_id: int) -> None:
                 "projects": active_profile.projects or [],
                 "skills": active_profile.skills or [],
             }
+
+            # Prepare texts for encoding (no model access yet).
+            missing = [p for p in professors if not p.embedding]
+            professor_texts = [
+                build_professor_text({
+                    "research_interests": p.research_interests or [],
+                    "publications": p.publications or [],
+                    "affiliation": p.affiliation or "",
+                })
+                for p in missing
+            ]
+            profile_text = build_profile_text(profile_data)
+
+            # Run model load + encode in a thread so event loop stays responsive.
+            task.message = "正在计算语义向量（首次可能需下载模型）..."
+            prof_vecs, profile_vec = await asyncio.to_thread(
+                _run_encoding_in_thread, professor_texts, profile_text
+            )
+
+            # Persist professor embeddings in main thread (DB).
+            for prof, vec in zip(missing, prof_vecs):
+                prof.embedding = vec
+            if missing:
+                session.flush()
+
+            matcher = SemanticMatcher()
+            task.message = "正在语义匹配..."
 
             for i, professor in enumerate(professors):
                 if task.cancel_requested:
@@ -404,15 +460,26 @@ async def execute_match(task: TaskState, profile_id: int) -> None:
                     "research_interests": professor.research_interests or [],
                     "publications": professor.publications or [],
                 }
-                score, reasons = matcher.match(profile_data, prof_data)
-                session.add(
-                    MatchRecord(
-                        user_profile_id=profile_id,
-                        professor_id=professor.id,
-                        score=score,
-                        match_reasons=reasons,
-                    )
+                score, reasons = matcher.match(
+                    profile_data,
+                    prof_data,
+                    professor_embedding=professor.embedding,
+                    profile_embedding=profile_vec,
                 )
+                existing = existing_records.get(professor.id)
+                if existing:
+                    # Update score/reasons in place; letter_content is preserved.
+                    existing.score = score
+                    existing.match_reasons = reasons
+                else:
+                    session.add(
+                        MatchRecord(
+                            user_profile_id=profile_id,
+                            professor_id=professor.id,
+                            score=score,
+                            match_reasons=reasons,
+                        )
+                    )
                 task.success_count += 1
 
         task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
@@ -505,3 +572,95 @@ async def execute_single_letter(
     except Exception as e:
         task.status = TaskStatus.FAILED
         task.error_message = f"生成失败: {str(e)}"
+
+
+async def execute_university_crawl(task: TaskState, university_id: str) -> None:
+    """Crawl all professors from a registered university department website.
+
+    Runs the university-specific crawler in a thread pool (blocking network I/O),
+    then persists each professor to the database, skipping duplicates.
+
+    Args:
+        task: The background task state object (mutated in place).
+        university_id: Key into the university crawler registry (e.g. "xjtu-cs").
+    """
+    from ..db.database import get_db
+    from ..models.schema import Professor
+    from ..crawler.universities.registry import get_crawler
+
+    task.status = TaskStatus.RUNNING
+    task.message = "正在初始化爬虫..."
+    db = get_db()
+
+    try:
+        crawler = get_crawler(university_id)
+    except KeyError:
+        task.status = TaskStatus.FAILED
+        task.error_message = f"未找到院校爬虫: {university_id}"
+        return
+
+    task.message = f"正在爬取 {crawler.display_name}..."
+
+    try:
+        # Blocking network I/O — run in thread pool
+        professors_data: list[dict] = await asyncio.to_thread(crawler.crawl_all)
+    except Exception as e:
+        task.status = TaskStatus.FAILED
+        task.error_message = f"爬取失败: {str(e)}"
+        return
+
+    total = len(professors_data)
+    task.total = total
+    task.message = f"共获取 {total} 条记录，正在入库..."
+
+    for i, prof_data in enumerate(professors_data):
+        if task.cancel_requested:
+            break
+
+        task.current = i + 1
+        task.message = f"正在保存第 {i + 1}/{total} 位: {prof_data.get('name', '')}"
+
+        try:
+            with db.session() as session:
+                # Deduplicate by (user_id, name, affiliation)
+                existing = (
+                    session.query(Professor)
+                    .filter(
+                        Professor.user_id == task.user_id,
+                        Professor.name == prof_data["name"],
+                        Professor.affiliation == prof_data.get("affiliation"),
+                    )
+                    .first()
+                )
+                if existing:
+                    task.results.append(
+                        {"name": prof_data["name"], "success": True, "skipped": True}
+                    )
+                    continue
+
+                professor = Professor(
+                    user_id=task.user_id,
+                    name=prof_data["name"],
+                    affiliation=prof_data.get("affiliation"),
+                    email=prof_data.get("email"),
+                    homepage=prof_data.get("homepage"),
+                    research_interests=prof_data.get("research_interests", []),
+                    publications=[],
+                )
+                session.add(professor)
+
+            task.success_count += 1
+            task.results.append({"name": prof_data["name"], "success": True, "skipped": False})
+
+        except Exception as e:
+            task.failed_count += 1
+            task.results.append({"name": prof_data.get("name", "?"), "success": False, "error": str(e)})
+
+        await asyncio.sleep(0)  # yield to event loop
+
+    task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
+    if task.status == TaskStatus.COMPLETED:
+        skipped = sum(1 for r in task.results if r.get("skipped"))
+        task.message = (
+            f"完成！新增 {task.success_count} 位，跳过重复 {skipped} 位，失败 {task.failed_count} 位"
+        )

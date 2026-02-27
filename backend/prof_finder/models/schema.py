@@ -124,6 +124,9 @@ class Professor(Base):
     publications = Column(JSON, default=list)  # [{title, year, citations, authors}]
     h_index = Column(Integer)
     total_citations = Column(Integer)
+
+    # Semantic embedding (list[float], allenai-specter 768-dim, nullable)
+    embedding = Column(JSON, nullable=True)
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
