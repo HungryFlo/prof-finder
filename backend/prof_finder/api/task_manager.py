@@ -25,7 +25,7 @@ class TaskState:
     """State of a background task."""
 
     task_id: str
-    task_type: str  # batch-crawl | batch-letters | single-crawl | match | single-letter
+    task_type: str  # batch-crawl | batch-letters | single-crawl | match | single-letter | paper-summary
     task_name: str
     user_id: int
     status: TaskStatus
@@ -426,6 +426,7 @@ async def execute_match(task: TaskState, profile_id: int) -> None:
                 build_professor_text({
                     "research_interests": p.research_interests or [],
                     "publications": p.publications or [],
+                    "paper_summaries": p.paper_summaries or [],
                     "affiliation": p.affiliation or "",
                 })
                 for p in missing
@@ -459,6 +460,7 @@ async def execute_match(task: TaskState, profile_id: int) -> None:
                     "affiliation": professor.affiliation,
                     "research_interests": professor.research_interests or [],
                     "publications": professor.publications or [],
+                    "paper_summaries": professor.paper_summaries or [],
                 }
                 score, reasons = matcher.match(
                     profile_data,
@@ -664,3 +666,138 @@ async def execute_university_crawl(task: TaskState, university_id: str) -> None:
         task.message = (
             f"完成！新增 {task.success_count} 位，跳过重复 {skipped} 位，失败 {task.failed_count} 位"
         )
+
+
+async def execute_professor_source_summary(
+    task: TaskState,
+    professor_id: int,
+    source_input_ids: list[int],
+) -> None:
+    """Summarize selected source inputs and persist paper summaries."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from ..config import settings as app_settings
+    from ..db.database import get_db
+    from ..llm import PaperSummarizer
+    from ..models.schema import Professor, SourceInput, UserSettings
+    from .source_input_service import build_paper_summary_from_source
+
+    task.status = TaskStatus.RUNNING
+    task.message = "正在准备论文总结任务..."
+    db = get_db()
+
+    if not source_input_ids:
+        task.status = TaskStatus.FAILED
+        task.error_message = "请先选择需要总结的来源输入"
+        return
+
+    with db.session() as session:
+        professor = (
+            session.query(Professor)
+            .filter(Professor.id == professor_id, Professor.user_id == task.user_id)
+            .first()
+        )
+        if not professor:
+            task.status = TaskStatus.FAILED
+            task.error_message = "教授不存在或无权限"
+            return
+
+        user_settings = (
+            session.query(UserSettings)
+            .filter(UserSettings.user_id == task.user_id)
+            .first()
+        )
+        api_key = (user_settings.deepseek_api_key if user_settings else None) or app_settings.deepseek_api_key
+        base_url = (user_settings.deepseek_base_url if user_settings else None) or app_settings.deepseek_base_url
+    summarizer = PaperSummarizer(api_key=api_key, base_url=base_url)
+
+    for idx, source_id in enumerate(source_input_ids, start=1):
+        if task.cancel_requested:
+            break
+
+        task.current = idx
+        task.message = f"正在总结第 {idx}/{len(source_input_ids)} 篇论文..."
+        try:
+            with db.session() as session:
+                professor = (
+                    session.query(Professor)
+                    .filter(Professor.id == professor_id, Professor.user_id == task.user_id)
+                    .first()
+                )
+                source = (
+                    session.query(SourceInput)
+                    .filter(SourceInput.id == source_id, SourceInput.user_id == task.user_id)
+                    .first()
+                )
+                if not professor or not source:
+                    task.failed_count += 1
+                    task.results.append({"source_input_id": source_id, "success": False, "error": "来源输入不存在"})
+                    continue
+
+                summary = build_paper_summary_from_source(
+                    {
+                        "id": source.id,
+                        "source_type": source.source_type,
+                        "title": source.title,
+                        "original_name": source.original_name,
+                        "canonical_id": source.canonical_id,
+                        "abstract": source.abstract,
+                        "extracted_markdown": source.extracted_markdown,
+                        "extracted_text": source.extracted_text,
+                    },
+                    summarizer=summarizer,
+                )
+                if not summary:
+                    task.failed_count += 1
+                    task.results.append({"source_input_id": source_id, "success": False, "error": "无法生成论文总结"})
+                    continue
+
+                existing = list(professor.paper_summaries or [])
+                replaced = False
+                for i, item in enumerate(existing):
+                    if item.get("source_input_id") == summary.get("source_input_id"):
+                        existing[i] = summary
+                        replaced = True
+                        break
+                if not replaced:
+                    existing.append(summary)
+                professor.paper_summaries = existing
+                flag_modified(professor, "paper_summaries")
+
+                if source.source_type == "arxiv" and source.title:
+                    publications = list(professor.publications or [])
+                    titles = {p.get("title") for p in publications}
+                    if source.title not in titles:
+                        publications.append(
+                            {
+                                "title": source.title,
+                                "year": None,
+                                "citations": None,
+                                "authors": None,
+                            }
+                        )
+                    professor.publications = publications
+                    flag_modified(professor, "publications")
+
+                source.professor_id = professor.id
+                professor.embedding = None
+
+            task.success_count += 1
+            task.results.append({"source_input_id": source_id, "success": True})
+        except Exception as exc:
+            task.failed_count += 1
+            task.results.append({"source_input_id": source_id, "success": False, "error": str(exc)})
+
+        await asyncio.sleep(0)
+
+    if task.cancel_requested:
+        task.status = TaskStatus.CANCELLED
+        return
+    if task.success_count == 0 and task.failed_count > 0:
+        task.status = TaskStatus.FAILED
+        task.error_message = "论文总结失败，请检查任务详情后重试"
+        task.message = f"论文总结失败：成功 {task.success_count}，失败 {task.failed_count}"
+        return
+
+    task.status = TaskStatus.COMPLETED
+    task.message = f"论文总结完成：成功 {task.success_count}，失败 {task.failed_count}"

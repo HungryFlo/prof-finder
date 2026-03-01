@@ -36,7 +36,12 @@ def build_professor_text(professor: dict) -> str:
         p.get("title", "") for p in pubs[:15] if p.get("title")
     )
     affiliation = professor.get("affiliation") or ""
-    body_parts = [p for p in [pub_titles, affiliation] if p]
+    paper_summaries = professor.get("paper_summaries") or []
+    summary_text = ". ".join(
+        f"{item.get('title', '')} {item.get('summary', '')}".strip()
+        for item in paper_summaries[:20]
+    )
+    body_parts = [p for p in [pub_titles, summary_text, affiliation] if p]
     body = ". ".join(body_parts)
     return f"{interests} [SEP] {body}"
 

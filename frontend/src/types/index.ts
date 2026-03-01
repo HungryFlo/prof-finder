@@ -67,6 +67,14 @@ export interface Publication {
   authors?: string
 }
 
+export interface PaperSummary {
+  source_input_id?: number
+  source_type?: string
+  title: string
+  summary: string
+  keywords?: string[]
+}
+
 export interface Professor {
   id: number
   name: string
@@ -77,8 +85,10 @@ export interface Professor {
   google_scholar_url?: string
   research_interests: string[]
   publications: Publication[]
+  paper_summaries?: PaperSummary[]
   h_index?: number
   total_citations?: number
+  manual_notes?: string
   created_at: string
   updated_at: string
 }
@@ -100,6 +110,31 @@ export interface ScholarSearchResult {
   scholar_url: string
   interests: string[]
   citations?: number
+}
+
+export interface SourceInput {
+  id: number
+  source_type: 'pdf' | 'arxiv' | string
+  original_name?: string
+  source_url?: string
+  canonical_id?: string
+  title?: string
+  abstract?: string
+  extracted_markdown?: string
+  status: 'pending' | 'succeeded' | 'failed' | string
+  error_message?: string
+  metadata_only: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface ProfessorEditPreviewResponse {
+  manual_patch_applied: Record<string, unknown>
+  source_suggestions: {
+    publications?: Publication[]
+    paper_summaries?: PaperSummary[]
+    manual_notes_append?: string | null
+  }
 }
 
 // Match types
@@ -140,7 +175,14 @@ export interface UserSettings {
 }
 
 // Task panel types
-export type TaskType = 'batch-crawl' | 'batch-letters' | 'single-crawl' | 'match' | 'single-letter'
+export type TaskType =
+  | 'batch-crawl'
+  | 'batch-letters'
+  | 'single-crawl'
+  | 'university-crawl'
+  | 'paper-summary'
+  | 'match'
+  | 'single-letter'
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
 
 export interface TaskListItem {

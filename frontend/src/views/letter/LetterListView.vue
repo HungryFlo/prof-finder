@@ -36,9 +36,6 @@ const currentLetter = ref<Letter | null>(null)
 const editContent = ref('')
 const saving = ref(false)
 
-// Generating letter state
-const generatingLetter = ref<number | null>(null)
-
 // Table columns
 const columns: DataTableColumns<Letter> = [
   { title: '教授', key: 'professor_name', width: 150 },

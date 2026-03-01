@@ -58,6 +58,30 @@ class Database:
             if "embedding" not in existing_columns:
                 conn.execute(text("ALTER TABLE professors ADD COLUMN embedding JSON"))
                 conn.commit()
+            if "manual_notes" not in existing_columns:
+                conn.execute(text("ALTER TABLE professors ADD COLUMN manual_notes TEXT"))
+                conn.commit()
+            if "paper_summaries" not in existing_columns:
+                conn.execute(text("ALTER TABLE professors ADD COLUMN paper_summaries JSON"))
+                conn.commit()
+
+            # Backfill source_inputs incremental columns for existing deployments.
+            source_table_exists = conn.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='source_inputs'"
+                )
+            ).fetchone()
+            if source_table_exists:
+                source_cols = {
+                    row[1] for row in conn.execute(text("PRAGMA table_info(source_inputs)"))
+                }
+                if "metadata_only" not in source_cols:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE source_inputs ADD COLUMN metadata_only BOOLEAN DEFAULT 0"
+                        )
+                    )
+                    conn.commit()
 
     @contextmanager
     def session(self) -> Generator[Session, None, None]:

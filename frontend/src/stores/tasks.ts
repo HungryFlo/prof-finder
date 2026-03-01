@@ -76,10 +76,11 @@ export const useTaskStore = defineStore('tasks', () => {
 
     es.addEventListener('complete', () => {
       const entry = activeTasks.value.get(taskId)
-      if (entry) entry.status = 'completed'
+      if (entry) {
+        entry.status = 'completed'
+        entry.message = entry.message || '任务已完成'
+      }
       es.close()
-      // Auto-remove successful tasks
-      activeTasks.value.delete(taskId)
       onComplete?.()
     })
 
@@ -153,6 +154,18 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   /**
+   * Remove all tasks that have reached the `completed` status.
+   */
+  function clearCompleted(): void {
+    for (const [id, entry] of activeTasks.value) {
+      if (entry.status === 'completed') {
+        entry.eventSource?.close()
+        activeTasks.value.delete(id)
+      }
+    }
+  }
+
+  /**
    * Call GET /api/tasks on startup to recover tasks that are still running
    * on the backend after a page refresh.
    */
@@ -186,6 +199,7 @@ export const useTaskStore = defineStore('tasks', () => {
     failedCount,
     addTask,
     removeTask,
+    clearCompleted,
     restoreFromServer,
   }
 })

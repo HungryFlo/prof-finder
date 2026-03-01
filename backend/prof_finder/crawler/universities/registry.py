@@ -8,9 +8,11 @@ To add a new university crawler:
 
 from .base import UniversityCrawlerBase
 from .xjtu_cs import XJTUCSCrawler
+from .xjtu_se import XJTUSECrawler
 
 REGISTRY: dict[str, type[UniversityCrawlerBase]] = {
     "xjtu-cs": XJTUCSCrawler,
+    "xjtu-se": XJTUSECrawler,
 }
 
 

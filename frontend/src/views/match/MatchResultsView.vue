@@ -39,9 +39,6 @@ const showDetailModal = ref(false)
 const detailLoading = ref(false)
 const matchDetail = ref<MatchDetail | null>(null)
 
-// Generate letter loading state
-const generatingLetter = ref<number | null>(null)
-
 // Table columns
 const columns: DataTableColumns<MatchResult> = [
   {
@@ -159,7 +156,7 @@ async function fetchResults() {
 // Run matching — now async task
 async function handleRunMatch() {
   try {
-    const { task_id, message: msg } = await matchApi.run()
+    const { task_id } = await matchApi.run()
     taskStore.addTask(task_id, 'match', '运行匹配算法', 0, () => {
       fetchResults()
     })

@@ -1,0 +1,878 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper, tmargin=2.5cm, lmargin=2.8cm, rmargin=2.8cm, bmargin=2.5cm]{geometry}
+\usepackage{hyperref}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    filecolor=magenta,      
+    urlcolor=blue,
+    citecolor=black,
+}
+
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{array}
+\usepackage[fontset=fandol]{ctex}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\pagestyle{empty}
+
+%----------------------------------------------------------
+% LISTINGS PACKAGE AND STYLE
+%----------------------------------------------------------
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage[most]{tcolorbox}
+
+\definecolor{codeback}{RGB}{248, 248, 248}  
+\definecolor{codecomment}{RGB}{1, 136, 0}
+\definecolor{codekey}{RGB}{53, 53, 128}
+\definecolor{codestring}{RGB}{122, 36, 47}
+\definecolor{codegray}{RGB}{128,128,128}
+\definecolor{codematlab}{RGB}{199, 78, 0}
+
+\lstdefinestyle{coding}{
+    backgroundcolor=\color{blue!10},
+    commentstyle=\color{codecomment},
+    keywordstyle=\color{codekey},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codestring},
+    breakatwhitespace=false,        
+    basicstyle=\small\ttfamily,
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,
+    numbersep=8pt,
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2,
+    aboveskip=12pt,
+    belowskip=8pt,
+    xleftmargin=10pt,
+    rulecolor=\color{codegray},
+    frame=shadowbox
+}
+
+\lstset{style=coding}
+
+\captionsetup[lstlisting]{
+    font=small, 
+    labelfont={bf,sf}, 
+    belowskip=3pt, 
+    position=below, 
+    labelsep=period
+}
+\renewcommand{\lstlistingname}{代码}
+
+\newtcolorbox{thinkquestion}{
+    colback=yellow!8!white,
+    colframe=orange!55!black,
+    boxrule=0.6pt,
+    arc=1.5mm,
+    left=1.2mm,
+    right=1.2mm,
+    top=0.8mm,
+    bottom=0.8mm,
+    title=设计思考,
+    fonttitle=\bfseries,
+    coltitle=black,
+    fontupper=\small
+}
+
+\newtcolorbox{keypoint}{
+    colback=blue!5!white,
+    colframe=blue!50!black,
+    boxrule=0.6pt,
+    arc=1.5mm,
+    left=1.2mm,
+    right=1.2mm,
+    top=0.8mm,
+    bottom=0.8mm,
+    title=关键点,
+    fonttitle=\bfseries,
+    coltitle=black,
+    fontupper=\small
+}
+
+\begin{document}
+
+\begin{center}
+{\LARGE\bfseries Prof-Finder：基于LLM与语义匹配的智能导师推荐系统} \\[6pt]
+{\large 项目汇报}
+\end{center}
+
+\vspace{5mm}
+\tableofcontents
+
+\newpage
+\pagestyle{plain}
+\setcounter{page}{1}
+
+%==========================================================
+\section{项目背景与目标}
+%==========================================================
+
+\subsection{问题背景}
+
+对于有意攻读博士或硕士学位的学生而言，找到研究方向契合的导师是申请过程中最关键、也最耗时的环节之一。传统的方式依赖于手工浏览各大学院系网页、阅读教授简介和论文列表，再与自身的简历进行比较——这一过程不仅繁琐，还高度依赖个人经验，难以系统性地覆盖大量候选人。
+
+\textbf{Prof-Finder} 是一个面向科研申请者的智能辅助系统，旨在通过自动化的信息爬取、语义匹配与个性化邮件生成，帮助学生高效地锁定潜在导师并完成首轮接触。
+
+\subsection{核心目标}
+
+系统有以下四个核心目标：
+
+\begin{enumerate}
+    \item \textbf{信息聚合}：自动从 Google Scholar、各大高校院系网站爬取教授的科研兴趣、发表论文及联系方式。
+    \item \textbf{智能解析}：利用 LLM 从学生上传的 Markdown / LaTeX 格式简历中抽取结构化信息。
+    \item \textbf{语义匹配}：使用神经网络语义嵌入（allenai-specter 模型）计算学生背景与教授科研方向之间的相似度，并给出排名。
+    \item \textbf{邮件生成}：根据匹配结果，调用 DeepSeek LLM 为每位目标教授生成个性化的学术联络邮件。
+\end{enumerate}
+
+\subsection{系统整体演示}
+
+用户完整工作流程如下：
+
+\begin{center}
+\begin{tabular}{ccccc}
+\textbf{上传简历} & $\rightarrow$ & \textbf{添加教授} & $\rightarrow$ & \textbf{运行匹配} \\
+& & & & $\downarrow$ \\
+\textbf{发送邮件} & $\leftarrow$ & \textbf{编辑邮件} & $\leftarrow$ & \textbf{查看结果} \\
+\end{tabular}
+\end{center}
+
+%==========================================================
+\section{技术栈与架构概览}
+%==========================================================
+
+\subsection{整体架构}
+
+系统采用前后端分离架构，后端提供 REST API，前端通过 Axios 调用接口，并通过 SSE（Server-Sent Events）实时接收长任务进度。
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{层次} & \textbf{分类} & \textbf{技术选型} \\
+\hline
+\multirow{6}{*}{后端} & Web 框架 & FastAPI 0.109+ \\
+& ASGI 服务器 & Uvicorn \\
+& ORM / 数据库 & SQLAlchemy 2.0 + SQLite \\
+& 身份认证 & JWT (python-jose) + Bcrypt (passlib) \\
+& 语义嵌入 & sentence-transformers (allenai-specter) \\
+& LLM 调用 & DeepSeek API（OpenAI 兼容） \\
+& PDF 提取 & pymupdf4llm \\
+& 网页抓取 & requests + BeautifulSoup4 \\
+& Scholar 爬取 & scholarly（自带 vendored 副本） \\
+\hline
+\multirow{5}{*}{前端} & 框架 & Vue 3 + Composition API + TypeScript \\
+& 构建工具 & Vite \\
+& UI 组件库 & Naive UI \\
+& 状态管理 & Pinia \\
+& HTTP 客户端 & Axios \\
+& 实时通信 & Browser EventSource（SSE） \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{项目目录结构}
+
+\begin{lstlisting}[language=bash, caption=项目根目录结构]
+prof-finder/
+|- backend/                  # Python 后端
+|  |- prof_finder/
+|  |  |- api/                # FastAPI 路由、认证、任务管理器
+|  |  |- crawler/            # 爬虫：Google Scholar + 大学院系
+|  |  |- db/                 # SQLAlchemy 数据库层
+|  |  |- llm/                # LLM 集成（邮件生成、论文摘要）
+|  |  |- matcher/            # 匹配算法（关键词 + 语义）
+|  |  |- models/             # ORM 数据模型
+|  |  |- parser/             # 简历解析器
+|  |  └- prompts/            # YAML 格式的 Prompt 模板
+|  └- tests/                 # pytest 测试套件
+|- frontend/                 # Vue 3 前端 SPA
+|  └- src/
+|     |- api/                # Axios 封装
+|     |- components/         # 通用组件（任务面板、文档输入面板）
+|     |- router/             # Vue Router（含权限守卫）
+|     |- stores/             # Pinia 状态（认证、任务）
+|     |- types/              # TypeScript 接口定义
+|     └- views/              # 页面级视图组件
+|- openspec/                 # 规范驱动开发文档
+|- pyproject.toml            # Poetry 依赖配置
+└- .env.example              # 环境变量模板
+\end{lstlisting}
+
+\begin{thinkquestion}
+\textbf{为什么选择 FastAPI？} FastAPI 天然支持 async/await，有利于处理 I/O 密集型操作（如 LLM 调用、爬虫请求）；内置 Pydantic 数据验证；自动生成 OpenAPI 文档；性能接近 Node.js/Go。相比 Flask/Django，更适合构建现代异步 API 服务。
+\end{thinkquestion}
+
+%==========================================================
+\section{数据库设计}
+%==========================================================
+
+\subsection{核心数据模型}
+
+系统包含以下核心 ORM 模型（SQLAlchemy + SQLite）：
+
+\subsubsection{用户模型 (User / UserSettings)}
+
+\begin{lstlisting}[language=Python, caption=User 模型核心字段]
+class User(Base):
+    id: int
+    username: str        # 唯一用户名
+    password_hash: str   # Bcrypt 哈希
+    is_admin: bool       # 管理员标志
+    must_change_password: bool  # 首次登录强制修改密码
+
+class UserSettings(Base):
+    user_id: int         # 一对一关联 User
+    deepseek_api_key: str     # 用户自己的 API Key（可选）
+    deepseek_base_url: str    # 默认 api.deepseek.com/v1
+    request_delay: int        # 爬虫请求间隔（秒）
+\end{lstlisting}
+
+\subsubsection{简历模型 (UserProfile)}
+
+每位用户可创建多份简历，但同一时刻只能有一份处于激活状态。
+
+\begin{lstlisting}[language=Python, caption=UserProfile 模型核心字段]
+class UserProfile(Base):
+    id: int
+    user_id: int
+    title: str               # 简历标题，如"NLP方向申请"
+    name: str
+    is_active: bool          # 激活状态（同时只有一份）
+    source_format: str       # "markdown" | "latex" | "manual"
+    education: JSON          # 教育经历列表
+    research_experience: JSON  # 科研经历列表
+    projects: JSON           # 项目经历列表
+    skills: JSON             # 技能列表（字符串数组）
+    raw_content: Text        # 原始简历文本
+\end{lstlisting}
+
+\subsubsection{教授模型 (Professor)}
+
+\begin{lstlisting}[language=Python, caption=Professor 模型核心字段]
+class Professor(Base):
+    id: int
+    user_id: int
+    name: str
+    affiliation: str
+    email: str
+    homepage: str
+    google_scholar_id: str      # Scholar 唯一 ID
+    research_interests: JSON    # 研究方向列表
+    publications: JSON          # 论文列表 [{title, year, citations}]
+    paper_summaries: JSON       # LLM 论文摘要 [{title, summary, keywords}]
+    h_index: int
+    total_citations: int
+    manual_notes: Text          # 手动备注
+    embedding: JSON             # 768 维语义向量（缓存）
+    # 唯一约束：(user_id, google_scholar_id)
+\end{lstlisting}
+
+\subsubsection{匹配记录 (MatchRecord) 与外部文档 (SourceInput)}
+
+\begin{lstlisting}[language=Python, caption=MatchRecord 与 SourceInput]
+class MatchRecord(Base):
+    user_profile_id: int
+    professor_id: int
+    score: float           # 0-100 分
+    match_reasons: JSON    # 可读的匹配原因列表
+    letter_content: Text   # LLM 生成的联络邮件
+    # 唯一约束：(user_profile_id, professor_id)
+
+class SourceInput(Base):
+    source_type: str       # "pdf" | "arxiv"
+    canonical_id: str      # ArXiv ID 或文件哈希
+    title: str
+    abstract: Text
+    extracted_markdown: Text  # pymupdf4llm 解析结果
+    status: str            # "pending" | "succeeded" | "failed"
+    metadata_only: bool    # ArXiv PDF 下载失败时的降级标志
+    professor_id: int      # 可选，关联到特定教授
+\end{lstlisting}
+
+\subsection{数据库迁移策略}
+
+项目使用 SQLite 作为嵌入式数据库，不引入 Alembic 等完整迁移框架，而是在 \texttt{database.py} 中实现了轻量级的增量迁移：
+
+\begin{lstlisting}[language=Python, caption=轻量级列迁移示例]
+def _migrate(self, engine):
+    with engine.connect() as conn:
+        existing_cols = {
+            row[1] for row in conn.execute(
+                text("PRAGMA table_info(professors)")
+            )
+        }
+        if "embedding" not in existing_cols:
+            conn.execute(text(
+                "ALTER TABLE professors ADD COLUMN embedding TEXT"
+            ))
+        if "manual_notes" not in existing_cols:
+            conn.execute(text(
+                "ALTER TABLE professors ADD COLUMN manual_notes TEXT"
+            ))
+\end{lstlisting}
+
+\begin{keypoint}
+这种迁移方式适合个人工具类应用：代码即文档，无需额外的迁移文件，启动时自动检测并补全缺失列，兼顾简洁性与可维护性。代价是不支持列删除/重命名。
+\end{keypoint}
+
+%==========================================================
+\section{后端核心模块实现}
+%==========================================================
+
+\subsection{API 路由设计}
+
+系统所有路由统一以 \texttt{/api} 为前缀，按资源类型划分为以下几个路由组：
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{路由前缀} & \textbf{资源} & \textbf{关键端点} \\
+\hline
+\texttt{/api/auth/} & 认证 & login, register, refresh, me \\
+\texttt{/api/profiles/} & 简历 & 上传/解析/激活/CRUD \\
+\texttt{/api/professors/} & 教授 & Scholar爬取/大学批量爬取/CRUD \\
+\texttt{/api/match/} & 匹配 & 运行匹配/查看结果 \\
+\texttt{/api/letters/} & 邮件 & 生成/编辑/查看 \\
+\texttt{/api/tasks/} & 异步任务 & 进度SSE/取消/批量操作 \\
+\texttt{/api/source-inputs/} & 文档输入 & PDF上传/ArXiv提交/重试 \\
+\texttt{/api/settings/} & 用户设置 & 读取/更新API Key等 \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{认证机制}
+
+系统使用标准的 JWT 双令牌认证：
+
+\begin{itemize}
+    \item \textbf{Access Token}：短期（15 分钟），每次 API 请求携带于 \texttt{Authorization: Bearer} 头部
+    \item \textbf{Refresh Token}：长期（7 天），用于在 Access Token 过期后刷新令牌对
+    \item 密码使用 \textbf{Bcrypt} 哈希存储，前端永远不发送明文密码到持久层
+    \item \texttt{must\_change\_password} 标志：管理员重置密码后，用户下次登录将被强制跳转到修改密码页面
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption=FastAPI 依赖注入获取当前用户]
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Database = Depends(get_db)
+) -> User:
+    payload = jose_jwt.decode(token, settings.jwt_secret_key, ...)
+    user_id = payload.get("sub")
+    return db.get_user_by_id(int(user_id))
+\end{lstlisting}
+
+FastAPI 的依赖注入系统使得权限校验非常优雅：只需在路由函数参数中声明 \texttt{current\_user: User = Depends(get\_current\_user)}，框架会自动执行 JWT 验证。
+
+\subsection{异步任务系统}
+
+系统中存在多种耗时操作（Scholar 爬取可能需要数十秒，LLM 调用需要 5--15 秒，批量操作需要更长时间）。如果以同步方式处理，HTTP 请求会超时，用户体验极差。系统采用了一套基于 \texttt{asyncio} 和 SSE 的异步任务架构。
+
+\subsubsection{设计思路}
+
+\begin{enumerate}
+    \item 用户发起操作（如"爬取教授"），API 立即返回一个 \texttt{task\_id}（非阻塞）
+    \item 实际工作在后台 \texttt{asyncio} 任务中执行，通过 \texttt{asyncio.to\_thread()} 将阻塞 I/O 卸载到线程池
+    \item 前端通过 \texttt{EventSource} 连接 \texttt{/api/tasks/\{task\_id\}/progress} SSE 端点，实时接收进度更新
+    \item 任务完成/失败后，前端 UI 更新，数据自动刷新
+\end{enumerate}
+
+\begin{lstlisting}[language=Python, caption=任务管理器核心结构]
+@dataclass
+class TaskState:
+    task_id: str
+    task_type: str
+    user_id: int
+    status: str        # "pending" | "running" | "completed" | "failed" | "cancelled"
+    progress: int      # 0-100
+    message: str
+    cancel_requested: bool = False
+    queues: list[asyncio.Queue] = field(default_factory=list)
+
+class TaskManager:
+    _tasks: Dict[str, TaskState] = {}
+
+    async def create_task(self, task_type, user_id, coro_func, **kwargs) -> str:
+        task_id = str(uuid.uuid4())
+        state = TaskState(task_id=task_id, ...)
+        self._tasks[task_id] = state
+        asyncio.create_task(self._run_task(state, coro_func, **kwargs))
+        return task_id
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python, caption=SSE 进度流端点]
+@router.get("/{task_id}/progress")
+async def task_progress(task_id: str, current_user=Depends(...)):
+    async def event_generator():
+        queue = asyncio.Queue()
+        task_manager.subscribe(task_id, queue)
+        try:
+            while True:
+                event = await queue.get()
+                yield {"event": event["type"], "data": json.dumps(event)}
+                if event["type"] in ("complete", "failed", "cancelled"):
+                    break
+        finally:
+            task_manager.unsubscribe(task_id, queue)
+
+    return EventSourceResponse(event_generator())
+\end{lstlisting}
+
+\subsubsection{支持的任务类型}
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{任务类型} & \textbf{描述} \\
+\hline
+\texttt{single-crawl} & 爬取单个 Google Scholar 主页 \\
+\texttt{batch-crawl} & 按列表批量爬取 Scholar 主页 \\
+\texttt{university-crawl} & 爬取某大学院系全体教员 \\
+\texttt{match} & 对活跃简历运行语义匹配 \\
+\texttt{single-letter} & 为一位教授生成联络邮件 \\
+\texttt{batch-letters} & 批量生成联络邮件 \\
+\texttt{paper-summary} & 用 LLM 总结论文/ArXiv 文章 \\
+\hline
+\end{tabular}
+\end{center}
+
+\begin{thinkquestion}
+\textbf{阻塞 I/O 与事件循环的冲突}：\texttt{scholarly} 库和 \texttt{requests} 都是同步阻塞的库，直接在 \texttt{async} 函数中调用会阻塞整个 FastAPI 事件循环，导致所有请求"卡住"。解决方案是使用 \texttt{asyncio.to\_thread()}，将阻塞调用放入线程池执行，事件循环保持响应，SSE 进度更新得以正常推送。
+\end{thinkquestion}
+
+\subsection{爬虫模块}
+
+\subsubsection{Google Scholar 爬虫}
+
+\begin{lstlisting}[language=Python, caption=Scholar 爬虫核心逻辑]
+def get_author(scholar_id: str, delay: int = 3) -> dict:
+    author = scholarly.search_author_id(scholar_id)
+    author = scholarly.fill(author, sections=["basics", "indices", "publications"])
+
+    # 按被引数取前20篇，再按年份取前20篇，合并去重
+    pubs_by_cite = sorted(author["publications"], 
+                          key=lambda p: p.get("num_citations", 0), reverse=True)[:20]
+    pubs_by_year = sorted(author["publications"],
+                          key=lambda p: p.get("year", 0), reverse=True)[:20]
+    merged = deduplicate(pubs_by_cite + pubs_by_year)
+    time.sleep(delay)   # 避免被 Google 封禁
+    return format_author(author, merged)
+\end{lstlisting}
+
+\subsubsection{大学院系爬虫（注册表模式）}
+
+系统通过注册表模式支持可扩展的多校爬虫：
+
+\begin{lstlisting}[language=Python, caption=爬虫注册表与基类]
+# crawler/universities/registry.py
+REGISTRY: dict[str, type[UniversityCrawlerBase]] = {
+    "xjtu-cs": XJTUCSCrawler,
+    "xjtu-se": XJTUSECrawler,
+    # 新增爬虫只需在此加一行
+}
+
+# crawler/universities/base.py
+class UniversityCrawlerBase(ABC):
+    display_name: str   # 在 UI 下拉框中显示的名称
+
+    @abstractmethod
+    def crawl_all(self) -> list[dict]:
+        """返回教授信息字典列表"""
+        pass
+\end{lstlisting}
+
+前端通过 \texttt{GET /api/professors/university-crawlers} 动态获取可用爬虫列表，无需前端代码改动即可暴露新爬虫——这是开闭原则（Open/Closed Principle）的一个典型体现。
+
+\subsection{简历解析}
+
+系统实现了三级解析策略，体现了\textbf{优雅降级}设计：
+
+\begin{enumerate}
+    \item \textbf{LLM 解析（首选）}：将原始简历文本发送给 DeepSeek，使用 YAML Prompt 模板指示其输出结构化 JSON，包含教育经历、科研经历、项目和技能等字段。
+    \item \textbf{Markdown 解析（备选）}：使用 \texttt{markdown-it-py} 解析标题层级，按约定的章节名（Education、Research Experience 等）提取内容。
+    \item \textbf{LaTeX 解析（备选）}：使用 \texttt{pylatexenc} 提取纯文本，再用正则表达式匹配章节结构。
+\end{enumerate}
+
+\textbf{两阶段设计}：上传接口（\texttt{POST /api/profiles/upload}）仅解析并返回预览，\textbf{不保存}到数据库。用户确认无误后，再通过 \texttt{POST /api/profiles} 正式创建。这避免了脏数据写入，同时给用户提供了编辑纠错的机会。
+
+%==========================================================
+\section{匹配算法设计}
+%==========================================================
+
+系统实现了两套匹配算法：早期的关键词匹配器（已作为参考保留）和当前使用的语义匹配器。
+
+\subsection{关键词匹配器（KeywordMatcher）}
+
+早期版本采用基于规则的加权评分：
+
+\begin{center}
+\begin{tabular}{|l|c|l|}
+\hline
+\textbf{维度} & \textbf{权重} & \textbf{计算方式} \\
+\hline
+研究兴趣重叠 & 40\% & 简历关键词 $\cap$ 教授研究方向 \\
+技能 vs 论文 & 30\% & 简历技能词 $\cap$ 论文标题关键词 \\
+经历 vs 论文 & 20\% & 科研经历关键词 $\cap$ 论文关键词 \\
+学历加成 & 10\% & 是否有研究生经历（固定加分） \\
+\hline
+\end{tabular}
+\end{center}
+
+问题：纯关键词匹配对中文语料效果差，同义词、不同表述无法识别（例如"自然语言处理"和"NLP"被视为不同关键词）。
+
+\subsection{语义匹配器（SemanticMatcher）}
+
+\subsubsection{模型选择：allenai-specter}
+
+allenai-specter 是 Allen Institute for AI 基于 SciBERT 在学术论文引用关系上微调的模型，产出 768 维稠密向量。相比通用 BERT，它对学术文本（研究方向、论文标题等）的语义理解更准确，且能跨语言捕捉相似含义。
+
+\subsubsection{文本构建策略}
+
+教授侧文本：
+\begin{lstlisting}[language=Python, caption=教授文本构建]
+def build_professor_text(prof: Professor) -> str:
+    interests = "; ".join(prof.research_interests or [])
+    pub_titles = ". ".join(
+        p["title"] for p in (prof.publications or [])[:15]
+    )
+    summaries = " ".join(
+        s["summary"] for s in (prof.paper_summaries or [])
+    )
+    affiliation = prof.affiliation or ""
+    return f"{interests} [SEP] {pub_titles}. {summaries}. {affiliation}"
+\end{lstlisting}
+
+学生侧文本：
+\begin{lstlisting}[language=Python, caption=学生简历文本构建]
+def build_profile_text(profile: UserProfile) -> str:
+    skills = "; ".join(profile.skills or [])
+    research = " ".join(
+        f"{r.get('title','')} {r.get('description','')}"
+        for r in (profile.research_experience or [])
+    )
+    projects = " ".join(
+        f"{p.get('name','')} {p.get('description','')}"
+        for p in (profile.projects or [])
+    )
+    return f"{skills} [SEP] {research}. {projects}"
+\end{lstlisting}
+
+\texttt{[SEP]} 是 allenai-specter 训练时使用的分隔符（对应论文标题与摘要的分界），遵循该约定能得到更好的嵌入质量。
+
+\subsubsection{相似度计算}
+
+\begin{lstlisting}[language=Python, caption=语义相似度计算]
+def compute_score(prof_embedding, profile_embedding) -> float:
+    # 两个向量均已 L2 归一化
+    # 点积 == 余弦相似度，范围 [-1, 1]
+    similarity = float(np.dot(prof_embedding, profile_embedding))
+    # 线性映射到 [0, 100]
+    score = (similarity + 1.0) / 2.0 * 100
+    return round(score, 2)
+\end{lstlisting}
+
+\subsubsection{嵌入向量缓存}
+
+模型编码（约 768 维，~3 KB/条）每次需要毫秒级计算，但加载模型（约 400 MB）只需一次。系统设计如下：
+
+\begin{itemize}
+    \item \textbf{模型单例}：\texttt{SentenceTransformer} 实例在进程生命周期内只加载一次
+    \item \textbf{教授向量持久化}：首次匹配计算后，向量以 JSON 格式存入 \texttt{professors.embedding} 列，复用于后续匹配
+    \item \textbf{缓存失效}：任何影响教授文本的字段更新（研究方向、论文摘要、所属机构）会将 \texttt{embedding} 置为 \texttt{NULL}，下次匹配时强制重新编码
+    \item \textbf{简历向量}：每次匹配运行时计算一次，在循环内对所有教授复用
+\end{itemize}
+
+\begin{thinkquestion}
+\textbf{为什么不用 Faiss 向量数据库？} 项目目前教授数量预计在数百到数千量级（个人用途），SQLite JSON 列 + NumPy 点积已足够高效（千条数据的匹配不到 1 秒）。引入 Faiss 会增加运维复杂度，得不偿失。当数据量达到十万量级时，才有引入向量数据库的必要。
+\end{thinkquestion}
+
+%==========================================================
+\section{LLM 集成}
+%==========================================================
+
+\subsection{邮件生成（LetterGenerator）}
+
+\begin{lstlisting}[language=Python, caption=邮件生成 Prompt 设计]
+SYSTEM_PROMPT = """你是一位帮助学生撰写学术联络邮件的助手。
+请根据学生背景和教授信息，生成一封300-500字的专业中文学术联络邮件。
+邮件应体现：对教授研究方向的了解、学生的相关背景匹配、
+明确的申请意向。保持专业、真诚的语气。"""
+
+USER_PROMPT = f"""
+学生信息：
+- 姓名：{profile.name}
+- 教育：{format_education(profile.education)}
+- 科研经历：{format_research(profile.research_experience)}
+- 技能：{', '.join(profile.skills)}
+
+教授信息：
+- 姓名：{professor.name}（{professor.affiliation}）
+- 研究方向：{', '.join(professor.research_interests[:5])}
+- 代表论文：{format_publications(professor.publications[:5])}
+- H指数：{professor.h_index}，总引用：{professor.total_citations}
+
+匹配原因：{', '.join(match_record.match_reasons)}
+"""
+\end{lstlisting}
+
+使用 \texttt{temperature=0.7}（适度创意性），\texttt{max\_tokens=1000}。
+
+\subsection{论文摘要（PaperSummarizer）}
+
+系统支持上传教授的 PDF 论文或 ArXiv 链接，由 LLM 自动提取关键信息，丰富教授画像，从而提高匹配和邮件生成的质量。
+
+\begin{lstlisting}[language=Python, caption=论文摘要输出格式]
+# LLM 被要求返回 JSON 格式
+{
+  "summary": "本文提出了一种...(中文摘要，200字以内)",
+  "keywords": ["关键词1", "关键词2", ..., "关键词12"]
+}
+\end{lstlisting}
+
+\textbf{降级处理}：若 LLM 不可用（未配置 API Key）或调用失败，系统自动降级为：取论文提取文本的前 500 字作为摘要，用正则从标题/关键词字段提取关键词。
+
+\subsection{API Key 优先级}
+
+系统支持两级 API Key 配置：
+
+\begin{enumerate}
+    \item \textbf{用户级}：用户在设置页面填写自己的 DeepSeek API Key，优先使用
+    \item \textbf{全局级}：系统管理员通过 \texttt{.env} 文件配置全局 Key 作为默认值
+\end{enumerate}
+
+这使系统既可作为共享部署（管理员提供 Key），也可个人部署（每人用自己的 Key）。
+
+%==========================================================
+\section{前端设计}
+%==========================================================
+
+\subsection{页面路由与权限控制}
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{路由} & \textbf{页面} & \textbf{权限} \\
+\hline
+\texttt{/login} & 登录 & 公开 \\
+\texttt{/register} & 注册 & 公开 \\
+\texttt{/change-password} & 修改密码 & 已登录（首登强制跳转） \\
+\texttt{/profile} & 简历列表 & 已登录 \\
+\texttt{/professor} & 教授列表 & 已登录 \\
+\texttt{/professor/:id/edit} & 教授信息编辑 & 已登录 \\
+\texttt{/match} & 匹配结果 & 已登录 \\
+\texttt{/letter} & 邮件管理 & 已登录 \\
+\texttt{/settings} & 用户设置 & 已登录 \\
+\texttt{/admin/users} & 用户管理 & 仅管理员 \\
+\hline
+\end{tabular}
+\end{center}
+
+路由守卫在 \texttt{router/index.ts} 中实现，每次路由跳转前检查：
+
+\begin{lstlisting}[language=TypeScript, caption=Vue Router 全局前置守卫]
+router.beforeEach(async (to, from, next) => {
+  const auth = useAuthStore()
+  if (!auth.isAuthenticated && !publicRoutes.includes(to.name)) {
+    return next({ name: 'Login' })
+  }
+  if (auth.mustChangePassword && to.name !== 'ForceChangePassword') {
+    return next({ name: 'ForceChangePassword' })
+  }
+  if (to.meta.requiresAdmin && !auth.isAdmin) {
+    return next({ name: 'ProfessorList' })
+  }
+  next()
+})
+\end{lstlisting}
+
+\subsection{任务面板组件（TaskPanel）}
+
+这是系统中最复杂的 UI 组件之一。它是一个悬浮在右下角的气泡按钮，展示所有后台任务的实时进度。
+
+\begin{itemize}
+    \item 有活跃任务时，图标持续闪烁动画（CSS animation）
+    \item 角标显示当前活跃任务数量
+    \item 展开后显示每个任务的进度条、状态图标和消息
+    \item 支持单个任务取消、批量清除已完成任务
+    \item \textbf{页面刷新恢复}：组件挂载时调用 \texttt{restoreFromServer()}，向后端请求仍在运行的任务列表，重新订阅 SSE，保证刷新后进度不丢失
+\end{itemize}
+
+\begin{lstlisting}[language=TypeScript, caption=任务 Store 的 SSE 订阅逻辑]
+// stores/tasks.ts
+function addTask(taskId: string, type: string, title: string) {
+  const source = new EventSource(`/api/tasks/${taskId}/progress`)
+
+  source.addEventListener('progress', (e) => {
+    const data = JSON.parse(e.data)
+    activeTasks.value.set(taskId, {
+      ...activeTasks.value.get(taskId),
+      progress: data.progress,
+      message: data.message,
+      status: 'running'
+    })
+  })
+
+  source.addEventListener('complete', (e) => {
+    // 标记完成，关闭 EventSource 连接
+    source.close()
+    updateTask(taskId, { status: 'completed' })
+  })
+}
+\end{lstlisting}
+
+\subsection{教授信息编辑页（ProfessorEditView）}
+
+这是项目后期新增的能力，体现了\textbf{两阶段提交}的设计模式：
+
+\begin{enumerate}
+    \item 用户可在左侧面板手动编辑教授的研究方向、简介等字段
+    \item 右侧 \texttt{SourceInputPanel} 组件支持上传 PDF 论文或提交 ArXiv 链接
+    \item 点击"预览修改"，调用 \texttt{POST /api/professors/\{id\}/edit-preview}，服务端合并人工编辑与 LLM 提取结果，返回 diff 预览
+    \item 用户确认后点击"应用修改"，调用 \texttt{POST /api/professors/\{id\}/apply-edits} 正式持久化
+\end{enumerate}
+
+%==========================================================
+\section{规范驱动开发（OpenSpec）}
+%==========================================================
+
+\subsection{什么是 OpenSpec}
+
+本项目采用了一套自定义的\textbf{规范驱动开发}流程，称为 OpenSpec。核心理念是：\textbf{先写规范，再写代码}。每个新功能从一份 Proposal 开始，经过设计、任务拆解，最终实现。
+
+\begin{lstlisting}[language=bash, caption=OpenSpec 目录结构]
+openspec/
+|- AGENTS.md        # AI 助手工作指南
+|- project.md       # 项目全局描述
+|- specs/           # 当前系统能力的规范文档
+└- changes/         # 变更提案（每个功能一个目录）
+   |- add-semantic-matching/
+   |  |- proposal.md   # 问题描述与方案概述
+   |  |- design.md     # 详细设计
+   |  └- tasks.md      # 任务清单（含完成状态）
+   └- archive/         # 已完成的变更
+\end{lstlisting}
+
+\subsection{变更流程}
+
+\begin{enumerate}
+    \item 在 \texttt{openspec/changes/} 下创建新目录（如 \texttt{add-semantic-matching/}）
+    \item 编写 \texttt{proposal.md}：描述问题、目标、不考虑的方向
+    \item 编写 \texttt{design.md}：API 变更、数据模型变更、算法设计
+    \item 编写 \texttt{tasks.md}：具体任务列表，每项前置/后置条件明确
+    \item 按任务清单实现，逐项标记 \texttt{[x]}
+    \item 完成后将目录移入 \texttt{archive/}
+\end{enumerate}
+
+\subsection{已完成的主要变更}
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{变更 ID} & \textbf{内容} \\
+\hline
+\texttt{add-project-foundation} & 初始数据模型、CLI、简历解析器 \\
+\texttt{add-llm-resume-parser} & LLM 辅助简历解析 \\
+\texttt{add-semantic-matching} & allenai-specter 语义匹配 \\
+\texttt{add-vue-web-frontend} & Vue 3 前端 + REST API + JWT 认证 + 异步任务 \\
+\texttt{add-xjtu-crawler} & 西安交通大学计算机学院爬虫 \\
+\texttt{add-background-task-panel} & 后台任务面板（SSE 进度推送） \\
+\texttt{add-professor-info-editing} & 教授信息编辑 + SourceInput（PDF/ArXiv） \\
+\texttt{add-clear-completed-tasks} & 任务面板清空已完成按钮 \\
+\hline
+\end{tabular}
+\end{center}
+
+\begin{keypoint}
+OpenSpec 的价值不仅在于文档：它迫使开发者在动手写代码之前想清楚 \textbf{为什么做}、\textbf{做什么}、\textbf{不做什么}。对于 AI 辅助开发场景，清晰的规范还能让 AI 代理准确理解意图，减少"想当然"的误操作。
+\end{keypoint}
+
+%==========================================================
+\section{测试策略}
+%==========================================================
+
+项目在 \texttt{backend/tests/} 下维护了一套 pytest 测试套件：
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{测试文件} & \textbf{测试内容} \\
+\hline
+\texttt{test\_api\_professors.py} & 教授 API 端点（CRUD、爬取触发） \\
+\texttt{test\_api\_source\_inputs.py} & SourceInput API（PDF 上传、ArXiv 提交） \\
+\texttt{test\_crawler.py} & Scholar 爬虫解析逻辑 \\
+\texttt{test\_semantic\_matcher.py} & 语义匹配得分计算 \\
+\texttt{test\_paper\_summarizer.py} & 论文摘要（含 LLM Mock） \\
+\texttt{test\_xjtu\_se\_crawler.py} & XJTU 软件学院爬虫 \\
+\hline
+\end{tabular}
+\end{center}
+
+API 测试使用 FastAPI 的 \texttt{TestClient}（HTTPX），数据库使用内存 SQLite，LLM 调用通过 \texttt{unittest.mock.patch} Mock 掉，保证测试可离线、快速、可重复。
+
+%==========================================================
+\section{关键设计模式与工程亮点}
+%==========================================================
+
+\subsection{模式总结}
+
+\begin{enumerate}
+    \item \textbf{注册表模式（Registry Pattern）}：大学爬虫通过注册表暴露，前端动态获取列表，新增爬虫零前端改动。
+
+    \item \textbf{两阶段提交（Two-Phase Commit）}：简历上传和教授信息编辑均采用"预览—确认"流程，避免脏数据直接入库。
+
+    \item \textbf{嵌入向量缓存 + 惰性失效}：Professor 向量持久化到 DB，字段变更自动置 NULL 强制重算，兼顾性能与一致性。
+
+    \item \textbf{优雅降级}：简历解析（LLM → Markdown → LaTeX）、论文摘要（LLM → 启发式）均有降级链，保证基础功能在 LLM 不可用时仍可工作。
+
+    \item \textbf{用户数据隔离}：所有资源（教授、简历、SourceInput）均携带 \texttt{user\_id}，查询层严格过滤，实现多用户数据隔离。
+
+    \item \textbf{API Key 两级配置}：用户级 Key 优先于全局 Key，支持共享部署和个人部署两种场景。
+
+    \item \textbf{增量 DB 迁移}：用 \texttt{PRAGMA table\_info} 检测缺失列，轻量 \texttt{ALTER TABLE} 补全，适合个人工具类应用的快速迭代。
+\end{enumerate}
+
+\subsection{当前局限与改进方向}
+
+系统目前仍有以下已知问题和优化方向：
+
+\begin{itemize}
+    \item \textbf{中文匹配精度}：allenai-specter 在英文学术文本上表现更好，中文语料的匹配准确率有待提升。可考虑先将中文统一翻译为英文再进行向量化，或换用支持中英双语的 embedding 模型（如 BGE-M3）。
+
+    \item \textbf{多维度匹配}：目前仅使用单一语义相似度分数。可引入更多维度：教育背景匹配、地理偏好、发表年份新鲜度、教授招生状态等。
+
+    \item \textbf{简历激活限制}：目前同一用户只能激活一份简历。可考虑支持同时激活多份简历，分别匹配不同方向。
+
+    \item \textbf{网页爬虫稳定性}：高校官网维护质量参差不齐，爬虫维护成本高。可引入更智能的网页解析（如用 LLM 直接分析网页 DOM）提高鲁棒性。
+
+    \item \textbf{邮件 Prompt 质量}：生成邮件的个性化程度和质量依赖 Prompt 设计，可进一步细化 Prompt，加入更多上下文。
+\end{itemize}
+
+%==========================================================
+\section{总结}
+%==========================================================
+
+Prof-Finder 是一个将多种现代软件工程技术综合运用的全栈 AI 应用：
+
+\begin{itemize}
+    \item \textbf{架构层面}：前后端分离 + RESTful API + SSE 实时推送，清晰的分层设计
+    \item \textbf{AI 层面}：NLP 语义嵌入（allenai-specter）+ LLM 文本生成（DeepSeek），两种 AI 技术协同工作
+    \item \textbf{工程层面}：JWT 认证、异步任务、向量缓存、优雅降级、注册表模式等工程实践
+    \item \textbf{流程层面}：规范驱动开发（OpenSpec）保证了功能迭代的有序性和可追溯性
+\end{itemize}
+
+从软件工程视角看，本项目涵盖了需求分析（OpenSpec Proposal）、系统设计（Design 文档）、编码实现（分层架构）、测试（pytest 套件）等完整的开发生命周期，是一个适合学习全栈 AI 应用开发的参考项目。
+
+\vspace{1em}
+\begin{center}
+\textit{项目地址：\url{https://github.com/your-username/prof-finder}}
+\end{center}
+
+\end{document}

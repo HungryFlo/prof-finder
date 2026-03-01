@@ -3,7 +3,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from prof_finder.models.schema import Professor
+from prof_finder.models.schema import Professor, SourceInput
 
 
 class TestProfessorList:
@@ -168,6 +168,238 @@ class TestProfessorUpdate:
         data = response.json()
         assert data["name"] == "New Name"
         assert data["affiliation"] == "New University"
+
+
+class TestProfessorEditFlow:
+    """Tests for professor preview/apply edit endpoints."""
+
+    def test_edit_preview_with_manual_and_sources(
+        self, test_client: TestClient, auth_headers: dict, test_db
+    ):
+        """Preview should return manual patch result and source suggestions."""
+        with test_db.session() as session:
+            from prof_finder.models.schema import User
+
+            user = session.query(User).filter(User.username == "testuser").first()
+            professor = Professor(user_id=user.id, name="Old Name", affiliation="Old Aff")
+            session.add(professor)
+            session.flush()
+
+            source = SourceInput(
+                user_id=user.id,
+                source_type="arxiv",
+                title="Paper A",
+                abstract="Interesting abstract",
+                status="succeeded",
+            )
+            session.add(source)
+            session.flush()
+            professor_id = professor.id
+            source_id = source.id
+
+        response = test_client.post(
+            f"/api/professors/{professor_id}/edit-preview",
+            headers=auth_headers,
+            json={
+                "manual_patch": {"name": "New Name", "manual_notes": "manual"},
+                "source_input_ids": [source_id],
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["manual_patch_applied"]["name"] == "New Name"
+        assert data["source_suggestions"]["publications"][0]["title"] == "Paper A"
+        assert data["source_suggestions"]["manual_notes_append"] is None
+        assert len(data["source_suggestions"]["paper_summaries"]) == 1
+        assert "Interesting abstract" in (data["source_suggestions"]["paper_summaries"][0]["summary"] or "")
+
+    def test_apply_edits_updates_professor_and_links_source(
+        self, test_client: TestClient, auth_headers: dict, test_db
+    ):
+        """Apply endpoint should update professor and attach source inputs."""
+        with test_db.session() as session:
+            from prof_finder.models.schema import User
+
+            user = session.query(User).filter(User.username == "testuser").first()
+            professor = Professor(
+                user_id=user.id,
+                name="Old Name",
+                affiliation="Old Aff",
+                publications=[],
+                manual_notes="base notes",
+            )
+            session.add(professor)
+            session.flush()
+
+            source = SourceInput(
+                user_id=user.id,
+                source_type="arxiv",
+                title="Paper B",
+                abstract="Abstract B",
+                status="succeeded",
+            )
+            session.add(source)
+            session.flush()
+            professor_id = professor.id
+            source_id = source.id
+
+        response = test_client.post(
+            f"/api/professors/{professor_id}/apply-edits",
+            headers=auth_headers,
+            json={
+                "manual_patch": {"affiliation": "New Aff"},
+                "source_input_ids": [source_id],
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["affiliation"] == "New Aff"
+        assert any(item["title"] == "Paper B" for item in data["publications"])
+        assert data.get("manual_notes") == "base notes"
+        assert len(data.get("paper_summaries") or []) == 1
+        assert (data["paper_summaries"][0]["title"]) == "Paper B"
+        assert "Abstract B" in (data["paper_summaries"][0]["summary"] or "")
+
+        with test_db.session() as session:
+            linked = session.query(SourceInput).filter(SourceInput.id == source_id).first()
+            assert linked is not None
+            assert linked.professor_id == professor_id
+
+    def test_apply_edits_ignores_manual_patch_for_paper_summaries(
+        self, test_client: TestClient, auth_headers: dict, test_db
+    ):
+        """Apply edits should not mutate paper summaries via manual patch."""
+        with test_db.session() as session:
+            from prof_finder.models.schema import User
+
+            user = session.query(User).filter(User.username == "testuser").first()
+            professor = Professor(
+                user_id=user.id,
+                name="Prof Summary",
+                affiliation="Aff",
+                paper_summaries=[
+                    {
+                        "source_input_id": 1,
+                        "source_type": "pdf",
+                        "title": "Keep Me",
+                        "summary": "old keep summary",
+                        "keywords": ["old"],
+                    },
+                    {
+                        "source_input_id": 2,
+                        "source_type": "pdf",
+                        "title": "Delete Me",
+                        "summary": "old delete summary",
+                        "keywords": ["drop"],
+                    },
+                ],
+            )
+            session.add(professor)
+            session.flush()
+            professor_id = professor.id
+
+        response = test_client.post(
+            f"/api/professors/{professor_id}/apply-edits",
+            headers=auth_headers,
+            json={
+                "manual_patch": {
+                    "paper_summaries": [
+                        {
+                            "source_input_id": 1,
+                            "source_type": "pdf",
+                            "title": "Keep Me Edited",
+                            "summary": "new keep summary",
+                            "keywords": ["new", "keep"],
+                        }
+                    ]
+                },
+                "source_input_ids": [],
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        summaries = data.get("paper_summaries") or []
+        assert len(summaries) == 2
+        assert summaries[0]["title"] == "Keep Me"
+        assert summaries[1]["title"] == "Delete Me"
+
+    def test_start_background_paper_summary_task(
+        self, test_client: TestClient, auth_headers: dict, test_db
+    ):
+        """Should start async paper summary task for selected sources."""
+        with test_db.session() as session:
+            from prof_finder.models.schema import User
+
+            user = session.query(User).filter(User.username == "testuser").first()
+            professor = Professor(user_id=user.id, name="Prof Async", affiliation="Aff")
+            session.add(professor)
+            session.flush()
+
+            source = SourceInput(
+                user_id=user.id,
+                source_type="arxiv",
+                title="Async Paper",
+                abstract="async abstract",
+                status="succeeded",
+            )
+            session.add(source)
+            session.flush()
+            professor_id = professor.id
+            source_id = source.id
+
+        response = test_client.post(
+            f"/api/professors/{professor_id}/summarize-sources",
+            headers=auth_headers,
+            json={"source_input_ids": [source_id]},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["task_id"]
+        assert "已启动" in data["message"]
+
+    def test_start_background_paper_summary_skips_already_summarized(
+        self, test_client: TestClient, auth_headers: dict, test_db
+    ):
+        """Should reject task start when all selected sources are already summarized."""
+        with test_db.session() as session:
+            from prof_finder.models.schema import User
+
+            user = session.query(User).filter(User.username == "testuser").first()
+            source = SourceInput(
+                user_id=user.id,
+                source_type="arxiv",
+                title="Done Paper",
+                abstract="done abstract",
+                status="succeeded",
+            )
+            session.add(source)
+            session.flush()
+            professor = Professor(
+                user_id=user.id,
+                name="Prof Done",
+                affiliation="Aff",
+                paper_summaries=[
+                    {
+                        "source_input_id": source.id,
+                        "source_type": "arxiv",
+                        "title": "Done Paper",
+                        "summary": "already done",
+                        "keywords": ["done"],
+                    }
+                ],
+            )
+            session.add(professor)
+            session.flush()
+            professor_id = professor.id
+            source_id = source.id
+
+        response = test_client.post(
+            f"/api/professors/{professor_id}/summarize-sources",
+            headers=auth_headers,
+            json={"source_input_ids": [source_id]},
+        )
+        assert response.status_code == 400
+        assert "均已总结" in response.json()["detail"]
 
 
 class TestProfessorDelete:

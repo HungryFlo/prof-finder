@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, h } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   NCard,
   NSpace,
@@ -35,6 +36,7 @@ import type { ProfessorListItem, Professor, PaginatedResponse } from '@/types'
 const message = useMessage()
 const dialog = useDialog()
 const taskStore = useTaskStore()
+const router = useRouter()
 
 // State
 const loading = ref(false)
@@ -67,7 +69,10 @@ async function openUniversityModal() {
     try {
       universityCrawlers.value = await professorsApi.getUniversityCrawlers()
       if (universityCrawlers.value.length > 0) {
-        selectedUniversityId.value = universityCrawlers.value[0].university_id
+        const first = universityCrawlers.value[0]
+        if (first) {
+          selectedUniversityId.value = first.university_id
+        }
       }
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } }
@@ -140,13 +145,17 @@ const columns: DataTableColumns<ProfessorListItem> = [
     },
   },
   { title: 'H-Index', key: 'h_index', width: 90 },
-  { title: '论文数', key: 'publication_count', width: 90 },
   {
     title: '操作',
     key: 'actions',
-    width: 200,
+    width: 260,
     render(row) {
       return h(NSpace, { size: 'small' }, () => [
+        h(
+          NButton,
+          { size: 'small', type: 'primary', onClick: () => router.push(`/professor/${row.id}/edit`) },
+          { default: () => '编辑' }
+        ),
         h(
           NButton,
           { size: 'small', onClick: () => showDetail(row.id) },
@@ -204,7 +213,6 @@ async function handleAddByScholar() {
   try {
     const { task_id } = await professorsApi.addByScholar(scholarUrl.value)
     showScholarModal.value = false
-    const submittedUrl = scholarUrl.value
     scholarUrl.value = ''
     taskStore.addTask(task_id, 'single-crawl', '爬取教授', 1, () => {
       fetchProfessors()
@@ -343,7 +351,7 @@ onMounted(() => {
         :loading="loading"
         :row-key="(row: ProfessorListItem) => row.id"
         v-model:checked-row-keys="selectedRowKeys"
-        :scroll-x="1050"
+        :scroll-x="960"
       />
 
       <n-space justify="end" style="margin-top: 16px">
@@ -481,9 +489,9 @@ onMounted(() => {
           </n-descriptions-item>
         </n-descriptions>
 
-        <h4 style="margin-top: 24px">论文列表 ({{ professorDetail.publications.length }})</h4>
+        <h4 style="margin-top: 24px">论文列表</h4>
         <n-list bordered>
-          <n-list-item v-for="(pub, index) in professorDetail.publications.slice(0, 20)" :key="index">
+          <n-list-item v-for="(pub, index) in professorDetail.publications" :key="index">
             <div>
               <div style="font-weight: 500">{{ pub.title }}</div>
               <div style="color: #999; font-size: 12px">

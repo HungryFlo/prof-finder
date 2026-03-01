@@ -159,6 +159,8 @@ class ProfessorCreate(BaseModel):
     email: Optional[str] = None
     homepage: Optional[str] = None
     research_interests: List[str] = []
+    manual_notes: Optional[str] = None
+    paper_summaries: Optional[List[dict]] = None
 
 
 class ProfessorUpdate(BaseModel):
@@ -168,6 +170,8 @@ class ProfessorUpdate(BaseModel):
     email: Optional[str] = None
     homepage: Optional[str] = None
     research_interests: Optional[List[str]] = None
+    manual_notes: Optional[str] = None
+    paper_summaries: Optional[List[dict]] = None
 
 
 class ProfessorScholarAdd(BaseModel):
@@ -192,8 +196,10 @@ class ProfessorResponse(BaseModel):
     google_scholar_url: Optional[str]
     research_interests: List[str]
     publications: List[dict]
+    paper_summaries: Optional[List[dict]] = None
     h_index: Optional[int]
     total_citations: Optional[int]
+    manual_notes: Optional[str]
     created_at: datetime
     updated_at: datetime
 
@@ -223,6 +229,60 @@ class ScholarSearchResult(BaseModel):
     scholar_url: str
     interests: List[str]
     citations: Optional[int]
+
+
+class SourceInputArxivCreate(BaseModel):
+    """Create source input from ArXiv link."""
+
+    url: str
+
+
+class SourceInputResponse(BaseModel):
+    """Source input response."""
+
+    id: int
+    source_type: str
+    original_name: Optional[str]
+    source_url: Optional[str]
+    canonical_id: Optional[str]
+    title: Optional[str]
+    abstract: Optional[str]
+    extracted_markdown: Optional[str]
+    status: str
+    error_message: Optional[str]
+    metadata_only: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ProfessorEditPreviewRequest(BaseModel):
+    """Preview professor edit request."""
+
+    manual_patch: Optional[ProfessorUpdate] = None
+    source_input_ids: List[int] = []
+
+
+class ProfessorEditApplyRequest(BaseModel):
+    """Apply professor edit request."""
+
+    manual_patch: Optional[ProfessorUpdate] = None
+    source_input_ids: List[int] = []
+
+
+class ProfessorSourceSummaryRequest(BaseModel):
+    """Start background paper summary generation for source inputs."""
+
+    source_input_ids: List[int] = []
+
+
+class ProfessorEditPreviewResponse(BaseModel):
+    """Preview result for professor edits."""
+
+    manual_patch_applied: dict
+    source_suggestions: dict
 
 
 # ============= Match Schemas =============

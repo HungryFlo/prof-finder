@@ -1,0 +1,145 @@
+"""Paper summarization via LLM with deterministic fallback."""
+
+from __future__ import annotations
+
+import json
+from typing import Optional
+
+from openai import OpenAI
+
+from ..config import settings
+from ..prompts import get_prompt
+
+
+class PaperSummarizer:
+    """Summarize paper text into summary + keywords."""
+
+    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
+        actual_api_key = api_key or settings.deepseek_api_key
+        actual_base_url = base_url or settings.deepseek_base_url
+        self.enabled = bool(
+            actual_api_key and actual_api_key not in {"test_key", "your_api_key_here"}
+        )
+        self.client: Optional[OpenAI] = None
+        if self.enabled:
+            self.client = OpenAI(api_key=actual_api_key, base_url=actual_base_url)
+
+    def summarize_with_fallback(self, source_type: str, title: str, content: str) -> dict:
+        """Try LLM summary first; fallback to heuristic summary when unavailable."""
+        if self.enabled and self.client is not None:
+            try:
+                return self._summarize_by_llm(source_type=source_type, title=title, content=content)
+            except Exception:
+                # Network/model failure should not block edit flow.
+                pass
+
+        summary = self._heuristic_summary(content, max_chars=500)
+        return {
+            "summary": summary,
+            "keywords": self._extract_keywords(content)[:12],
+        }
+
+    def _summarize_by_llm(self, source_type: str, title: str, content: str) -> dict:
+        """Generate summary using managed prompt templates."""
+        assert self.client is not None
+
+        clipped = (content or "").strip()
+        if len(clipped) > 12000:
+            clipped = clipped[:12000]
+
+        system_prompt = get_prompt("paper_summarizer", "paper_summary_extraction", "system")
+        user_prompt = get_prompt(
+            "paper_summarizer",
+            "paper_summary_extraction",
+            "user",
+            source_type=source_type,
+            title=title or "Untitled Paper",
+            content=clipped or "（无可用正文）",
+        )
+
+        response = self.client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
+            max_tokens=700,
+        )
+        content_text = (response.choices[0].message.content or "").strip()
+        payload = self._safe_parse_json(content_text)
+        summary = str(payload.get("summary") or "").strip()
+        keywords_raw = payload.get("keywords") or []
+        if not isinstance(keywords_raw, list):
+            keywords_raw = []
+        keywords = [str(item).strip() for item in keywords_raw if str(item).strip()]
+
+        if not summary:
+            summary = self._heuristic_summary(content, max_chars=500)
+        if not keywords:
+            keywords = self._extract_keywords(content)[:12]
+        return {"summary": summary, "keywords": keywords[:12]}
+
+    @staticmethod
+    def _safe_parse_json(raw: str) -> dict:
+        """Parse raw model output into JSON object robustly."""
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                parsed = json.loads(raw[start : end + 1])
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+        return {}
+
+    @staticmethod
+    def _heuristic_summary(text: str, max_chars: int = 500) -> str:
+        cleaned_lines = []
+        for raw in text.splitlines():
+            line = raw.strip().lstrip("#").strip()
+            if not line:
+                continue
+            if line.startswith("![]("):
+                continue
+            cleaned_lines.append(line)
+        joined = " ".join(cleaned_lines)
+        if len(joined) <= max_chars:
+            return joined
+        return joined[: max_chars - 1].rstrip() + "…"
+
+    @staticmethod
+    def _extract_keywords(text: str) -> list[str]:
+        tech_terms = [
+            "machine learning",
+            "deep learning",
+            "nlp",
+            "natural language",
+            "computer vision",
+            "language model",
+            "llm",
+            "transformer",
+            "bert",
+            "gpt",
+            "recommendation",
+            "knowledge graph",
+            "data mining",
+            "optimization",
+            "security",
+            "robotics",
+            "reinforcement learning",
+        ]
+        lower = text.lower()
+        found = []
+        for term in tech_terms:
+            if term in lower:
+                found.append(term)
+        return found

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h } from 'vue'
+import { computed } from 'vue'
 import {
   NButton,
   NIcon,
@@ -24,7 +24,13 @@ import type { TaskEntry } from '@/stores/tasks'
 const taskStore = useTaskStore()
 
 const hasAny = computed(() => taskStore.taskList.length > 0)
-const badgeValue = computed(() => taskStore.runningCount + taskStore.failedCount || undefined)
+const completedCount = computed(() => taskStore.taskList.filter((t) => t.status === 'completed').length)
+const badgeValue = computed(
+  () =>
+    taskStore.runningCount +
+      taskStore.failedCount +
+      completedCount.value || undefined
+)
 const badgeType = computed(() => (taskStore.failedCount > 0 ? 'error' : 'info'))
 
 function progressPercent(task: TaskEntry): number {
@@ -70,6 +76,15 @@ function handleDismiss(taskId: string) {
     <!-- Panel header -->
     <div class="panel-header">
       <n-text style="font-weight: 600; font-size: 14px;">任务进度</n-text>
+      <n-button
+        v-if="completedCount > 0"
+        text
+        size="tiny"
+        style="font-size: 12px; color: #999;"
+        @click="taskStore.clearCompleted()"
+      >
+        清空已完成
+      </n-button>
     </div>
 
     <n-divider style="margin: 0;" />
@@ -95,12 +110,15 @@ function handleDismiss(taskId: string) {
             <n-icon v-else-if="task.status === 'failed'" color="#e03131" size="16">
               <AlertCircleOutline />
             </n-icon>
+            <n-icon v-else-if="task.status === 'completed'" color="#2f9e44" size="16">
+              <CheckmarkCircleOutline />
+            </n-icon>
             <n-text style="font-size: 13px; font-weight: 500;">{{ task.taskName }}</n-text>
           </n-space>
 
           <!-- Cancel (running) or dismiss (failed) -->
           <n-button
-            v-if="task.status === 'failed'"
+            v-if="task.status === 'failed' || task.status === 'completed'"
             quaternary
             circle
             size="tiny"
@@ -153,6 +171,9 @@ function handleDismiss(taskId: string) {
 <style scoped>
 .panel-header {
   padding: 10px 14px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .panel-empty {

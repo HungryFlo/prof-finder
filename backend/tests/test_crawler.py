@@ -1,7 +1,7 @@
 """Tests for Google Scholar crawler."""
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 
 
 class TestScholarCrawler:
@@ -28,8 +28,8 @@ class TestScholarCrawler:
 
     def test_get_author_success(self, crawler, mock_scholarly):
         """Test successful author retrieval."""
-        # Setup mock response
-        mock_author = {
+        # Setup mock responses
+        top_cited_author = {
             "name": "Test Author",
             "affiliation": "Test University",
             "email_domain": "test.edu",
@@ -56,21 +56,42 @@ class TestScholarCrawler:
                 },
             ],
         }
-        
-        crawler._scholarly.search_author_id.return_value = mock_author
-        crawler._scholarly.fill.return_value = mock_author
-        
+        latest_author = {
+            "publications": [
+                {
+                    "bib": {
+                        "title": "Test Paper 2",  # Duplicate title should be deduplicated
+                        "pub_year": "2024",
+                        "author": "Test Author",
+                    },
+                    "num_citations": 55,
+                },
+                {
+                    "bib": {
+                        "title": "Latest Paper",
+                        "pub_year": "2025",
+                        "author": "Test Author",
+                    },
+                    "num_citations": 3,
+                },
+            ]
+        }
+
+        crawler._scholarly.search_author_id.side_effect = [top_cited_author, top_cited_author]
+        crawler._scholarly.fill.side_effect = [top_cited_author, latest_author]
+
         # Call method
         result = crawler.get_author("test123")
-        
+
         # Verify
         assert result is not None
         assert result["name"] == "Test Author"
         assert result["affiliation"] == "Test University"
         assert result["h_index"] == 50
         assert result["citations"] == 10000
-        assert len(result["publications"]) == 2
+        assert len(result["publications"]) == 3
         assert result["publications"][0]["title"] == "Test Paper 1"
+        assert result["publications"][-1]["title"] == "Latest Paper"
         assert result["scholar_id"] == "test123"
 
     def test_get_author_not_found(self, crawler):
@@ -153,19 +174,27 @@ class TestScholarCrawler:
         assert result["citations"] == 0
         assert result["publications"] == []
 
-    def test_parse_author_limits_publications(self, crawler):
-        """Test that only 20 publications are kept."""
+    def test_parse_author_deduplicates_publications(self, crawler):
+        """Test deduplication across top-cited and latest lists."""
         mock_author = {
             "name": "Prolific Author",
             "publications": [
-                {"bib": {"title": f"Paper {i}", "pub_year": "2023", "author": "Author"}, "num_citations": i}
-                for i in range(50)  # 50 papers
+                {"bib": {"title": "Paper A", "pub_year": "2023", "author": "Author"}, "num_citations": 100},
+                {"bib": {"title": "Paper B", "pub_year": "2022", "author": "Author"}, "num_citations": 90},
             ],
         }
-        
-        result = crawler._parse_author(mock_author, "prolific123")
-        
-        assert len(result["publications"]) == 20  # Limited to 20
+        latest_publications = [
+            {"bib": {"title": "Paper B", "pub_year": "2024", "author": "Author"}, "num_citations": 5},
+            {"bib": {"title": "Paper C", "pub_year": "2025", "author": "Author"}, "num_citations": 2},
+        ]
+
+        result = crawler._parse_author(
+            mock_author,
+            "prolific123",
+            latest_publications=latest_publications,
+        )
+
+        assert [pub["title"] for pub in result["publications"]] == ["Paper A", "Paper B", "Paper C"]
 
 
 class TestScholarCrawlerIntegration:

@@ -8,6 +8,8 @@ from ..config import settings
 class ScholarCrawler:
     """Crawler for Google Scholar data using scholarly library."""
 
+    _PUBLICATION_FETCH_LIMIT = 20
+
     def __init__(self):
         """Initialize the crawler."""
         # Import scholarly here to avoid import errors if not installed
@@ -38,15 +40,38 @@ class ScholarCrawler:
         try:
             # Search by scholar ID
             author = self._scholarly.search_author_id(scholar_id)
-            
-            # Fill in detailed information
-            author = self._scholarly.fill(author, sections=["basics", "indices", "publications"])
-            
+
+            # Pull top-cited papers (default order) and core profile fields.
+            author = self._scholarly.fill(
+                author,
+                sections=["basics", "indices", "publications"],
+                sortby="citedby",
+                publication_limit=self._PUBLICATION_FETCH_LIMIT,
+            )
+
+            # Pull latest papers separately and merge with top-cited list.
+            latest_publications: list[dict] = []
+            try:
+                latest_author = self._scholarly.search_author_id(scholar_id)
+                latest_author = self._scholarly.fill(
+                    latest_author,
+                    sections=["publications"],
+                    sortby="year",
+                    publication_limit=self._PUBLICATION_FETCH_LIMIT,
+                )
+                latest_publications = latest_author.get("publications", [])
+            except Exception as e:
+                print(f"Error fetching latest publications for {scholar_id}: {e}")
+
             # Add delay to avoid rate limiting
             time.sleep(settings.request_delay)
-            
-            return self._parse_author(author, scholar_id)
-            
+
+            return self._parse_author(
+                author,
+                scholar_id,
+                latest_publications=latest_publications,
+            )
+
         except Exception as e:
             print(f"Error fetching author {scholar_id}: {e}")
             return None
@@ -85,7 +110,12 @@ class ScholarCrawler:
             
         return results
 
-    def _parse_author(self, author: dict, scholar_id: str) -> dict:
+    def _parse_author(
+        self,
+        author: dict,
+        scholar_id: str,
+        latest_publications: Optional[list[dict]] = None,
+    ) -> dict:
         """Parse scholarly author object into our format.
         
         Args:
@@ -95,16 +125,26 @@ class ScholarCrawler:
         Returns:
             Parsed author dictionary.
         """
-        # Extract publications
-        publications = []
-        for pub in author.get("publications", [])[:20]:  # Limit to 20 publications
-            pub_info = {
-                "title": pub.get("bib", {}).get("title", ""),
-                "year": pub.get("bib", {}).get("pub_year", ""),
-                "citations": pub.get("num_citations", 0),
-                "authors": pub.get("bib", {}).get("author", ""),
-            }
-            publications.append(pub_info)
+        # Merge top-cited and latest publications, de-duplicating by normalized title.
+        publications: list[dict] = []
+        seen_titles: set[str] = set()
+        publication_sources = [author.get("publications", []), latest_publications or []]
+        for source in publication_sources:
+            for pub in source:
+                title = pub.get("bib", {}).get("title", "")
+                normalized_title = " ".join(title.lower().split())
+                if normalized_title and normalized_title in seen_titles:
+                    continue
+                if normalized_title:
+                    seen_titles.add(normalized_title)
+
+                pub_info = {
+                    "title": title,
+                    "year": pub.get("bib", {}).get("pub_year", ""),
+                    "citations": pub.get("num_citations", 0),
+                    "authors": pub.get("bib", {}).get("author", ""),
+                }
+                publications.append(pub_info)
 
         return {
             "name": author.get("name", ""),

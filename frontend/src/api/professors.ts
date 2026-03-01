@@ -1,5 +1,12 @@
 import client from './client'
-import type { Professor, ProfessorListItem, ScholarSearchResult, PaginatedResponse } from '@/types'
+import type {
+  Professor,
+  PaperSummary,
+  ProfessorListItem,
+  ScholarSearchResult,
+  PaginatedResponse,
+  ProfessorEditPreviewResponse,
+} from '@/types'
 import type { TaskStartResponse } from './tasks'
 
 export interface UniversityCrawlerInfo {
@@ -13,6 +20,8 @@ export interface ProfessorCreate {
   email?: string
   homepage?: string
   research_interests: string[]
+  manual_notes?: string
+  paper_summaries?: PaperSummary[]
 }
 
 export interface ProfessorListParams {
@@ -60,6 +69,38 @@ export const professorsApi = {
 
   async update(id: number, data: Partial<ProfessorCreate>): Promise<Professor> {
     const response = await client.put<Professor>(`/professors/${id}`, data)
+    return response.data
+  },
+
+  async editPreview(
+    id: number,
+    payload: {
+      manual_patch?: Partial<ProfessorCreate>
+      source_input_ids?: number[]
+    }
+  ): Promise<ProfessorEditPreviewResponse> {
+    const response = await client.post<ProfessorEditPreviewResponse>(
+      `/professors/${id}/edit-preview`,
+      payload
+    )
+    return response.data
+  },
+
+  async applyEdits(
+    id: number,
+    payload: {
+      manual_patch?: Partial<ProfessorCreate>
+      source_input_ids?: number[]
+    }
+  ): Promise<Professor> {
+    const response = await client.post<Professor>(`/professors/${id}/apply-edits`, payload)
+    return response.data
+  },
+
+  async startPaperSummary(id: number, sourceInputIds: number[]): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(`/professors/${id}/summarize-sources`, {
+      source_input_ids: sourceInputIds,
+    })
     return response.data
   },
 

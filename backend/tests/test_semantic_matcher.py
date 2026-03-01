@@ -72,6 +72,17 @@ class TestBuildProfessorText:
         assert "Paper 14" in text
         assert "Paper 15" not in text
 
+    def test_include_paper_summaries_in_professor_text(self):
+        prof = {
+            "research_interests": ["NLP"],
+            "paper_summaries": [
+                {"title": "Paper X", "summary": "This work studies language model alignment."}
+            ],
+        }
+        text = build_professor_text(prof)
+        assert "Paper X" in text
+        assert "language model alignment" in text
+
 
 # ---------------------------------------------------------------------------
 # build_profile_text

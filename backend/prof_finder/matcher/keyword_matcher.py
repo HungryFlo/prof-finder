@@ -74,8 +74,9 @@ class KeywordMatcher:
         # Match skills with publications
         profile_skills = _get_attr(profile, 'skills') or []
         professor_publications = _get_attr(professor, 'publications') or []
+        professor_summaries = _get_attr(professor, 'paper_summaries') or []
         skill_score, skill_reasons = self._match_skills_with_publications(
-            profile_skills, professor_publications
+            profile_skills, professor_publications, professor_summaries
         )
         score += skill_score * self.WEIGHTS["skill"] / 100
         reasons.extend(skill_reasons)
@@ -83,7 +84,7 @@ class KeywordMatcher:
         # Match research experience with publications
         profile_research = _get_attr(profile, 'research_experience') or []
         pub_score, pub_reasons = self._match_experience_with_publications(
-            profile_research, professor_publications
+            profile_research, professor_publications, professor_summaries
         )
         score += pub_score * self.WEIGHTS["publication"] / 100
         reasons.extend(pub_reasons)
@@ -179,7 +180,7 @@ class KeywordMatcher:
         return score, reasons
 
     def _match_skills_with_publications(
-        self, skills: list[str], publications: list[dict]
+        self, skills: list[str], publications: list[dict], paper_summaries: list[dict]
     ) -> tuple[float, list[str]]:
         """Match skills with publication topics."""
         if not skills or not publications:
@@ -187,7 +188,12 @@ class KeywordMatcher:
 
         # Extract keywords from publication titles
         pub_text = " ".join((pub.get("title") or "") for pub in publications[:10])
-        pub_keywords = self._extract_keywords(pub_text)
+        summary_text = " ".join(
+            f"{item.get('title', '')} {item.get('summary', '')}".strip()
+            for item in paper_summaries[:20]
+        )
+        all_text = f"{pub_text} {summary_text}".strip()
+        pub_keywords = self._extract_keywords(all_text)
 
         matches = []
         for skill in skills:
@@ -206,7 +212,7 @@ class KeywordMatcher:
         return score, reasons
 
     def _match_experience_with_publications(
-        self, experiences: list[dict], publications: list[dict]
+        self, experiences: list[dict], publications: list[dict], paper_summaries: list[dict]
     ) -> tuple[float, list[str]]:
         """Match research experience with professor's publications."""
         if not experiences or not publications:
@@ -221,7 +227,12 @@ class KeywordMatcher:
 
         # Extract keywords from publications
         pub_text = " ".join((pub.get("title") or "") for pub in publications[:10])
-        pub_keywords = self._extract_keywords(pub_text)
+        summary_text = " ".join(
+            f"{item.get('title', '')} {item.get('summary', '')}".strip()
+            for item in paper_summaries[:20]
+        )
+        all_text = f"{pub_text} {summary_text}".strip()
+        pub_keywords = self._extract_keywords(all_text)
 
         # Find common keywords
         common = exp_keywords & pub_keywords

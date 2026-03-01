@@ -16,6 +16,7 @@ from .routes.match import router as match_router
 from .routes.letters import router as letters_router
 from .routes.settings import router as settings_router
 from .routes.tasks import router as tasks_router
+from .routes.source_inputs import router as source_inputs_router
 
 
 def init_admin_user():
@@ -98,6 +99,7 @@ def create_app() -> FastAPI:
     app.include_router(letters_router, prefix="/api")
     app.include_router(settings_router, prefix="/api")
     app.include_router(tasks_router, prefix="/api")
+    app.include_router(source_inputs_router, prefix="/api")
     
     @app.get("/api/health")
     def health_check():
