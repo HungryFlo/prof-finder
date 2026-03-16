@@ -212,3 +212,6 @@ data/
 
 # Scholarly vendored copy (optional; use pip install scholarly)
 scholarly/
+
+# local model
+backend/allenai-specter/
