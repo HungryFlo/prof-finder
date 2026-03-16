@@ -14,6 +14,16 @@ const client = axios.create({
 client.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const authStore = useAuthStore()
+    // Ensure FormData requests are sent as multipart/form-data with boundary.
+    // If JSON content-type is kept, backend File/Form fields will be missing.
+    if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+      if (config.headers && typeof (config.headers as any).delete === 'function') {
+        ;(config.headers as any).delete('Content-Type')
+      } else if (config.headers) {
+        delete (config.headers as any)['Content-Type']
+      }
+    }
+
     if (authStore.accessToken) {
       config.headers.Authorization = `Bearer ${authStore.accessToken}`
     }

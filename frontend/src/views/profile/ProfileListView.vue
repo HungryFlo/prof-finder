@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, h } from 'vue'
+import { ref, onMounted, h, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   NCard,
@@ -34,6 +34,7 @@ const selectedRowKeys = ref<number[]>([])
 const showUploadModal = ref(false)
 const uploadLoading = ref(false)
 const uploadFile = ref<UploadFileInfo | null>(null)
+const uploadRawFile = shallowRef<File | null>(null)
 const uploadTitle = ref('')
 const useLlm = ref(true)
 
@@ -188,18 +189,20 @@ async function handleBatchDelete() {
 // Handle file upload
 function handleFileChange(options: { file: UploadFileInfo; fileList: UploadFileInfo[] }) {
   uploadFile.value = options.file
+  const candidate = options.file?.file
+  uploadRawFile.value = candidate instanceof File ? candidate : null
 }
 
-async function handleUpload() {
-  if (!uploadFile.value?.file || !uploadTitle.value) {
+async function handleUpload(): Promise<boolean> {
+  if (!uploadRawFile.value || !uploadTitle.value) {
     message.warning('请选择文件并输入标题')
-    return
+    return false
   }
 
   uploadLoading.value = true
   try {
     const result = await profilesApi.upload(
-      uploadFile.value.file,
+      uploadRawFile.value,
       uploadTitle.value,
       useLlm.value
     )
@@ -207,9 +210,27 @@ async function handleUpload() {
     parseMessage.value = result.message
     showUploadModal.value = false
     showConfirmModal.value = true
+    return false
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '上传解析失败')
+    const err = error as {
+      code?: string
+      message?: string
+      response?: { status?: number; data?: { detail?: string } }
+    }
+    const detailValue = err.response?.data?.detail
+    const detailText = Array.isArray(detailValue)
+      ? detailValue
+          .map((item) => (typeof item === 'object' && item ? item.msg || JSON.stringify(item) : String(item)))
+          .join('; ')
+      : detailValue
+
+    const detail =
+      detailText ||
+      (err.code === 'ECONNABORTED' ? '请求超时（上传或解析耗时较长）' : '') ||
+      err.message ||
+      '上传解析失败'
+    message.error(`上传解析失败：${detail}`)
+    return false
   } finally {
     uploadLoading.value = false
   }
@@ -234,6 +255,7 @@ async function handleConfirmSave() {
 // Reset upload modal
 function resetUploadModal() {
   uploadFile.value = null
+  uploadRawFile.value = null
   uploadTitle.value = ''
   useLlm.value = true
 }

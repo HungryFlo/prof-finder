@@ -201,6 +201,21 @@ Python, Java
         assert method == "regex"
         assert "Python" in result.skills
 
+    @patch("prof_finder.parser.smart_parser.LLMParser")
+    def test_fallback_when_llm_init_unexpected_error(self, mock_llm_parser_class):
+        """Test fallback to regex when LLM parser initialization raises non-ValueError."""
+        mock_llm_parser_class.side_effect = RuntimeError("init failed")
+
+        content = r"""
+\section{Skills}
+Python, TensorFlow
+"""
+        smart = SmartParser(prefer_llm=True)
+        result, method = smart.parse(content, ".tex")
+
+        assert method == "regex"
+        assert "Python" in result.skills
+
     def test_regex_only_mode(self):
         """Test regex-only mode skips LLM."""
         content = """# Test Name

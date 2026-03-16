@@ -37,7 +37,8 @@ class SmartParser:
         if self._llm_parser is None and self.prefer_llm:
             try:
                 self._llm_parser = LLMParser()
-            except ValueError as e:
+            except Exception as e:
+                # Any initialization failure should gracefully fall back to regex parser.
                 logger.warning(f"Could not initialize LLM parser: {e}")
         return self._llm_parser
 

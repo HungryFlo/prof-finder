@@ -1,5 +1,6 @@
 """Profile management API routes."""
 
+from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
@@ -110,12 +111,12 @@ async def upload_profile(
     """
     # Validate file extension
     filename = file.filename or ""
-    ext = filename.lower().split(".")[-1] if "." in filename else ""
-    
-    if ext not in ["md", "tex"]:
+    ext = Path(filename).suffix.lower()
+
+    if ext not in [".md", ".markdown", ".tex", ".latex"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="仅支持 .md 和 .tex 格式的文件",
+            detail="仅支持 .md/.markdown/.tex/.latex 格式的文件",
         )
     
     # Read file content
@@ -136,10 +137,10 @@ async def upload_profile(
     
     # Parse the file
     parser = SmartParser(prefer_llm=use_llm)
-    source_format = "markdown" if ext == "md" else "latex"
+    source_format = "markdown" if ext in [".md", ".markdown"] else "latex"
     
     try:
-        parsed, parse_method = parser.parse(text_content, source_format)
+        parsed, parse_method = parser.parse(text_content, ext)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

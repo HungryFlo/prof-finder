@@ -3,20 +3,26 @@
 from __future__ import annotations
 
 from typing import Optional
+from pathlib import Path
 
 import numpy as np
 
 # Singleton — loaded once, reused across all match tasks in the process lifetime.
 _model = None
+_LOCAL_MODEL_PATH = Path(__file__).resolve().parents[2] / "allenai-specter"
 
 
 def _get_model():
-    """Lazily load the allenai-specter model (downloaded ~400 MB on first use)."""
+    """Lazily load the allenai-specter model, preferring local disk cache."""
     global _model
     if _model is None:
         from sentence_transformers import SentenceTransformer
 
-        _model = SentenceTransformer("allenai-specter")
+        if _LOCAL_MODEL_PATH.exists():
+            # Force local load to avoid runtime download/network flakiness.
+            _model = SentenceTransformer(str(_LOCAL_MODEL_PATH), local_files_only=True)
+        else:
+            _model = SentenceTransformer("allenai-specter")
     return _model
 
 

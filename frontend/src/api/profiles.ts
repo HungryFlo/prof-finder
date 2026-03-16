@@ -24,9 +24,8 @@ export const profilesApi = {
     formData.append('use_llm', String(useLlm))
     
     const response = await client.post<ProfileUploadResponse>('/profiles/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+      // Resume parsing (especially with LLM) can take longer than default API calls.
+      timeout: 120000,
     })
     return response.data
   },

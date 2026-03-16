@@ -148,6 +148,28 @@ Python, Machine Learning
         data = response.json()
         assert "parsed_data" in data
 
+    def test_upload_latex_extension_success(self, test_client: TestClient, auth_headers: dict):
+        """Test successful .latex file upload."""
+        content = rb"""
+\documentclass{article}
+\begin{document}
+\section{Skills}
+Python, Machine Learning
+\end{document}
+"""
+        files = {"file": ("resume.latex", BytesIO(content), "text/x-latex")}
+        data = {"title": "My CV", "use_llm": "false"}
+
+        response = test_client.post(
+            "/api/profiles/upload",
+            headers=auth_headers,
+            files=files,
+            data=data,
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert "parsed_data" in payload
+
     def test_upload_invalid_extension(self, test_client: TestClient, auth_headers: dict):
         """Test upload with invalid file extension."""
         files = {"file": ("resume.pdf", BytesIO(b"content"), "application/pdf")}

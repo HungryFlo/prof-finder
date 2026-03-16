@@ -11,15 +11,15 @@ resume_extraction:
     - 所有字段都应该是字符串或数组
     - 如果某个字段无法从简历中提取，使用 null
     - 时间段格式统一为 "YYYY-YYYY" 或 "YYYY-至今"
-    - 学位请标准化为：本科、硕士、博士
-    - 技能列表应该是具体的技术或能力名称
+    - 学位请标准化为：本科、硕士、博士、交换生
+    - 技能列表应该是具体的能力名称，5个左右比较合适，同类的可以合并
     
     JSON Schema:
     {
       "name": "string | null",
       "education": [
         {
-          "degree": "本科|硕士|博士",
+          "degree": "本科|硕士|博士|交换生",
           "school": "学校名称",
           "major": "专业名称 | null",
           "period": "YYYY-YYYY | null"

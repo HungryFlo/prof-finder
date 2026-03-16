@@ -17,6 +17,7 @@
 \usepackage[fontset=fandol]{ctex}
 \usepackage{enumitem}
 \usepackage{booktabs}
+\usepackage{multirow}
 \pagestyle{empty}
 
 %----------------------------------------------------------
@@ -192,20 +193,55 @@ prof-finder/
 |  |  |- matcher/            # 匹配算法（关键词 + 语义）
 |  |  |- models/             # ORM 数据模型
 |  |  |- parser/             # 简历解析器
-|  |  └- prompts/            # YAML 格式的 Prompt 模板
-|  └- tests/                 # pytest 测试套件
+|  |  `- prompts/            # YAML 格式的 Prompt 模板
+|  `- tests/                 # pytest 测试套件
 |- frontend/                 # Vue 3 前端 SPA
-|  └- src/
+|  `- src/
 |     |- api/                # Axios 封装
 |     |- components/         # 通用组件（任务面板、文档输入面板）
 |     |- router/             # Vue Router（含权限守卫）
 |     |- stores/             # Pinia 状态（认证、任务）
 |     |- types/              # TypeScript 接口定义
-|     └- views/              # 页面级视图组件
+|     `- views/              # 页面级视图组件
 |- openspec/                 # 规范驱动开发文档
 |- pyproject.toml            # Poetry 依赖配置
-└- .env.example              # 环境变量模板
+`- .env.example              # 环境变量模板
 \end{lstlisting}
+
+\subsection{src-layout 与包结构设计}
+
+\textbf{src-layout} 是 Python 社区推荐的现代项目结构规范，其核心思想是：\textbf{将可安装的包源码放在独立的 \texttt{src/} 或等价目录下，与测试、配置、脚本等分离}。
+
+\subsubsection{两种常见布局对比}
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{布局} & \textbf{结构} & \textbf{问题} \\
+\hline
+Flat 布局 & \texttt{prof\_finder/} 与 \texttt{tests/} 并列于根目录 & 易发生导入冲突 \\
+\hline
+src-layout & \texttt{src/prof\_finder/} 与 \texttt{tests/} 分离 & 测试时强制使用已安装包 \\
+\hline
+\end{tabular}
+\end{center}
+
+在 Flat 布局下，若直接执行 \texttt{pytest} 或 \texttt{python -m pytest}，Python 可能优先从当前目录加载 \texttt{prof\_finder}，而非从 \texttt{site-packages} 加载。这会导致：开发环境与生产环境行为不一致；本地修改未 \texttt{poetry install} 时测试可能通过，但打包发布后行为异常。
+
+\subsubsection{本项目的实现}
+
+本项目采用前后端分离后，后端 Python 包位于 \texttt{backend/prof\_finder/}，\texttt{backend/} 在语义上等价于 \texttt{src/}，作为包源码的根目录。\texttt{pyproject.toml} 中配置为：
+
+\begin{lstlisting}[caption=pyproject.toml 中的包声明]
+[tool.poetry]
+packages = [{include = "prof_finder", from = "backend"}]
+\end{lstlisting}
+
+执行 \texttt{poetry install} 时，Poetry 会将 \texttt{backend/prof\_finder} 作为可安装包安装到虚拟环境中。运行测试时，\texttt{pytest} 从 \texttt{backend/tests/} 执行，导入的是已安装的 \texttt{prof\_finder}，而非当前目录下的源码，从而保证测试针对的是“真实安装后的包”，与发布后的行为一致。
+
+\begin{keypoint}
+src-layout 的价值：\textbf{避免导入冲突}（开发时不会误导入项目根目录下的同名模块）、\textbf{便于打包发布}（setuptools/poetry 能正确识别包边界）、\textbf{测试更可靠}（始终针对已安装的包进行测试）。
+\end{keypoint}
 
 \begin{thinkquestion}
 \textbf{为什么选择 FastAPI？} FastAPI 天然支持 async/await，有利于处理 I/O 密集型操作（如 LLM 调用、爬虫请求）；内置 Pydantic 数据验证；自动生成 OpenAPI 文档；性能接近 Node.js/Go。相比 Flask/Django，更适合构建现代异步 API 服务。
@@ -654,6 +690,100 @@ USER_PROMPT = f"""
 \section{前端设计}
 %==========================================================
 
+\subsection{HTML 入门知识}
+
+前端开发建立在 Web 三件套之上：\textbf{HTML}（结构）、\textbf{CSS}（样式）、\textbf{JavaScript}（交互）。本小节简要介绍 HTML 的基础概念，为理解 Vue 等前端框架奠定基础。
+
+\subsubsection{文档结构与基本标签}
+
+HTML（HyperText Markup Language）使用\textbf{标签}（tag）描述页面结构。一个最简页面包含：
+
+\begin{lstlisting}[caption=HTML 文档基本结构]
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>页面标题</title>
+</head>
+<body>
+  <h1>一级标题</h1>
+  <p>这是一个段落。</p>
+</body>
+</html>
+\end{lstlisting}
+
+\begin{itemize}
+    \item \texttt{<!DOCTYPE html>}：声明文档类型为 HTML5
+    \item \texttt{<html>}：根元素，\texttt{lang} 指定语言
+    \item \texttt{<head>}：元信息（字符集、标题、样式、脚本引用）
+    \item \texttt{<body>}：可见内容区域
+\end{itemize}
+
+\subsubsection{常用文本与结构标签}
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{标签} & \textbf{用途} \\
+\hline
+\texttt{<h1>}--\texttt{<h6>} & 标题（一级到六级） \\
+\texttt{<p>} & 段落 \\
+\texttt{<strong>} / \texttt{<b>} & 加粗 \\
+\texttt{<em>} / \texttt{<i>} & 斜体 \\
+\texttt{<br>} & 换行（自闭合） \\
+\texttt{<div>} & 块级容器，用于布局分组 \\
+\texttt{<span>} & 行内容器，用于内联样式或脚本标记 \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsubsection{列表、链接与图片}
+
+\begin{lstlisting}[caption=列表、链接与图片示例]
+<ul>
+  <li>无序列表项 1</li>
+  <li>无序列表项 2</li>
+</ul>
+<ol>
+  <li>有序列表项 1</li>
+</ol>
+<a href="https://example.com" target="_blank">链接文字</a>
+<img src="图片地址" alt="替代文字">
+\end{lstlisting}
+
+\texttt{<a>} 的 \texttt{href} 指定跳转地址，\texttt{target="\_blank"} 表示新标签页打开；\texttt{<img>} 的 \texttt{alt} 在图片无法加载时显示，对无障碍访问很重要。
+
+\subsubsection{表单与输入}
+
+表单用于收集用户输入，常见控件包括：
+
+\begin{lstlisting}[caption=表单输入示例]
+<form>
+  <label for="name">姓名：</label>
+  <input type="text" id="name" placeholder="请输入">
+  <input type="checkbox" id="agree"> 我已同意
+  <input type="submit" value="提交">
+</form>
+\end{lstlisting}
+
+\texttt{type} 可取 \texttt{text}、\texttt{password}、\texttt{email}、\texttt{checkbox}、\texttt{radio}、\texttt{submit} 等；\texttt{label} 的 \texttt{for} 与 \texttt{input} 的 \texttt{id} 关联，点击标签可聚焦输入框。
+
+\subsubsection{HTML、CSS、JavaScript 的分工}
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{技术} & \textbf{职责} & \textbf{示例} \\
+\hline
+HTML & 结构、语义 & \texttt{<h1>}、\texttt{<form>}、\texttt{<button>} \\
+CSS & 外观、布局 & 颜色、字体、flex/grid 布局 \\
+JavaScript & 交互、动态更新 & 点击事件、DOM 操作、数据请求 \\
+\hline
+\end{tabular}
+\end{center}
+
+Vue 等现代框架在编译时会将组件模板转换为 HTML，将样式封装为 CSS，将逻辑编译为 JavaScript。理解 HTML 基础有助于阅读 Vue 模板和调试渲染结果。
+
 \subsection{页面路由与权限控制}
 
 \begin{center}
@@ -677,7 +807,7 @@ USER_PROMPT = f"""
 
 路由守卫在 \texttt{router/index.ts} 中实现，每次路由跳转前检查：
 
-\begin{lstlisting}[language=TypeScript, caption=Vue Router 全局前置守卫]
+\begin{lstlisting}[language=Java, caption=Vue Router 全局前置守卫]
 router.beforeEach(async (to, from, next) => {
   const auth = useAuthStore()
   if (!auth.isAuthenticated && !publicRoutes.includes(to.name)) {
@@ -705,7 +835,7 @@ router.beforeEach(async (to, from, next) => {
     \item \textbf{页面刷新恢复}：组件挂载时调用 \texttt{restoreFromServer()}，向后端请求仍在运行的任务列表，重新订阅 SSE，保证刷新后进度不丢失
 \end{itemize}
 
-\begin{lstlisting}[language=TypeScript, caption=任务 Store 的 SSE 订阅逻辑]
+\begin{lstlisting}[language=Java, caption=任务 Store 的 SSE 订阅逻辑]
 // stores/tasks.ts
 function addTask(taskId: string, type: string, title: string) {
   const source = new EventSource(`/api/tasks/${taskId}/progress`)
@@ -740,6 +870,132 @@ function addTask(taskId: string, type: string, title: string) {
 \end{enumerate}
 
 %==========================================================
+\section{软件开发流程与敏捷开发}
+%==========================================================
+
+软件工程不仅关注代码实现，更关注如何以可预测、可维护的方式组织开发活动。本节介绍软件开发流程的演进及敏捷开发的核心思想，为理解本项目的 OpenSpec 实践奠定基础。
+
+\subsection{软件开发流程概述}
+
+软件开发流程（Software Development Process）定义了从需求到交付的各个阶段及其顺序。经典模型包括：
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{模型} & \textbf{特点} & \textbf{适用场景} \\
+\hline
+瀑布模型 & 需求 $\rightarrow$ 设计 $\rightarrow$ 实现 $\rightarrow$ 测试 $\rightarrow$ 部署，阶段串行 & 需求稳定、合同式项目 \\
+\hline
+迭代模型 & 分多轮迭代，每轮包含完整小周期 & 需求逐步清晰 \\
+\hline
+敏捷模型 & 短周期迭代、持续交付、拥抱变化 & 需求多变、快速反馈 \\
+\hline
+\end{tabular}
+\end{center}
+
+\textbf{瀑布模型}的问题在于：需求往往在开发过程中变化，前期设计一旦锁定，后期调整成本高。\textbf{敏捷开发}正是为应对需求不确定、需要快速响应而提出的。
+
+\subsection{敏捷开发的核心原则}
+
+敏捷（Agile）源于 2001 年的《敏捷宣言》（Agile Manifesto），强调：
+
+\begin{itemize}
+    \item \textbf{个体与互动} 优于流程与工具
+    \item \textbf{可工作的软件} 优于详尽的文档
+    \item \textbf{客户协作} 优于合同谈判
+    \item \textbf{响应变化} 优于遵循计划
+\end{itemize}
+
+"优于"并非"取代"——敏捷并不排斥文档，而是优先保证交付可运行、可验证的软件，并通过短周期迭代持续收集反馈、调整方向。
+
+\subsection{Scrum 与迭代实践}
+
+Scrum 是最常用的敏捷框架之一，核心概念包括：
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{概念} & \textbf{说明} \\
+\hline
+Sprint & 固定时间盒（通常 1--4 周），一次迭代周期 \\
+\hline
+Product Backlog & 产品待办列表，按优先级排序的需求项 \\
+\hline
+Sprint Backlog & 当前 Sprint 承诺完成的任务 \\
+\hline
+Daily Standup & 每日站会，同步进度与阻塞 \\
+\hline
+Sprint Review & 迭代结束时演示可交付成果 \\
+\hline
+Retrospective & 回顾会，反思改进点 \\
+\hline
+\end{tabular}
+\end{center}
+
+迭代的核心是：\textbf{每个 Sprint 结束时交付可交付、可演示的增量}，避免"大爆炸"式交付。
+
+\subsection{与敏捷相契合的实践}
+
+\begin{itemize}
+    \item \textbf{持续集成（CI）}：代码频繁合并到主分支，自动运行测试，及早发现集成问题。
+    \item \textbf{持续交付（CD）}：在 CI 基础上，自动化部署到测试/生产环境，缩短交付周期。
+    \item \textbf{用户故事}：以"作为 X，我希望 Y，以便 Z"的形式描述需求，便于拆分与优先级排序。
+    \item \textbf{任务看板}：用看板（Kanban）管理任务状态（待办、进行中、已完成），可视化工作流。
+\end{itemize}
+
+\subsection{Vibe Coding 与 AI 辅助开发}
+
+\textbf{Vibe Coding}（氛围编程）是近年来兴起的一种开发范式，由 AI 研究者 Andrej Karpathy 等提出并推广。其核心思想是：\textbf{用自然语言描述想要实现的功能，由 AI 工具负责具体实现}，开发者更多扮演"描述者"和"评审者"的角色，而非逐行手写代码。
+
+\subsubsection{典型工作流}
+
+\begin{enumerate}
+    \item \textbf{描述愿景}：用自然语言说明需求，例如"创建一个支持暗色模式和云同步的待办应用"。
+    \item \textbf{AI 生成实现}：AI 分析需求并生成完整、可运行的代码。
+    \item \textbf{测试与迭代}：运行应用，通过对话式提示词修正问题，而非大量手动改代码。
+    \item \textbf{部署}：在 AI 辅助下完成 DevOps 与上线。
+\end{enumerate}
+
+\subsubsection{两种取向}
+
+Vibe coding 存在一个光谱：
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{取向} & \textbf{特点} \\
+\hline
+纯 Vibe 编码 & 高度信任 AI 输出，适合快速原型、一次性项目 \\
+\hline
+负责任的 AI 辅助开发 & AI 作为"结对程序员"，开发者审查、测试、验证后再合并 \\
+\hline
+\end{tabular}
+\end{center}
+
+对于生产级项目，更推荐后者：AI 加速实现，但人类负责架构决策、安全审查和最终验收。
+
+\subsubsection{优势与局限}
+
+\textbf{优势}：开发速度显著提升；降低语法与调试的认知负担；非程序员也能借助 AI 实现简单应用；开发者可更聚焦于问题建模与创意。
+
+\textbf{局限}：AI 可能产生看似正确但存在隐患的代码；复杂系统需要人类把握整体架构；过度依赖 AI 可能削弱对底层原理的理解。
+
+\subsubsection{与 OpenSpec 的互补}
+
+本项目的 OpenSpec 流程与 Vibe coding 可形成互补：\textbf{规范文档为 AI 提供上下文}。清晰的 proposal、design、tasks 让 AI 助手准确理解"做什么"和"不做什么"，减少误操作；人类负责写规范、做决策，AI 负责实现细节，兼顾效率与可控性。
+
+\subsection{本项目中的实践}
+
+Prof-Finder 的 OpenSpec 流程与敏捷思想有诸多契合之处：
+
+\begin{itemize}
+    \item \textbf{小步迭代}：每个 change 对应一个独立功能，可单独完成、可单独验证。
+    \item \textbf{先写规范再编码}：proposal 相当于用户故事，design 相当于技术设计，tasks 相当于 Sprint Backlog。
+    \item \textbf{可追溯性}：每个变更都有 proposal、design、tasks 文档，便于回顾与交接。
+    \item \textbf{灵活调整}：变更可随时新增、归档，不依赖固定周期，适合个人或小团队节奏。
+\end{itemize}
+
+%==========================================================
 \section{规范驱动开发（OpenSpec）}
 %==========================================================
 
@@ -752,12 +1008,12 @@ openspec/
 |- AGENTS.md        # AI 助手工作指南
 |- project.md       # 项目全局描述
 |- specs/           # 当前系统能力的规范文档
-└- changes/         # 变更提案（每个功能一个目录）
+`- changes/         # 变更提案（每个功能一个目录）
    |- add-semantic-matching/
    |  |- proposal.md   # 问题描述与方案概述
    |  |- design.md     # 详细设计
-   |  └- tasks.md      # 任务清单（含完成状态）
-   └- archive/         # 已完成的变更
+   |  `- tasks.md      # 任务清单（含完成状态）
+   `- archive/         # 已完成的变更
 \end{lstlisting}
 
 \subsection{变更流程}
@@ -853,6 +1109,128 @@ API 测试使用 FastAPI 的 \texttt{TestClient}（HTTPX），数据库使用内
     \item \textbf{网页爬虫稳定性}：高校官网维护质量参差不齐，爬虫维护成本高。可引入更智能的网页解析（如用 LLM 直接分析网页 DOM）提高鲁棒性。
 
     \item \textbf{邮件 Prompt 质量}：生成邮件的个性化程度和质量依赖 Prompt 设计，可进一步细化 Prompt，加入更多上下文。
+\end{itemize}
+
+%==========================================================
+\section{网页与服务器部署基础}
+%==========================================================
+
+将开发完成的应用部署到服务器，使其对外提供 Web 服务，是软件工程中的重要环节。本节介绍前后端分离架构下的部署基础知识和典型流程。
+
+\subsection{部署架构概述}
+
+前后端分离应用通常包含两类资源：
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{类型} & \textbf{来源} & \textbf{特点} \\
+\hline
+静态资源 & 前端构建产物（HTML、CSS、JS、图片） & 可直接由 Web 服务器或 CDN 分发 \\
+\hline
+动态 API & 后端服务（FastAPI、Django 等） & 需运行应用进程，处理业务逻辑 \\
+\hline
+\end{tabular}
+\end{center}
+
+用户浏览器访问时，先加载静态页面，页面内的 JavaScript 再通过 HTTP 请求调用后端 API。因此部署需要同时提供：\textbf{静态资源托管} 和 \textbf{API 服务运行}。
+
+\subsection{核心概念}
+
+\subsubsection{Web 服务器与反向代理}
+
+\textbf{Web 服务器}（如 Nginx、Apache、Caddy）负责接收 HTTP 请求、返回响应。在前后端分离场景中，它常充当\textbf{反向代理}：
+
+\begin{itemize}
+    \item 将 \texttt{/}、\texttt{/login} 等页面请求转发到静态文件目录，或由前端路由（如 Vue Router 的 history 模式）统一返回 \texttt{index.html}
+    \item 将 \texttt{/api/*} 请求转发到后端应用进程（如运行在 \texttt{localhost:8000} 的 Uvicorn）
+\end{itemize}
+
+这样用户只需访问同一域名（如 \texttt{https://example.com}），无需关心前端和后端实际运行在不同端口。
+
+\subsubsection{前端构建}
+
+开发时使用 \texttt{npm run dev} 启动 Vite 开发服务器，支持热更新；生产环境则需\textbf{构建}为静态文件：
+
+\begin{lstlisting}[caption=前端构建命令]
+cd frontend
+npm run build
+\end{lstlisting}
+
+构建完成后，\texttt{dist/} 目录下会生成优化、压缩后的 HTML、CSS、JS 文件，可直接部署到任意静态文件服务器。
+
+\subsubsection{后端进程管理}
+
+后端 Python 应用需常驻运行。开发时用 \texttt{uvicorn ... --reload} 启动；生产环境建议：
+
+\begin{itemize}
+    \item 使用 \texttt{gunicorn} + \texttt{uvicorn} worker 或直接 \texttt{uvicorn} 多 worker
+    \item 配合 \texttt{systemd}、\texttt{supervisor} 或 Docker 实现进程守护、开机自启
+\end{itemize}
+
+\subsection{典型部署流程}
+
+以本（Prof-Finder）项目为例，部署流程可概括为：
+
+\begin{enumerate}
+    \item \textbf{环境准备}：在服务器上安装 Python 3.10+、Node.js 18+、Poetry；创建并激活 conda/venv 环境。
+
+    \item \textbf{后端部署}：
+    \begin{lstlisting}[caption=后端部署步骤]
+git clone <repo-url>
+cd prof-finder
+conda activate prof-finder
+poetry install
+cp .env.example .env
+# 编辑 .env，至少设置 DEEPSEEK_API_KEY、DATABASE_PATH
+uvicorn backend.prof_finder.api.main:app --host 0.0.0.0 --port 8000
+    \end{lstlisting}
+
+    \item \textbf{前端构建与部署}：
+    \begin{lstlisting}[caption=前端构建与部署]
+cd frontend
+npm install
+npm run build
+# 将 dist/ 目录内容复制到 Nginx 的静态文件根目录
+    \end{lstlisting}
+
+    \item \textbf{Nginx 配置}：配置反向代理，将 \texttt{/api} 转发到后端，其余请求指向 \texttt{dist/} 目录。
+\end{enumerate}
+
+\subsection{Nginx 配置示例}
+
+\begin{lstlisting}[caption=简化版 Nginx 配置]
+server {
+    listen 80;
+    server_name example.com;
+    root /var/www/prof-finder/frontend/dist;
+    index index.html;
+
+    # 前端路由：所有非 API、非静态文件请求返回 index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # API 转发到后端
+    location /api {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+\end{lstlisting}
+
+\texttt{try\_files} 确保 Vue Router 的 history 模式下，直接访问 \texttt{/professor} 等路径时仍能正确返回 \texttt{index.html}，由前端路由接管。
+
+\subsection{部署 checklist}
+
+\begin{itemize}
+    \item \textbf{环境变量}：\texttt{.env} 中的 API Key、数据库路径等敏感信息不要提交到版本库；生产环境使用独立配置。
+    \item \textbf{HTTPS}：使用 Let's Encrypt 等工具免费申请证书，配置 Nginx 的 \texttt{ssl\_certificate} 与 \texttt{ssl\_certificate\_key}。
+    \item \textbf{数据库}：SQLite 适合单机部署；若需多实例，可迁移至 PostgreSQL 等。
+    \item \textbf{日志与监控}：配置 uvicorn 日志输出、Nginx 访问日志，便于排查问题。
 \end{itemize}
 
 %==========================================================
