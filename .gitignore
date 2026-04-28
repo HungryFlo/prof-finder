@@ -215,3 +215,5 @@ scholarly/
 
 # local model
 backend/allenai-specter/
+
+reference/
