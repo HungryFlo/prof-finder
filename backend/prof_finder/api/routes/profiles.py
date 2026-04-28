@@ -1,21 +1,23 @@
 """Profile management API routes."""
 
+import asyncio
 from pathlib import Path
-from typing import List, Optional
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from ...models.schema import User, UserProfile
-from ...parser.smart_parser import SmartParser
 from ..deps import get_db_session, get_current_user
 from ..schemas import (
     ProfileCreate,
     ProfileUpdate,
     ProfileResponse,
-    ProfileUploadResponse,
+    TaskStartResponse,
     BatchDeleteRequest,
     MessageResponse,
 )
+from ..task_manager import cleanup_old_tasks, create_task, execute_profile_parse
 
 router = APIRouter(prefix="/profiles", tags=["简历管理"])
 
@@ -26,11 +28,11 @@ def list_profiles(
     session: Session = Depends(get_db_session),
 ):
     """List all profiles for current user.
-    
+
     Args:
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         List of user's profiles.
     """
@@ -50,12 +52,12 @@ def create_profile(
     session: Session = Depends(get_db_session),
 ):
     """Create a new profile manually.
-    
+
     Args:
         data: Profile data.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Created profile.
     """
@@ -64,7 +66,7 @@ def create_profile(
         UserProfile.user_id == current_user.id,
         UserProfile.is_active == True,
     ).update({"is_active": False})
-    
+
     # Create new profile
     profile = UserProfile(
         user_id=current_user.id,
@@ -81,11 +83,11 @@ def create_profile(
     session.add(profile)
     session.flush()
     session.refresh(profile)
-    
+
     return profile
 
 
-@router.post("/upload", response_model=ProfileUploadResponse)
+@router.post("/upload", response_model=TaskStartResponse)
 async def upload_profile(
     file: UploadFile = File(...),
     title: str = Form(...),
@@ -93,21 +95,17 @@ async def upload_profile(
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
 ):
-    """Upload and parse a resume file.
-    
-    This endpoint parses the file but does NOT save it.
-    The frontend should display the parsed result for user confirmation,
-    then call POST /profiles to save.
-    
+    """Upload a resume file and start a background parse/save task.
+
     Args:
         file: Resume file (markdown or latex).
         title: Profile title.
         use_llm: Whether to use LLM for parsing.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
-        Parsed profile data for confirmation.
+        Task ID for progress tracking via SSE.
     """
     # Validate file extension
     filename = file.filename or ""
@@ -118,7 +116,7 @@ async def upload_profile(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="仅支持 .md/.markdown/.tex/.latex 格式的文件",
         )
-    
+
     # Read file content
     content = await file.read()
     try:
@@ -128,49 +126,39 @@ async def upload_profile(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="文件编码错误，请使用 UTF-8 编码",
         )
-    
+
     if not text_content.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="文件内容为空",
         )
-    
-    # Parse the file
-    parser = SmartParser(prefer_llm=use_llm)
-    source_format = "markdown" if ext in [".md", ".markdown"] else "latex"
-    
-    try:
-        parsed, parse_method = parser.parse(text_content, ext)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"解析失败: {str(e)}",
-        )
-    
-    # Convert to ProfileCreate schema
-    profile_data = ProfileCreate(
-        title=title,
-        name=parsed.name,
-        education=[
-            {"degree": e.degree, "school": e.school, "major": e.major, "period": e.period}
-            for e in parsed.education
-        ],
-        research_experience=[
-            {"title": r.title, "organization": r.organization, "description": r.description, "period": r.period}
-            for r in parsed.research_experience
-        ],
-        projects=[
-            {"name": p.name, "description": p.description}
-            for p in parsed.projects
-        ],
-        skills=parsed.skills,
-        raw_content=text_content,
-        source_format=source_format,
+
+    cleanup_old_tasks()
+    task = create_task(
+        task_type="profile-parse",
+        task_name=f"解析简历 · {title}",
+        user_id=current_user.id,
+        total=1,
     )
-    
-    return ProfileUploadResponse(
-        parsed_data=profile_data,
-        message=f"使用 {parse_method} 解析成功",
+    task_session_factory = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=session.get_bind(),
+    )
+    asyncio.create_task(
+        execute_profile_parse(
+            task,
+            title=title,
+            text_content=text_content,
+            extension=ext,
+            use_llm=use_llm,
+            session_factory=task_session_factory,
+        )
+    )
+
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message="已启动简历解析任务，完成后会自动保存到列表",
     )
 
 
@@ -181,12 +169,12 @@ def get_profile(
     session: Session = Depends(get_db_session),
 ):
     """Get a specific profile.
-    
+
     Args:
         profile_id: Profile ID.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Profile details.
     """
@@ -195,13 +183,13 @@ def get_profile(
         .filter(UserProfile.id == profile_id, UserProfile.user_id == current_user.id)
         .first()
     )
-    
+
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="简历不存在",
         )
-    
+
     return profile
 
 
@@ -213,13 +201,13 @@ def update_profile(
     session: Session = Depends(get_db_session),
 ):
     """Update a profile.
-    
+
     Args:
         profile_id: Profile ID.
         data: Update data.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Updated profile.
     """
@@ -228,13 +216,13 @@ def update_profile(
         .filter(UserProfile.id == profile_id, UserProfile.user_id == current_user.id)
         .first()
     )
-    
+
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="简历不存在",
         )
-    
+
     # Update fields
     if data.title is not None:
         profile.title = data.title
@@ -248,10 +236,10 @@ def update_profile(
         profile.projects = [p.model_dump() for p in data.projects]
     if data.skills is not None:
         profile.skills = data.skills
-    
+
     session.flush()
     session.refresh(profile)
-    
+
     return profile
 
 
@@ -262,12 +250,12 @@ def delete_profile(
     session: Session = Depends(get_db_session),
 ):
     """Delete a profile.
-    
+
     Args:
         profile_id: Profile ID.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Success message.
     """
@@ -276,15 +264,15 @@ def delete_profile(
         .filter(UserProfile.id == profile_id, UserProfile.user_id == current_user.id)
         .first()
     )
-    
+
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="简历不存在",
         )
-    
+
     session.delete(profile)
-    
+
     return MessageResponse(message="简历已删除")
 
 
@@ -295,12 +283,12 @@ def activate_profile(
     session: Session = Depends(get_db_session),
 ):
     """Activate a profile (deactivate others).
-    
+
     Args:
         profile_id: Profile ID to activate.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Activated profile.
     """
@@ -309,23 +297,23 @@ def activate_profile(
         .filter(UserProfile.id == profile_id, UserProfile.user_id == current_user.id)
         .first()
     )
-    
+
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="简历不存在",
         )
-    
+
     # Deactivate all profiles
     session.query(UserProfile).filter(
         UserProfile.user_id == current_user.id,
     ).update({"is_active": False})
-    
+
     # Activate selected profile
     profile.is_active = True
     session.flush()
     session.refresh(profile)
-    
+
     return profile
 
 
@@ -336,12 +324,12 @@ def batch_delete_profiles(
     session: Session = Depends(get_db_session),
 ):
     """Batch delete profiles.
-    
+
     Args:
         data: List of profile IDs to delete.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Success message with count.
     """
@@ -350,5 +338,5 @@ def batch_delete_profiles(
         .filter(UserProfile.id.in_(data.ids), UserProfile.user_id == current_user.id)
         .delete(synchronize_session=False)
     )
-    
+
     return MessageResponse(message=f"已删除 {deleted_count} 份简历")

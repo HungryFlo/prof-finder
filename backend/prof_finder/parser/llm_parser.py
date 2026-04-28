@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 class LLMParserError(Exception):
     """Exception raised when LLM parsing fails."""
+
     pass
 
 
@@ -29,7 +30,7 @@ class LLMParser(BaseParser):
     """Parser that uses LLM (DeepSeek API) to extract resume information."""
 
     MAX_RETRIES = 2
-    
+
     def __init__(self):
         """Initialize the LLM parser."""
         if not settings.deepseek_api_key:
@@ -47,13 +48,13 @@ class LLMParser(BaseParser):
 
     def parse(self, content: str) -> ParsedResume:
         """Parse resume content using LLM.
-        
+
         Args:
             content: Raw resume content string.
-            
+
         Returns:
             ParsedResume with extracted data.
-            
+
         Raises:
             LLMParserError: If parsing fails after all retries.
         """
@@ -84,20 +85,22 @@ class LLMParser(BaseParser):
                     continue
                 break
 
-        raise LLMParserError(f"Failed to parse resume after {self.MAX_RETRIES + 1} attempts: {last_error}")
+        raise LLMParserError(
+            f"Failed to parse resume after {self.MAX_RETRIES + 1} attempts: {last_error}"
+        )
 
     def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
         """Call the LLM API.
-        
+
         Args:
             system_prompt: System message for the LLM.
             user_prompt: User message with the resume content.
-            
+
         Returns:
             LLM response content.
         """
         response = self.client.chat.completions.create(
-            model="deepseek-chat",
+            model="deepseek-v4-flash",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -109,13 +112,13 @@ class LLMParser(BaseParser):
 
     def _parse_json_response(self, response: str) -> dict:
         """Parse JSON from LLM response.
-        
+
         Args:
             response: Raw LLM response string.
-            
+
         Returns:
             Parsed JSON dictionary.
-            
+
         Raises:
             json.JSONDecodeError: If JSON parsing fails.
         """
@@ -140,11 +143,11 @@ class LLMParser(BaseParser):
 
     def _convert_to_parsed_resume(self, data: dict, raw_content: str) -> ParsedResume:
         """Convert parsed JSON data to ParsedResume object.
-        
+
         Args:
             data: Parsed JSON dictionary.
             raw_content: Original resume content.
-            
+
         Returns:
             ParsedResume object.
         """
@@ -152,32 +155,38 @@ class LLMParser(BaseParser):
         education = []
         for edu in data.get("education", []) or []:
             if isinstance(edu, dict):
-                education.append(EducationEntry(
-                    degree=edu.get("degree", "未知"),
-                    school=edu.get("school", "未知"),
-                    major=edu.get("major"),
-                    period=edu.get("period"),
-                ))
+                education.append(
+                    EducationEntry(
+                        degree=edu.get("degree", "未知"),
+                        school=edu.get("school", "未知"),
+                        major=edu.get("major"),
+                        period=edu.get("period"),
+                    )
+                )
 
         # Parse research experience entries
         research_experience = []
         for exp in data.get("research_experience", []) or []:
             if isinstance(exp, dict):
-                research_experience.append(ExperienceEntry(
-                    title=exp.get("title", "研究经历"),
-                    organization=exp.get("organization"),
-                    description=exp.get("description", ""),
-                    period=exp.get("period"),
-                ))
+                research_experience.append(
+                    ExperienceEntry(
+                        title=exp.get("title", "研究经历"),
+                        organization=exp.get("organization"),
+                        description=exp.get("description", ""),
+                        period=exp.get("period"),
+                    )
+                )
 
         # Parse project entries
         projects = []
         for proj in data.get("projects", []) or []:
             if isinstance(proj, dict):
-                projects.append(ProjectEntry(
-                    name=proj.get("name", "项目"),
-                    description=proj.get("description", ""),
-                ))
+                projects.append(
+                    ProjectEntry(
+                        name=proj.get("name", "项目"),
+                        description=proj.get("description", ""),
+                    )
+                )
 
         # Parse skills
         skills = []

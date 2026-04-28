@@ -181,6 +181,7 @@ export type TaskType =
   | 'single-crawl'
   | 'university-crawl'
   | 'paper-summary'
+  | 'profile-parse'
   | 'match'
   | 'single-letter'
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'

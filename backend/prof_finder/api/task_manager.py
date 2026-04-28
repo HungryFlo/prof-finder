@@ -6,7 +6,8 @@ import uuid
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Any
+from contextlib import contextmanager
+from typing import Callable, Dict, Iterator, List, Optional, Any
 from urllib.parse import urlparse, parse_qs
 
 
@@ -25,7 +26,7 @@ class TaskState:
     """State of a background task."""
 
     task_id: str
-    task_type: str  # batch-crawl | batch-letters | single-crawl | match | single-letter | paper-summary
+    task_type: str  # batch-crawl | batch-letters | single-crawl | match | single-letter | paper-summary | profile-parse
     task_name: str
     user_id: int
     status: TaskStatus
@@ -42,6 +43,20 @@ class TaskState:
 
 # In-memory task registry (lost on server restart — acceptable for personal use)
 _tasks: Dict[str, TaskState] = {}
+
+
+@contextmanager
+def _session_scope(session_factory: Callable[[], Any]) -> Iterator[Any]:
+    """Create a short-lived SQLAlchemy session from a factory."""
+    session = session_factory()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +87,8 @@ def get_task(task_id: str) -> Optional[TaskState]:
 def get_user_tasks(user_id: int) -> List[TaskState]:
     """Return PENDING / RUNNING / FAILED tasks for a user (for UI recovery)."""
     return [
-        t for t in _tasks.values()
+        t
+        for t in _tasks.values()
         if t.user_id == user_id
         and t.status in (TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.FAILED)
     ]
@@ -82,7 +98,8 @@ def cleanup_old_tasks() -> None:
     """Remove completed / cancelled tasks older than 5 minutes."""
     now = datetime.now(timezone.utc)
     stale = [
-        tid for tid, t in _tasks.items()
+        tid
+        for tid, t in _tasks.items()
         if t.status in (TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.FAILED)
         and (now - t.created_at).total_seconds() > 300
     ]
@@ -285,6 +302,100 @@ async def execute_batch_letters(
     task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
 
 
+async def execute_profile_parse(
+    task: TaskState,
+    *,
+    title: str,
+    text_content: str,
+    extension: str,
+    use_llm: bool,
+    session_factory: Optional[Callable[[], Any]] = None,
+) -> None:
+    """Parse an uploaded resume and persist it as a user profile."""
+    from ..db.database import get_db
+    from ..models.schema import UserProfile
+    from ..parser.smart_parser import SmartParser
+
+    task.status = TaskStatus.RUNNING
+    task.current = 0
+    task.total = 1
+    task.message = "正在解析简历..."
+    source_format = "markdown" if extension in [".md", ".markdown"] else "latex"
+
+    try:
+        parser = SmartParser(prefer_llm=use_llm)
+        parsed, parse_method = await asyncio.to_thread(parser.parse, text_content, extension)
+
+        task.message = "正在保存简历..."
+        if session_factory is None:
+            session_context = get_db().session
+        else:
+
+            def session_context():
+                return _session_scope(session_factory)
+
+        with session_context() as session:
+            has_active_profile = (
+                session.query(UserProfile)
+                .filter(UserProfile.user_id == task.user_id, UserProfile.is_active == True)
+                .first()
+                is not None
+            )
+            profile = UserProfile(
+                user_id=task.user_id,
+                title=title,
+                name=parsed.name,
+                education=[
+                    {
+                        "degree": e.degree,
+                        "school": e.school,
+                        "major": e.major,
+                        "period": e.period,
+                    }
+                    for e in parsed.education
+                ],
+                research_experience=[
+                    {
+                        "title": r.title,
+                        "organization": r.organization,
+                        "description": r.description,
+                        "period": r.period,
+                    }
+                    for r in parsed.research_experience
+                ],
+                projects=[{"name": p.name, "description": p.description} for p in parsed.projects],
+                skills=parsed.skills,
+                raw_content=text_content,
+                source_format=source_format,
+                is_active=not has_active_profile,
+            )
+            session.add(profile)
+            session.flush()
+            profile_id = profile.id
+            profile_title = profile.title
+            is_active = profile.is_active
+
+        task.success_count = 1
+        task.current = 1
+        task.message = f"简历解析完成：{profile_title}"
+        task.results.append(
+            {
+                "success": True,
+                "profile_id": profile_id,
+                "title": profile_title,
+                "parse_method": parse_method,
+                "is_active": is_active,
+            }
+        )
+        task.status = TaskStatus.COMPLETED
+
+    except Exception as e:
+        task.failed_count = 1
+        task.status = TaskStatus.FAILED
+        task.error_message = f"解析失败: {str(e)}"
+        task.message = "简历解析失败"
+
+
 async def execute_single_crawl(task: TaskState, scholar_url: str) -> None:
     """Crawl a single Google Scholar profile and persist the professor."""
     from ..db.database import get_db
@@ -385,19 +496,13 @@ async def execute_match(task: TaskState, profile_id: int) -> None:
 
     try:
         with db.session() as session:
-            active_profile = session.query(UserProfile).filter(
-                UserProfile.id == profile_id
-            ).first()
+            active_profile = session.query(UserProfile).filter(UserProfile.id == profile_id).first()
             if not active_profile:
                 task.status = TaskStatus.FAILED
                 task.error_message = "简历不存在"
                 return
 
-            professors = (
-                session.query(Professor)
-                .filter(Professor.user_id == task.user_id)
-                .all()
-            )
+            professors = session.query(Professor).filter(Professor.user_id == task.user_id).all()
             if not professors:
                 task.status = TaskStatus.FAILED
                 task.error_message = "请先添加教授"
@@ -407,9 +512,9 @@ async def execute_match(task: TaskState, profile_id: int) -> None:
             # Deleting records would destroy letter_content stored on MatchRecord.
             existing_records: dict[int, MatchRecord] = {
                 r.professor_id: r
-                for r in session.query(MatchRecord).filter(
-                    MatchRecord.user_profile_id == profile_id
-                ).all()
+                for r in session.query(MatchRecord)
+                .filter(MatchRecord.user_profile_id == profile_id)
+                .all()
             }
 
             profile_data = {
@@ -423,12 +528,14 @@ async def execute_match(task: TaskState, profile_id: int) -> None:
             # Prepare texts for encoding (no model access yet).
             missing = [p for p in professors if not p.embedding]
             professor_texts = [
-                build_professor_text({
-                    "research_interests": p.research_interests or [],
-                    "publications": p.publications or [],
-                    "paper_summaries": p.paper_summaries or [],
-                    "affiliation": p.affiliation or "",
-                })
+                build_professor_text(
+                    {
+                        "research_interests": p.research_interests or [],
+                        "publications": p.publications or [],
+                        "paper_summaries": p.paper_summaries or [],
+                        "affiliation": p.affiliation or "",
+                    }
+                )
                 for p in missing
             ]
             profile_text = build_profile_text(profile_data)
@@ -656,16 +763,16 @@ async def execute_university_crawl(task: TaskState, university_id: str) -> None:
 
         except Exception as e:
             task.failed_count += 1
-            task.results.append({"name": prof_data.get("name", "?"), "success": False, "error": str(e)})
+            task.results.append(
+                {"name": prof_data.get("name", "?"), "success": False, "error": str(e)}
+            )
 
         await asyncio.sleep(0)  # yield to event loop
 
     task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
     if task.status == TaskStatus.COMPLETED:
         skipped = sum(1 for r in task.results if r.get("skipped"))
-        task.message = (
-            f"完成！新增 {task.success_count} 位，跳过重复 {skipped} 位，失败 {task.failed_count} 位"
-        )
+        task.message = f"完成！新增 {task.success_count} 位，跳过重复 {skipped} 位，失败 {task.failed_count} 位"
 
 
 async def execute_professor_source_summary(
@@ -703,12 +810,14 @@ async def execute_professor_source_summary(
             return
 
         user_settings = (
-            session.query(UserSettings)
-            .filter(UserSettings.user_id == task.user_id)
-            .first()
+            session.query(UserSettings).filter(UserSettings.user_id == task.user_id).first()
         )
-        api_key = (user_settings.deepseek_api_key if user_settings else None) or app_settings.deepseek_api_key
-        base_url = (user_settings.deepseek_base_url if user_settings else None) or app_settings.deepseek_base_url
+        api_key = (
+            user_settings.deepseek_api_key if user_settings else None
+        ) or app_settings.deepseek_api_key
+        base_url = (
+            user_settings.deepseek_base_url if user_settings else None
+        ) or app_settings.deepseek_base_url
     summarizer = PaperSummarizer(api_key=api_key, base_url=base_url)
 
     for idx, source_id in enumerate(source_input_ids, start=1):
@@ -731,7 +840,9 @@ async def execute_professor_source_summary(
                 )
                 if not professor or not source:
                     task.failed_count += 1
-                    task.results.append({"source_input_id": source_id, "success": False, "error": "来源输入不存在"})
+                    task.results.append(
+                        {"source_input_id": source_id, "success": False, "error": "来源输入不存在"}
+                    )
                     continue
 
                 summary = build_paper_summary_from_source(
@@ -749,7 +860,9 @@ async def execute_professor_source_summary(
                 )
                 if not summary:
                     task.failed_count += 1
-                    task.results.append({"source_input_id": source_id, "success": False, "error": "无法生成论文总结"})
+                    task.results.append(
+                        {"source_input_id": source_id, "success": False, "error": "无法生成论文总结"}
+                    )
                     continue
 
                 existing = list(professor.paper_summaries or [])

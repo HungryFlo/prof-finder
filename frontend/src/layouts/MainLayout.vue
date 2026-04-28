@@ -26,6 +26,7 @@ import type { MenuOption } from 'naive-ui'
 import { useAuthStore } from '@/stores/auth'
 import { useTaskStore } from '@/stores/tasks'
 import TaskPanel from '@/components/TaskPanel.vue'
+import TaskNotificationHost from '@/components/TaskNotificationHost.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -127,6 +128,7 @@ function handleUserAction(key: string) {
 
 <template>
   <n-layout has-sider style="height: 100vh">
+    <TaskNotificationHost />
     <!-- Sidebar -->
     <n-layout-sider
       bordered

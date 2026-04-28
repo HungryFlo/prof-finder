@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { tasksApi } from '@/api/tasks'
 import { useAuthStore } from '@/stores/auth'
-import type { TaskType, TaskStatus } from '@/types'
+import type { TaskType, TaskStatus, TaskResult } from '@/types'
 
 export interface TaskEntry {
   taskId: string
@@ -16,8 +16,19 @@ export interface TaskEntry {
   eventSource?: EventSource
 }
 
+export interface TaskLifecycleEvent {
+  id: number
+  taskId: string
+  taskType: TaskType
+  taskName: string
+  status: 'completed' | 'failed'
+  message: string
+}
+
 export const useTaskStore = defineStore('tasks', () => {
   const activeTasks = ref<Map<string, TaskEntry>>(new Map())
+  const taskEvents = ref<TaskLifecycleEvent[]>([])
+  let nextEventId = 1
 
   // ---------------------------------------------------------------------------
   // Computed
@@ -53,6 +64,29 @@ export const useTaskStore = defineStore('tasks', () => {
     }
   }
 
+  function _completionMessage(entry: TaskEntry, result?: TaskResult): string {
+    if (entry.taskType === 'profile-parse') {
+      const profile = result?.results.find((item) => item.success && typeof item.title === 'string')
+      return profile?.title ? `简历「${profile.title}」已保存到列表` : '简历已保存到列表'
+    }
+    return entry.message || '任务已完成'
+  }
+
+  function _pushTaskEvent(
+    entry: TaskEntry,
+    status: 'completed' | 'failed',
+    message: string
+  ): void {
+    taskEvents.value.push({
+      id: nextEventId++,
+      taskId: entry.taskId,
+      taskType: entry.taskType,
+      taskName: entry.taskName,
+      status,
+      message,
+    })
+  }
+
   function _connectSSE(taskId: string, onComplete?: () => void): void {
     const authStore = useAuthStore()
     const token = authStore.accessToken ?? ''
@@ -74,11 +108,18 @@ export const useTaskStore = defineStore('tasks', () => {
       }
     })
 
-    es.addEventListener('complete', () => {
+    es.addEventListener('complete', (e: MessageEvent) => {
       const entry = activeTasks.value.get(taskId)
       if (entry) {
+        let result: TaskResult | undefined
+        try {
+          result = JSON.parse(e.data)
+        } catch {
+          result = undefined
+        }
         entry.status = 'completed'
-        entry.message = entry.message || '任务已完成'
+        entry.message = _completionMessage(entry, result)
+        _pushTaskEvent(entry, 'completed', entry.message)
       }
       es.close()
       onComplete?.()
@@ -99,6 +140,7 @@ export const useTaskStore = defineStore('tasks', () => {
       } catch {
         entry.errorMessage = '任务失败'
       }
+      _pushTaskEvent(entry, 'failed', entry.errorMessage)
       es.close()
     })
 
@@ -107,6 +149,7 @@ export const useTaskStore = defineStore('tasks', () => {
       if (entry && entry.status !== 'completed' && entry.status !== 'failed') {
         entry.status = 'failed'
         entry.errorMessage = '连接失败，任务状态未知'
+        _pushTaskEvent(entry, 'failed', entry.errorMessage)
       }
       es.close()
     }
@@ -165,6 +208,12 @@ export const useTaskStore = defineStore('tasks', () => {
     }
   }
 
+  function consumeTaskEvents(): TaskLifecycleEvent[] {
+    const events = [...taskEvents.value]
+    taskEvents.value = []
+    return events
+  }
+
   /**
    * Call GET /api/tasks on startup to recover tasks that are still running
    * on the backend after a page refresh.
@@ -194,12 +243,14 @@ export const useTaskStore = defineStore('tasks', () => {
 
   return {
     activeTasks,
+    taskEvents,
     taskList,
     runningCount,
     failedCount,
     addTask,
     removeTask,
     clearCompleted,
+    consumeTaskEvents,
     restoreFromServer,
   }
 })

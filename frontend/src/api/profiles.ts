@@ -1,10 +1,6 @@
 import client from './client'
 import type { Profile, ProfileCreate } from '@/types'
-
-export interface ProfileUploadResponse {
-  parsed_data: ProfileCreate
-  message: string
-}
+import type { TaskStartResponse } from '@/api/tasks'
 
 export const profilesApi = {
   async list(): Promise<Profile[]> {
@@ -17,16 +13,13 @@ export const profilesApi = {
     return response.data
   },
 
-  async upload(file: File, title: string, useLlm: boolean = true): Promise<ProfileUploadResponse> {
+  async upload(file: File, title: string, useLlm: boolean = true): Promise<TaskStartResponse> {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('title', title)
     formData.append('use_llm', String(useLlm))
     
-    const response = await client.post<ProfileUploadResponse>('/profiles/upload', formData, {
-      // Resume parsing (especially with LLM) can take longer than default API calls.
-      timeout: 120000,
-    })
+    const response = await client.post<TaskStartResponse>('/profiles/upload', formData)
     return response.data
   },
 

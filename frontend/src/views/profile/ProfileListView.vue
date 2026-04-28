@@ -19,11 +19,13 @@ import {
 } from 'naive-ui'
 import type { DataTableColumns, UploadFileInfo } from 'naive-ui'
 import { profilesApi } from '@/api/profiles'
-import type { Profile, ProfileCreate } from '@/types'
+import { useTaskStore } from '@/stores/tasks'
+import type { Profile } from '@/types'
 
 const router = useRouter()
 const message = useMessage()
 const dialog = useDialog()
+const taskStore = useTaskStore()
 
 // State
 const loading = ref(false)
@@ -37,11 +39,6 @@ const uploadFile = ref<UploadFileInfo | null>(null)
 const uploadRawFile = shallowRef<File | null>(null)
 const uploadTitle = ref('')
 const useLlm = ref(true)
-
-// Parsed data for confirmation
-const showConfirmModal = ref(false)
-const parsedData = ref<ProfileCreate | null>(null)
-const parseMessage = ref('')
 
 // Table columns
 const columns: DataTableColumns<Profile> = [
@@ -206,10 +203,11 @@ async function handleUpload(): Promise<boolean> {
       uploadTitle.value,
       useLlm.value
     )
-    parsedData.value = result.parsed_data
-    parseMessage.value = result.message
+    taskStore.addTask(result.task_id, 'profile-parse', `解析简历 · ${uploadTitle.value}`, 1, () => {
+      fetchProfiles()
+    })
+    message.success(result.message || '简历解析任务已加入任务列表')
     showUploadModal.value = false
-    showConfirmModal.value = true
     return false
   } catch (error: unknown) {
     const err = error as {
@@ -233,22 +231,6 @@ async function handleUpload(): Promise<boolean> {
     return false
   } finally {
     uploadLoading.value = false
-  }
-}
-
-// Handle confirm save parsed profile
-async function handleConfirmSave() {
-  if (!parsedData.value) return
-
-  try {
-    await profilesApi.create(parsedData.value)
-    message.success('保存成功')
-    showConfirmModal.value = false
-    parsedData.value = null
-    await fetchProfiles()
-  } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '保存失败')
   }
 }
 
@@ -328,39 +310,5 @@ onMounted(() => {
       </n-form>
     </n-modal>
 
-    <!-- Confirm Modal -->
-    <n-modal
-      v-model:show="showConfirmModal"
-      preset="dialog"
-      title="解析结果确认"
-      positive-text="确认保存"
-      negative-text="取消"
-      @positive-click="handleConfirmSave"
-      style="width: 600px"
-    >
-      <p style="color: #18a058">{{ parseMessage }}</p>
-      <n-form v-if="parsedData" label-placement="top">
-        <n-form-item label="姓名">
-          <n-input v-model:value="parsedData.name" placeholder="姓名" />
-        </n-form-item>
-        <n-form-item label="技能">
-          <n-input
-            :value="parsedData.skills.join(', ')"
-            @update:value="(v: string) => parsedData!.skills = v.split(',').map(s => s.trim()).filter(Boolean)"
-            placeholder="用逗号分隔"
-          />
-        </n-form-item>
-        <n-form-item label="教育经历">
-          <div v-for="(edu, index) in parsedData.education" :key="index" style="margin-bottom: 8px">
-            {{ edu.degree }} - {{ edu.school }} ({{ edu.period }})
-          </div>
-        </n-form-item>
-        <n-form-item label="研究经历">
-          <div v-for="(exp, index) in parsedData.research_experience" :key="index" style="margin-bottom: 8px">
-            {{ exp.title }} @ {{ exp.organization }}
-          </div>
-        </n-form-item>
-      </n-form>
-    </n-modal>
   </div>
 </template>
