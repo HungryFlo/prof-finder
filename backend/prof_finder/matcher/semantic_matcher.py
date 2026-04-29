@@ -34,9 +34,35 @@ def build_professor_text(professor: dict) -> str:
     """Serialise professor data to a string for encoding.
 
     Uses allenai-specter's training convention: title [SEP] body.
-    Title = research interests; body = publication titles + affiliation.
+    Title = research interests (or generated profile); body = publication titles + affiliation.
+
+    When a generated research profile is available, it becomes the primary text with
+    research interests, publication titles, paper summaries, and affiliation as supporting signals.
     """
-    interests = "; ".join(professor.get("research_interests") or [])
+    research_profile = (professor.get("research_profile") or "").strip()
+    research_profile_analysis = professor.get("research_profile_analysis") or {}
+
+    # Build title from generated profile when available, otherwise from research interests.
+    if research_profile:
+        analysis_parts: list[str] = []
+        if isinstance(research_profile_analysis, dict):
+            positioning = research_profile_analysis.get("research_positioning")
+            if positioning:
+                analysis_parts.append(str(positioning))
+            themes = research_profile_analysis.get("research_themes") or []
+            if isinstance(themes, list):
+                for item in themes:
+                    if isinstance(item, dict):
+                        theme = item.get("theme")
+                        if theme:
+                            analysis_parts.append(str(theme))
+        title = ". ".join(p for p in
+                          ([research_profile[:800]] + analysis_parts)
+                          if p)
+    else:
+        interests = "; ".join(professor.get("research_interests") or [])
+        title = interests
+
     pubs = professor.get("publications") or []
     pub_titles = ". ".join(
         p.get("title", "") for p in pubs[:15] if p.get("title")
@@ -49,11 +75,29 @@ def build_professor_text(professor: dict) -> str:
     )
     body_parts = [p for p in [pub_titles, summary_text, affiliation] if p]
     body = ". ".join(body_parts)
-    return f"{interests} [SEP] {body}"
+    return f"{title} [SEP] {body}"
 
 
 def build_profile_text(profile: dict) -> str:
     """Serialise user profile data to a string for encoding."""
+    academic_profile = (profile.get("academic_profile") or "").strip()
+    analysis = profile.get("profile_analysis") or {}
+    analysis_parts: list[str] = []
+    if isinstance(analysis, dict):
+        positioning = analysis.get("academic_positioning")
+        if positioning:
+            analysis_parts.append(str(positioning))
+        for key in ("research_interests", "target_directions", "methods_and_skills"):
+            values = analysis.get(key) or []
+            if isinstance(values, list):
+                for item in values:
+                    if isinstance(item, dict):
+                        text = item.get("topic") or item.get("direction") or item.get("name")
+                        if text:
+                            analysis_parts.append(str(text))
+                    elif item:
+                        analysis_parts.append(str(item))
+
     skills = "; ".join(profile.get("skills") or [])
 
     experiences = profile.get("research_experience") or []
@@ -70,7 +114,8 @@ def build_profile_text(profile: dict) -> str:
     ]
     proj_text = ". ".join(p for p in proj_parts if p)
 
-    body_parts = [p for p in [exp_text, proj_text] if p]
+    generated_text = ". ".join(p for p in [academic_profile, *analysis_parts] if p)
+    body_parts = [p for p in [generated_text, exp_text, proj_text] if p]
     body = ". ".join(body_parts)
     return f"{skills} [SEP] {body}"
 

@@ -65,9 +65,42 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   function _completionMessage(entry: TaskEntry, result?: TaskResult): string {
+    // Use backend-provided final message when available
+    if (result?.message && result.message !== entry.message) {
+      return result.message
+    }
     if (entry.taskType === 'profile-parse') {
       const profile = result?.results.find((item) => item.success && typeof item.title === 'string')
-      return profile?.title ? `简历「${profile.title}」已保存到列表` : '简历已保存到列表'
+      return profile?.title ? `画像「${profile.title}」已保存到列表` : '画像已保存到列表'
+    }
+    if (entry.taskType === 'profile-generate') {
+      const profile = result?.results.find((item) => item.success && typeof item.title === 'string')
+      return profile?.title ? `画像「${profile.title}」已保存到列表` : '学生画像已保存到列表'
+    }
+    if (entry.taskType === 'professor-profile') {
+      const professor = result?.results.find((item) => item.success && typeof item.name === 'string')
+      return professor?.name ? `教授科研画像「${professor.name}」已保存` : '教授科研画像已保存'
+    }
+    if (entry.taskType === 'batch-professor-profiles') {
+      return `教授科研画像批量生成完成：成功 ${result?.success_count ?? 0} 位`
+    }
+    if (entry.taskType === 'match') {
+      return result?.message || `匹配完成，共 ${result?.success_count ?? entry.total} 位教授`
+    }
+    if (entry.taskType === 'fill-publications') {
+      return result?.message || `论文详情获取完成：成功 ${result?.success_count ?? 0} 篇`
+    }
+    if (entry.taskType === 'batch-refresh') {
+      return result?.message || `批量更新完成：成功 ${result?.success_count ?? 0} 位`
+    }
+    if (entry.taskType === 'batch-crawl') {
+      return result?.message || `批量爬取完成：成功 ${result?.success_count ?? 0} 位`
+    }
+    if (entry.taskType === 'batch-letters') {
+      return result?.message || `批量邮件生成完成：成功 ${result?.success_count ?? 0} 封`
+    }
+    if (entry.taskType === 'paper-summary') {
+      return result?.message || `论文总结完成：成功 ${result?.success_count ?? 0} 篇`
     }
     return entry.message || '任务已完成'
   }
@@ -117,6 +150,9 @@ export const useTaskStore = defineStore('tasks', () => {
         } catch {
           result = undefined
         }
+        // Fill progress bar so it never shows empty after completion
+        if (result?.current != null) entry.current = result.current
+        if (result?.total != null) entry.total = result.total
         entry.status = 'completed'
         entry.message = _completionMessage(entry, result)
         _pushTaskEvent(entry, 'completed', entry.message)

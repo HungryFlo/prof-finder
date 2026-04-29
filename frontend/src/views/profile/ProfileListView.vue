@@ -35,10 +35,14 @@ const selectedRowKeys = ref<number[]>([])
 // Upload modal state
 const showUploadModal = ref(false)
 const uploadLoading = ref(false)
-const uploadFile = ref<UploadFileInfo | null>(null)
-const uploadRawFile = shallowRef<File | null>(null)
+const uploadFiles = ref<UploadFileInfo[]>([])
+const uploadRawFiles = shallowRef<File[]>([])
 const uploadTitle = ref('')
 const useLlm = ref(true)
+const researchInterests = ref('')
+const personalStatement = ref('')
+const researchPlan = ref('')
+const profileNotes = ref('')
 
 // Table columns
 const columns: DataTableColumns<Profile> = [
@@ -71,6 +75,9 @@ const columns: DataTableColumns<Profile> = [
     title: '来源',
     key: 'source_format',
     width: 100,
+    render(row) {
+      return row.source_format === 'materials' ? '多材料' : row.source_format || '手动'
+    },
   },
   {
     title: '更新时间',
@@ -112,7 +119,7 @@ const columns: DataTableColumns<Profile> = [
           {
             trigger: () =>
               h(NButton, { size: 'small', type: 'error' }, { default: () => '删除' }),
-            default: () => '确定删除该简历吗？',
+            default: () => '确定删除该画像吗？',
           }
         ),
       ])
@@ -127,7 +134,7 @@ async function fetchProfiles() {
     profiles.value = await profilesApi.list()
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '获取简历列表失败')
+    message.error(err.response?.data?.detail || '获取画像列表失败')
   } finally {
     loading.value = false
   }
@@ -160,13 +167,13 @@ async function handleDelete(id: number) {
 // Handle batch delete
 async function handleBatchDelete() {
   if (selectedRowKeys.value.length === 0) {
-    message.warning('请选择要删除的简历')
+    message.warning('请选择要删除的画像')
     return
   }
 
   dialog.warning({
     title: '确认删除',
-    content: `确定删除选中的 ${selectedRowKeys.value.length} 份简历吗？`,
+    content: `确定删除选中的 ${selectedRowKeys.value.length} 份画像吗？`,
     positiveText: '确定',
     negativeText: '取消',
     onPositiveClick: async () => {
@@ -185,28 +192,45 @@ async function handleBatchDelete() {
 
 // Handle file upload
 function handleFileChange(options: { file: UploadFileInfo; fileList: UploadFileInfo[] }) {
-  uploadFile.value = options.file
-  const candidate = options.file?.file
-  uploadRawFile.value = candidate instanceof File ? candidate : null
+  uploadFiles.value = options.fileList
+  uploadRawFiles.value = options.fileList
+    .map((item) => item.file)
+    .filter((candidate): candidate is File => candidate instanceof File)
 }
 
 async function handleUpload(): Promise<boolean> {
-  if (!uploadRawFile.value || !uploadTitle.value) {
-    message.warning('请选择文件并输入标题')
+  const hasManualInput = [
+    researchInterests.value,
+    personalStatement.value,
+    researchPlan.value,
+    profileNotes.value,
+  ].some((value) => value.trim())
+  if (!uploadTitle.value) {
+    message.warning('请输入标题')
+    return false
+  }
+  if (uploadRawFiles.value.length === 0 && !hasManualInput) {
+    message.warning('请至少上传一个材料文件或填写一项画像材料')
     return false
   }
 
   uploadLoading.value = true
   try {
     const result = await profilesApi.upload(
-      uploadRawFile.value,
+      uploadRawFiles.value,
       uploadTitle.value,
-      useLlm.value
+      {
+        useLlm: useLlm.value,
+        researchInterests: researchInterests.value,
+        personalStatement: personalStatement.value,
+        researchPlan: researchPlan.value,
+        notes: profileNotes.value,
+      }
     )
-    taskStore.addTask(result.task_id, 'profile-parse', `解析简历 · ${uploadTitle.value}`, 1, () => {
+    taskStore.addTask(result.task_id, 'profile-generate', `生成学生画像 · ${uploadTitle.value}`, 3, () => {
       fetchProfiles()
     })
-    message.success(result.message || '简历解析任务已加入任务列表')
+    message.success(result.message || '学生画像生成任务已加入任务列表')
     showUploadModal.value = false
     return false
   } catch (error: unknown) {
@@ -226,8 +250,8 @@ async function handleUpload(): Promise<boolean> {
       detailText ||
       (err.code === 'ECONNABORTED' ? '请求超时（上传或解析耗时较长）' : '') ||
       err.message ||
-      '上传解析失败'
-    message.error(`上传解析失败：${detail}`)
+      '上传生成失败'
+    message.error(`上传生成失败：${detail}`)
     return false
   } finally {
     uploadLoading.value = false
@@ -236,10 +260,14 @@ async function handleUpload(): Promise<boolean> {
 
 // Reset upload modal
 function resetUploadModal() {
-  uploadFile.value = null
-  uploadRawFile.value = null
+  uploadFiles.value = []
+  uploadRawFiles.value = []
   uploadTitle.value = ''
   useLlm.value = true
+  researchInterests.value = ''
+  personalStatement.value = ''
+  researchPlan.value = ''
+  profileNotes.value = ''
 }
 
 onMounted(() => {
@@ -249,7 +277,7 @@ onMounted(() => {
 
 <template>
   <div>
-    <n-card title="简历管理">
+    <n-card title="学生画像管理">
       <template #header-extra>
         <n-space>
           <n-button
@@ -260,7 +288,7 @@ onMounted(() => {
             批量删除 ({{ selectedRowKeys.length }})
           </n-button>
           <n-button type="primary" @click="showUploadModal = true">
-            上传简历
+            新建学生画像
           </n-button>
         </n-space>
       </template>
@@ -279,32 +307,65 @@ onMounted(() => {
     <n-modal
       v-model:show="showUploadModal"
       preset="dialog"
-      title="上传简历"
-      positive-text="上传并解析"
+      title="生成学生画像"
+      positive-text="上传并生成"
       negative-text="取消"
       :positive-button-props="{ loading: uploadLoading }"
       @positive-click="handleUpload"
       @after-leave="resetUploadModal"
-      style="width: 500px"
+      style="width: 720px"
     >
-      <n-form label-placement="left" label-width="80">
+      <n-form label-placement="top">
         <n-form-item label="标题">
-          <n-input v-model:value="uploadTitle" placeholder="例如：NLP方向申请简历" />
+          <n-input v-model:value="uploadTitle" placeholder="例如：NLP方向申请画像" />
         </n-form-item>
-        <n-form-item label="文件">
+        <n-form-item label="材料文件">
           <n-upload
-            :max="1"
-            accept=".md,.tex"
+            multiple
+            accept=".md,.markdown,.txt,.tex,.latex"
             :default-upload="false"
+            :file-list="uploadFiles"
             @change="handleFileChange"
           >
-            <n-button>选择文件 (.md 或 .tex)</n-button>
+            <n-button>选择文件 (.md/.markdown/.txt/.tex/.latex)</n-button>
           </n-upload>
         </n-form-item>
-        <n-form-item label="使用 LLM">
+        <n-form-item label="研究兴趣">
+          <n-input
+            v-model:value="researchInterests"
+            type="textarea"
+            placeholder="例如：我对多模态大模型、医学图像理解和可解释性方向感兴趣"
+            :rows="3"
+          />
+        </n-form-item>
+        <n-form-item label="个人陈述">
+          <n-input
+            v-model:value="personalStatement"
+            type="textarea"
+            placeholder="可粘贴个人陈述或申请动机片段"
+            :rows="3"
+          />
+        </n-form-item>
+        <n-form-item label="研究计划">
+          <n-input
+            v-model:value="researchPlan"
+            type="textarea"
+            placeholder="可粘贴 research proposal / study plan 片段"
+            :rows="3"
+          />
+        </n-form-item>
+        <n-form-item label="补充备注">
+          <n-input
+            v-model:value="profileNotes"
+            type="textarea"
+            placeholder="其他希望画像优先参考的信息"
+            :rows="2"
+          />
+        </n-form-item>
+        <n-form-item label="提取背景字段">
           <n-switch v-model:value="useLlm" />
           <span style="margin-left: 8px; color: #999">
-            使用 LLM 可提高解析准确度
+            用 LLM 从材料中辅助提取教育、经历、项目和技能
           </span>
         </n-form-item>
       </n-form>

@@ -1,6 +1,7 @@
 """Async task API routes with SSE progress streaming."""
 
 import asyncio
+import json
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -196,12 +197,12 @@ async def get_task_progress(
         while task.status in (TaskStatus.PENDING, TaskStatus.RUNNING):
             yield {
                 "event": "progress",
-                "data": {
+                "data": json.dumps({
                     "current": task.current,
                     "total": task.total,
                     "status": task.status.value,
                     "message": task.message,
-                },
+                }),
             }
             await asyncio.sleep(0.5)
 
@@ -209,28 +210,37 @@ async def get_task_progress(
         if task.status == TaskStatus.COMPLETED:
             yield {
                 "event": "complete",
-                "data": {
+                "data": json.dumps({
                     "status": task.status.value,
+                    "current": task.current,
+                    "total": task.total,
+                    "message": task.message,
                     "success_count": task.success_count,
                     "failed_count": task.failed_count,
                     "results": task.results,
-                },
+                }),
             }
         elif task.status == TaskStatus.FAILED:
             yield {
                 "event": "failed",
-                "data": {
+                "data": json.dumps({
                     "status": task.status.value,
+                    "current": task.current,
+                    "total": task.total,
+                    "message": task.message,
                     "error_message": task.error_message,
-                },
+                }),
             }
         elif task.status == TaskStatus.CANCELLED:
             yield {
                 "event": "cancelled",
-                "data": {
+                "data": json.dumps({
                     "status": task.status.value,
+                    "current": task.current,
+                    "total": task.total,
+                    "message": task.message,
                     "completed_count": task.success_count,
-                },
+                }),
             }
 
     return EventSourceResponse(event_generator())

@@ -140,6 +140,13 @@ class ProfileResponse(BaseModel):
     projects: List[dict]
     skills: List[str]
     source_format: Optional[str]
+    profile_materials: Optional[List[dict]] = None
+    manual_inputs: Optional[dict] = None
+    academic_profile: Optional[str] = None
+    profile_analysis: Optional[dict] = None
+    evidence_notes: Optional[List[Any]] = None
+    conflict_notes: Optional[List[Any]] = None
+    profile_generated_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -218,6 +225,12 @@ class ProfessorResponse(BaseModel):
     h_index: Optional[int]
     total_citations: Optional[int]
     manual_notes: Optional[str]
+    research_profile: Optional[str] = None
+    research_profile_analysis: Optional[dict] = None
+    research_profile_sources: Optional[List[dict]] = None
+    research_profile_evidence: Optional[List[Any]] = None
+    research_profile_conflicts: Optional[List[Any]] = None
+    research_profile_generated_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -411,6 +424,7 @@ class TaskStartResponse(BaseModel):
 
     task_id: str
     message: str
+    total: int = 0
 
 
 class TaskCancelResponse(BaseModel):

@@ -40,7 +40,7 @@ const formData = ref({
 async function fetchProfile() {
   const id = Number(route.params.id)
   if (!id) {
-    message.error('无效的简历 ID')
+    message.error('无效的画像 ID')
     router.push('/profile')
     return
   }
@@ -59,7 +59,7 @@ async function fetchProfile() {
     }
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '获取简历详情失败')
+    message.error(err.response?.data?.detail || '获取画像详情失败')
     router.push('/profile')
   } finally {
     loading.value = false
@@ -90,6 +90,10 @@ async function handleSave() {
 
 function goBack() {
   router.push('/profile')
+}
+
+function formatNote(note: unknown): string {
+  return typeof note === 'string' ? note : JSON.stringify(note)
 }
 
 onMounted(() => {
@@ -128,9 +132,46 @@ onMounted(() => {
 
       <n-divider />
 
+      <template v-if="profile.academic_profile">
+        <n-divider>学生学术画像</n-divider>
+        <n-input
+          :value="profile.academic_profile"
+          type="textarea"
+          readonly
+          :autosize="{ minRows: 8, maxRows: 20 }"
+        />
+
+        <n-space v-if="profile.evidence_notes?.length" vertical style="margin-top: 16px">
+          <strong>证据摘要</strong>
+          <div>
+            <n-tag
+              v-for="(note, index) in profile.evidence_notes"
+              :key="index"
+              style="margin: 0 8px 8px 0"
+            >
+              {{ formatNote(note) }}
+            </n-tag>
+          </div>
+        </n-space>
+
+        <n-space v-if="profile.conflict_notes?.length" vertical style="margin-top: 16px">
+          <strong>冲突说明</strong>
+          <div>
+            <n-tag
+              v-for="(note, index) in profile.conflict_notes"
+              :key="index"
+              type="warning"
+              style="margin: 0 8px 8px 0"
+            >
+              {{ formatNote(note) }}
+            </n-tag>
+          </div>
+        </n-space>
+      </template>
+
       <n-form label-placement="top">
-        <n-form-item label="简历标题">
-          <n-input v-model:value="formData.title" placeholder="简历标题" />
+        <n-form-item label="画像标题">
+          <n-input v-model:value="formData.title" placeholder="画像标题" />
         </n-form-item>
 
         <n-form-item label="姓名">

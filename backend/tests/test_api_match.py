@@ -49,7 +49,7 @@ class TestMatchRun:
         """Test match run without active profile."""
         response = test_client.post("/api/match/run", headers=auth_headers)
         assert response.status_code == 400
-        assert "请先激活一份简历" in response.json()["detail"]
+        assert "请先激活一份画像" in response.json()["detail"]
 
     def test_run_match_no_professors(
         self, test_client: TestClient, auth_headers: dict, test_db

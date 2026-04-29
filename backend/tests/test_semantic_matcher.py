@@ -112,6 +112,22 @@ class TestBuildProfileText:
         text = build_profile_text(profile)
         assert isinstance(text, str)
 
+    def test_generated_academic_profile_has_priority(self):
+        profile = {
+            "skills": ["Python"],
+            "academic_profile": "学生学术画像：关注 multimodal LLM safety.",
+            "profile_analysis": {
+                "academic_positioning": "AI safety applicant",
+                "research_interests": [{"topic": "multimodal alignment"}],
+            },
+            "research_experience": [{"title": "Old Topic", "description": "robotics"}],
+        }
+        text = build_profile_text(profile)
+        assert "multimodal LLM safety" in text
+        assert "AI safety applicant" in text
+        assert "multimodal alignment" in text
+        assert "Old Topic" in text
+
 
 # ---------------------------------------------------------------------------
 # SemanticMatcher.match — score range and computation

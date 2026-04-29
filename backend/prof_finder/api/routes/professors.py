@@ -3,7 +3,7 @@
 import asyncio
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm.attributes import flag_modified
 
 from ...models.schema import User, Professor, SourceInput
@@ -36,6 +36,10 @@ from ..task_manager import (
     execute_single_crawl,
     execute_university_crawl,
     execute_professor_source_summary,
+    execute_professor_profile_generation,
+    execute_batch_professor_profiles,
+    execute_fill_publications,
+    execute_batch_refresh,
 )
 from ..source_input_service import build_paper_summary_from_source
 
@@ -585,6 +589,233 @@ async def summarize_professor_sources(
         execute_professor_source_summary(task, professor_id=professor_id, source_input_ids=pending_source_ids)
     )
     return TaskStartResponse(task_id=task.task_id, message="论文总结任务已启动")
+
+
+@router.post("/{professor_id}/generate-profile", response_model=TaskStartResponse)
+async def generate_professor_profile(
+    professor_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Start a background task to generate a research profile for one professor.
+
+    Args:
+        professor_id: Professor ID.
+        current_user: Authenticated user.
+        session: Database session.
+
+    Returns:
+        Task ID for SSE progress tracking.
+    """
+    professor = (
+        session.query(Professor)
+        .filter(Professor.id == professor_id, Professor.user_id == current_user.id)
+        .first()
+    )
+    if not professor:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="教授不存在")
+
+    cleanup_old_tasks()
+    task = create_task(
+        task_type="professor-profile",
+        task_name=f"生成教授科研画像 · {professor.name}",
+        user_id=current_user.id,
+        total=3,
+    )
+    task_session_factory = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=session.get_bind(),
+    )
+    asyncio.create_task(
+        execute_professor_profile_generation(
+            task,
+            professor_id=professor_id,
+            session_factory=task_session_factory,
+        )
+    )
+    return TaskStartResponse(task_id=task.task_id, message="教授科研画像生成任务已启动")
+
+
+@router.post("/{professor_id}/fill-publications", response_model=TaskStartResponse)
+async def fill_publications(
+    professor_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Start a background task to fetch full publication details from Google Scholar.
+
+    Iterates over publications that have an ``author_pub_id`` but no abstract
+    yet, opening each citation detail page to extract abstracts, external links,
+    journal info, and more.
+
+    Args:
+        professor_id: Professor ID.
+        current_user: Authenticated user.
+        session: Database session.
+
+    Returns:
+        Task ID for SSE progress tracking.
+    """
+    professor = (
+        session.query(Professor)
+        .filter(Professor.id == professor_id, Professor.user_id == current_user.id)
+        .first()
+    )
+    if not professor:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="教授不存在")
+
+    publications = professor.publications or []
+    to_fill = [
+        p for p in publications
+        if p.get("author_pub_id") and not p.get("abstract")
+    ]
+    if not to_fill:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="没有需要获取详情的论文",
+        )
+
+    cleanup_old_tasks()
+    task = create_task(
+        task_type="fill-publications",
+        task_name=f"获取论文详情 · {professor.name}",
+        user_id=current_user.id,
+        total=len(to_fill),
+    )
+    task_session_factory = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=session.get_bind(),
+    )
+    asyncio.create_task(
+        execute_fill_publications(
+            task,
+            professor_id=professor_id,
+            session_factory=task_session_factory,
+        )
+    )
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message=f"已启动论文详情获取任务，共 {len(to_fill)} 篇",
+        total=len(to_fill),
+    )
+
+
+@router.post("/batch-generate-profiles", response_model=TaskStartResponse)
+async def batch_generate_professor_profiles(
+    data: BatchDeleteRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Start a background task to generate research profiles for multiple professors.
+
+    Args:
+        data: List of professor IDs.
+        current_user: Authenticated user.
+        session: Database session.
+
+    Returns:
+        Task ID for SSE progress tracking.
+    """
+    if not data.ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请选择至少一位教授",
+        )
+
+    professors = (
+        session.query(Professor)
+        .filter(Professor.id.in_(data.ids), Professor.user_id == current_user.id)
+        .all()
+    )
+    if len(professors) != len(data.ids):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="存在无效的教授 ID",
+        )
+
+    cleanup_old_tasks()
+    task = create_task(
+        task_type="batch-professor-profiles",
+        task_name=f"批量生成教授科研画像 · {len(data.ids)} 位",
+        user_id=current_user.id,
+        total=len(data.ids),
+    )
+    task_session_factory = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=session.get_bind(),
+    )
+    asyncio.create_task(
+        execute_batch_professor_profiles(
+            task,
+            professor_ids=list(data.ids),
+            session_factory=task_session_factory,
+        )
+    )
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message=f"已启动 {len(data.ids)} 位教授科研画像生成任务",
+    )
+
+
+@router.post("/batch-refresh", response_model=TaskStartResponse)
+async def batch_refresh_professors(
+    data: BatchDeleteRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Start a background task to refresh multiple professors from Google Scholar.
+
+    Args:
+        data: List of professor IDs.
+        current_user: Authenticated user.
+        session: Database session.
+
+    Returns:
+        Task ID for SSE progress tracking.
+    """
+    if not data.ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请选择至少一位教授",
+        )
+
+    professors = (
+        session.query(Professor)
+        .filter(Professor.id.in_(data.ids), Professor.user_id == current_user.id)
+        .all()
+    )
+    if len(professors) != len(data.ids):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="存在无效的教授 ID",
+        )
+
+    cleanup_old_tasks()
+    task = create_task(
+        task_type="batch-refresh",
+        task_name=f"批量更新教授 · {len(data.ids)} 位",
+        user_id=current_user.id,
+        total=len(data.ids),
+    )
+    task_session_factory = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=session.get_bind(),
+    )
+    asyncio.create_task(
+        execute_batch_refresh(
+            task,
+            professor_ids=list(data.ids),
+            session_factory=task_session_factory,
+        )
+    )
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message=f"已启动批量更新任务，共 {len(data.ids)} 位教授",
+    )
 
 
 def _get_paper_summarizer(current_user: User) -> PaperSummarizer:

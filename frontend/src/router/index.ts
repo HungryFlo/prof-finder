@@ -47,9 +47,13 @@ const router = createRouter({
           component: () => import('@/views/professor/ProfessorListView.vue'),
         },
         {
+          path: 'professor/:id',
+          name: 'ProfessorDetail',
+          component: () => import('@/views/professor/ProfessorDetailView.vue'),
+        },
+        {
           path: 'professor/:id/edit',
-          name: 'ProfessorEdit',
-          component: () => import('@/views/professor/ProfessorEditView.vue'),
+          redirect: (to) => ({ path: `/professor/${to.params.id}` }),
         },
         {
           path: 'match',

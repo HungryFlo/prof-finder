@@ -110,6 +110,44 @@ class ScholarCrawler:
             
         return results
 
+    def fill_publication(self, author_pub_id: str) -> dict:
+        """Fetch detailed publication info by calling scholarly.fill() on one pub.
+
+        Opens the Google Scholar citation detail page for the given
+        *author_pub_id* (1 HTTP request) and returns enriched fields:
+        abstract, pub_url, eprint_url, journal, conference, volume, pages, etc.
+
+        Args:
+            author_pub_id: The ``author_pub_id`` from a publication snippet.
+
+        Returns:
+            Dict with ``abstract``, ``pub_url``, ``eprint_url``, ``journal``,
+            ``conference``, ``volume``, ``number``, ``pages``, ``publisher``.
+        """
+        from scholarly.data_types import PublicationSource
+
+        pub = {
+            "container_type": "Publication",
+            "source": PublicationSource.AUTHOR_PUBLICATION_ENTRY,
+            "bib": {},
+            "filled": False,
+            "author_pub_id": author_pub_id,
+        }
+        filled = self._scholarly.fill(pub)
+        bib = filled.get("bib", {})
+
+        return {
+            "abstract": bib.get("abstract", ""),
+            "pub_url": filled.get("pub_url", ""),
+            "eprint_url": filled.get("eprint_url", ""),
+            "journal": bib.get("journal", ""),
+            "conference": bib.get("conference", ""),
+            "volume": bib.get("volume", ""),
+            "number": bib.get("number", ""),
+            "pages": bib.get("pages", ""),
+            "publisher": bib.get("publisher", ""),
+        }
+
     def _parse_author(
         self,
         author: dict,
@@ -138,11 +176,19 @@ class ScholarCrawler:
                 if normalized_title:
                     seen_titles.add(normalized_title)
 
+                author_pub_id = pub.get("author_pub_id", "")
                 pub_info = {
                     "title": title,
                     "year": pub.get("bib", {}).get("pub_year", ""),
                     "citations": pub.get("num_citations", 0),
                     "authors": pub.get("bib", {}).get("author", ""),
+                    "author_pub_id": author_pub_id,
+                    "gscholar_url": (
+                        f"https://scholar.google.com/citations"
+                        f"?view_op=view_citation&hl=en"
+                        f"&citation_for_view={author_pub_id}"
+                        if author_pub_id else ""
+                    ),
                 }
                 publications.append(pub_info)
 

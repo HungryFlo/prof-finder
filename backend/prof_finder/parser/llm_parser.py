@@ -106,7 +106,6 @@ class LLMParser(BaseParser):
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.1,  # Low temperature for consistent structured output
-            max_tokens=2000,
         )
         return response.choices[0].message.content
 

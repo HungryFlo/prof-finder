@@ -2,6 +2,14 @@ import client from './client'
 import type { Profile, ProfileCreate } from '@/types'
 import type { TaskStartResponse } from '@/api/tasks'
 
+export interface ProfileMaterialUploadOptions {
+  useLlm?: boolean
+  researchInterests?: string
+  personalStatement?: string
+  researchPlan?: string
+  notes?: string
+}
+
 export const profilesApi = {
   async list(): Promise<Profile[]> {
     const response = await client.get<Profile[]>('/profiles')
@@ -13,11 +21,19 @@ export const profilesApi = {
     return response.data
   },
 
-  async upload(file: File, title: string, useLlm: boolean = true): Promise<TaskStartResponse> {
+  async upload(
+    files: File[],
+    title: string,
+    options: ProfileMaterialUploadOptions = {}
+  ): Promise<TaskStartResponse> {
     const formData = new FormData()
-    formData.append('file', file)
+    files.forEach((file) => formData.append('files', file))
     formData.append('title', title)
-    formData.append('use_llm', String(useLlm))
+    formData.append('use_llm', String(options.useLlm ?? true))
+    formData.append('research_interests', options.researchInterests ?? '')
+    formData.append('personal_statement', options.personalStatement ?? '')
+    formData.append('research_plan', options.researchPlan ?? '')
+    formData.append('notes', options.notes ?? '')
     
     const response = await client.post<TaskStartResponse>('/profiles/upload', formData)
     return response.data

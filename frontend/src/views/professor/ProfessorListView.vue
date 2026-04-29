@@ -12,12 +12,6 @@ import {
   NForm,
   NFormItem,
   NInput,
-  NDrawer,
-  NDrawerContent,
-  NDescriptions,
-  NDescriptionsItem,
-  NList,
-  NListItem,
   NPagination,
   NDynamicTags,
   NRadioGroup,
@@ -31,7 +25,8 @@ import type { DataTableColumns } from 'naive-ui'
 import { professorsApi } from '@/api/professors'
 import type { UniversityCrawlerInfo } from '@/api/professors'
 import { useTaskStore } from '@/stores/tasks'
-import type { ProfessorListItem, Professor, PaginatedResponse } from '@/types'
+import ProfessorSummaryDrawer from '@/components/ProfessorSummaryDrawer.vue'
+import type { ProfessorListItem, PaginatedResponse } from '@/types'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -115,15 +110,33 @@ const manualForm = ref({
   research_interests: [] as string[],
 })
 
-// Professor detail drawer
-const showDetailDrawer = ref(false)
-const detailLoading = ref(false)
-const professorDetail = ref<Professor | null>(null)
+// Professor summary drawer
+const showSummaryDrawer = ref(false)
+const summaryDrawerProfId = ref(0)
+
+function openSummaryDrawer(id: number) {
+  summaryDrawerProfId.value = id
+  showSummaryDrawer.value = true
+}
 
 // Table columns
 const columns: DataTableColumns<ProfessorListItem> = [
   { type: 'selection' },
-  { title: '姓名', key: 'name', width: 150 },
+  {
+    title: '姓名',
+    key: 'name',
+    width: 150,
+    render(row) {
+      return h(
+        'a',
+        {
+          style: 'cursor: pointer; color: #2080f0',
+          onClick: () => openSummaryDrawer(row.id),
+        },
+        row.name
+      )
+    },
+  },
   {
     title: '机构',
     key: 'affiliation',
@@ -148,23 +161,23 @@ const columns: DataTableColumns<ProfessorListItem> = [
   {
     title: '操作',
     key: 'actions',
-    width: 260,
+    width: 280,
     render(row) {
       return h(NSpace, { size: 'small' }, () => [
         h(
           NButton,
-          { size: 'small', type: 'primary', onClick: () => router.push(`/professor/${row.id}/edit`) },
-          { default: () => '编辑' }
-        ),
-        h(
-          NButton,
-          { size: 'small', onClick: () => showDetail(row.id) },
-          { default: () => '查看' }
+          { size: 'small', type: 'primary', onClick: () => router.push(`/professor/${row.id}`) },
+          { default: () => '详情' }
         ),
         h(
           NButton,
           { size: 'small', type: 'info', onClick: () => handleRefresh(row.id) },
           { default: () => '更新' }
+        ),
+        h(
+          NButton,
+          { size: 'small', type: 'warning', onClick: () => handleGenerateProfile(row.id, row.name) },
+          { default: () => '画像' }
         ),
         h(
           NPopconfirm,
@@ -253,21 +266,6 @@ async function handleAddManually() {
   }
 }
 
-// Show professor detail
-async function showDetail(id: number) {
-  showDetailDrawer.value = true
-  detailLoading.value = true
-  try {
-    professorDetail.value = await professorsApi.get(id)
-  } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '获取详情失败')
-    showDetailDrawer.value = false
-  } finally {
-    detailLoading.value = false
-  }
-}
-
 // Refresh professor data
 async function handleRefresh(id: number) {
   try {
@@ -277,6 +275,58 @@ async function handleRefresh(id: number) {
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
     message.error(err.response?.data?.detail || '更新失败')
+  }
+}
+
+// Batch refresh professors from Google Scholar
+async function handleBatchRefresh() {
+  if (selectedRowKeys.value.length === 0) {
+    message.warning('请选择要更新的教授')
+    return
+  }
+
+  try {
+    const { task_id, message: msg } = await professorsApi.batchRefresh(selectedRowKeys.value)
+    taskStore.addTask(task_id, 'batch-refresh', `批量更新教授 · ${selectedRowKeys.value.length} 位`, selectedRowKeys.value.length, () => {
+      fetchProfessors()
+    })
+    message.success(msg || '批量更新任务已启动')
+  } catch (error: unknown) {
+    const err = error as { response?: { data?: { detail?: string } } }
+    message.error(err.response?.data?.detail || '批量更新失败')
+  }
+}
+
+// Generate research profile for one professor
+async function handleGenerateProfile(id: number, name: string) {
+  try {
+    const { task_id, message: msg } = await professorsApi.generateProfile(id)
+    taskStore.addTask(task_id, 'professor-profile', `生成科研画像 · ${name}`, 3, () => {
+      fetchProfessors()
+    })
+    message.success(msg || '科研画像生成任务已启动')
+  } catch (error: unknown) {
+    const err = error as { response?: { data?: { detail?: string } } }
+    message.error(err.response?.data?.detail || '启动画像生成失败')
+  }
+}
+
+// Batch generate research profiles
+async function handleBatchGenerateProfiles() {
+  if (selectedRowKeys.value.length === 0) {
+    message.warning('请选择要生成画像的教授')
+    return
+  }
+
+  try {
+    const { task_id, message: msg } = await professorsApi.batchGenerateProfiles(selectedRowKeys.value)
+    taskStore.addTask(task_id, 'batch-professor-profiles', `批量生成科研画像 · ${selectedRowKeys.value.length} 位`, selectedRowKeys.value.length, () => {
+      fetchProfessors()
+    })
+    message.success(msg || '批量画像生成任务已启动')
+  } catch (error: unknown) {
+    const err = error as { response?: { data?: { detail?: string } } }
+    message.error(err.response?.data?.detail || '批量画像生成失败')
   }
 }
 
@@ -334,6 +384,20 @@ onMounted(() => {
             @click="handleBatchDelete"
           >
             批量删除 ({{ selectedRowKeys.length }})
+          </n-button>
+          <n-button
+            v-if="selectedRowKeys.length > 0"
+            type="info"
+            @click="handleBatchRefresh"
+          >
+            批量更新 ({{ selectedRowKeys.length }})
+          </n-button>
+          <n-button
+            v-if="selectedRowKeys.length > 0"
+            type="warning"
+            @click="handleBatchGenerateProfiles"
+          >
+            批量生成画像 ({{ selectedRowKeys.length }})
           </n-button>
           <n-button type="success" @click="openUniversityModal">
             院校官网批量添加
@@ -453,54 +517,10 @@ onMounted(() => {
       </n-form>
     </n-modal>
 
-    <!-- Professor Detail Drawer -->
-    <n-drawer v-model:show="showDetailDrawer" :width="500">
-      <n-drawer-content v-if="professorDetail" :title="professorDetail.name" :native-scrollbar="false">
-        <n-descriptions :column="1" label-placement="left" bordered>
-          <n-descriptions-item label="机构">
-            {{ professorDetail.affiliation || '-' }}
-          </n-descriptions-item>
-          <n-descriptions-item label="邮箱">
-            {{ professorDetail.email || '-' }}
-          </n-descriptions-item>
-          <n-descriptions-item label="主页">
-            <a v-if="professorDetail.homepage" :href="professorDetail.homepage" target="_blank">
-              {{ professorDetail.homepage }}
-            </a>
-            <span v-else>-</span>
-          </n-descriptions-item>
-          <n-descriptions-item label="H-Index">
-            {{ professorDetail.h_index || '-' }}
-          </n-descriptions-item>
-          <n-descriptions-item label="总引用">
-            {{ professorDetail.total_citations || '-' }}
-          </n-descriptions-item>
-          <n-descriptions-item label="研究方向">
-            <n-space size="small">
-              <n-tag
-                v-for="interest in professorDetail.research_interests"
-                :key="interest"
-                type="info"
-                size="small"
-              >
-                {{ interest }}
-              </n-tag>
-            </n-space>
-          </n-descriptions-item>
-        </n-descriptions>
-
-        <h4 style="margin-top: 24px">论文列表</h4>
-        <n-list bordered>
-          <n-list-item v-for="(pub, index) in professorDetail.publications" :key="index">
-            <div>
-              <div style="font-weight: 500">{{ pub.title }}</div>
-              <div style="color: #999; font-size: 12px">
-                {{ pub.year || '-' }} · 引用: {{ pub.citations || 0 }}
-              </div>
-            </div>
-          </n-list-item>
-        </n-list>
-      </n-drawer-content>
-    </n-drawer>
+    <!-- Professor Summary Drawer -->
+    <ProfessorSummaryDrawer
+      v-model:show="showSummaryDrawer"
+      :professor-id="summaryDrawerProfId"
+    />
   </div>
 </template>

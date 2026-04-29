@@ -45,6 +45,7 @@ class TestScholarCrawler:
                         "author": "Test Author, Co-Author",
                     },
                     "num_citations": 100,
+                    "author_pub_id": "test123:abc111",
                 },
                 {
                     "bib": {
@@ -53,6 +54,7 @@ class TestScholarCrawler:
                         "author": "Test Author",
                     },
                     "num_citations": 50,
+                    "author_pub_id": "test123:abc222",
                 },
             ],
         }
@@ -65,6 +67,7 @@ class TestScholarCrawler:
                         "author": "Test Author",
                     },
                     "num_citations": 55,
+                    "author_pub_id": "test123:abc222",
                 },
                 {
                     "bib": {
@@ -73,6 +76,7 @@ class TestScholarCrawler:
                         "author": "Test Author",
                     },
                     "num_citations": 3,
+                    "author_pub_id": "test123:abc333",
                 },
             ]
         }
@@ -91,7 +95,11 @@ class TestScholarCrawler:
         assert result["citations"] == 10000
         assert len(result["publications"]) == 3
         assert result["publications"][0]["title"] == "Test Paper 1"
+        assert result["publications"][0]["author_pub_id"] == "test123:abc111"
+        assert "gscholar_url" in result["publications"][0]
+        assert "citation_for_view=test123:abc111" in result["publications"][0]["gscholar_url"]
         assert result["publications"][-1]["title"] == "Latest Paper"
+        assert result["publications"][-1]["author_pub_id"] == "test123:abc333"
         assert result["scholar_id"] == "test123"
 
     def test_get_author_not_found(self, crawler):
@@ -201,6 +209,32 @@ class TestScholarCrawlerIntegration:
     """Integration tests that require network (marked for manual run)."""
 
     @pytest.mark.skip(reason="Requires network access to Google Scholar")
+    def test_fill_publication_mock(self, crawler, mock_scholarly):
+        """Test that fill_publication calls scholarly.fill and returns enriched fields."""
+        mock_filled = {
+            "container_type": "Publication",
+            "filled": True,
+            "bib": {
+                "title": "Test Paper",
+                "abstract": "This is a test abstract.",
+                "journal": "Journal of Testing",
+                "volume": "42",
+                "pages": "1-10",
+            },
+            "pub_url": "https://doi.org/10.1234/test",
+            "eprint_url": "https://arxiv.org/pdf/9999.12345.pdf",
+        }
+        mock_scholarly.scholarly.fill.return_value = mock_filled
+
+        result = crawler.fill_publication("test123:abc111")
+        assert result["abstract"] == "This is a test abstract."
+        assert result["journal"] == "Journal of Testing"
+        assert result["volume"] == "42"
+        assert result["pages"] == "1-10"
+        assert result["pub_url"] == "https://doi.org/10.1234/test"
+        assert result["eprint_url"] == "https://arxiv.org/pdf/9999.12345.pdf"
+        mock_scholarly.scholarly.fill.assert_called_once()
+
     def test_real_author_fetch(self):
         """Test fetching a real author from Google Scholar."""
         from prof_finder.crawler.scholar import ScholarCrawler

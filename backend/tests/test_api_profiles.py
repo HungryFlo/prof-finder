@@ -6,7 +6,12 @@ from fastapi.testclient import TestClient
 from io import BytesIO
 
 from prof_finder.models.schema import UserProfile
-from prof_finder.api.task_manager import TaskStatus, create_task, execute_profile_parse
+from prof_finder.api.task_manager import (
+    TaskStatus,
+    create_task,
+    execute_profile_parse,
+    execute_student_profile_generation,
+)
 
 
 class TestProfileList:
@@ -135,14 +140,50 @@ Python, Machine Learning
         data = response.json()
         assert "task_id" in data
         assert "message" in data
-        assert "简历解析任务" in data["message"]
+        assert "学生画像生成任务" in data["message"]
+
+    def test_upload_multiple_materials_and_manual_text(
+        self, test_client: TestClient, auth_headers: dict
+    ):
+        """Test starting profile generation from multiple files and manual text."""
+        files = [
+            ("files", ("resume.md", BytesIO(b"# Jane\n\n## Skills\nPython"), "text/markdown")),
+            (
+                "files",
+                (
+                    "research.txt",
+                    BytesIO("我想研究多模态大模型。".encode("utf-8")),
+                    "text/plain",
+                ),
+            ),
+        ]
+        data = {
+            "title": "AI Agent Profile",
+            "use_llm": "false",
+            "research_interests": "多模态大模型",
+            "personal_statement": "我希望申请 AI 方向。",
+            "research_plan": "",
+            "notes": "优先参考手填信息。",
+        }
+
+        response = test_client.post(
+            "/api/profiles/upload",
+            headers=auth_headers,
+            files=files,
+            data=data,
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert "task_id" in payload
+        assert "学生画像生成任务" in payload["message"]
 
     def test_execute_profile_parse_saves_first_profile_active(self, test_db, test_user):
         """Test background profile parsing saves the first profile as active."""
         user_id = self._get_test_user_id(test_db)
         task = create_task(
             task_type="profile-parse",
-            task_name="解析简历 · My Resume",
+            task_name="解析画像 · My Resume",
             user_id=user_id,
             total=1,
         )
@@ -181,7 +222,7 @@ Python, Machine Learning
 
         task = create_task(
             task_type="profile-parse",
-            task_name="解析简历 · New Resume",
+            task_name="解析画像 · New Resume",
             user_id=user_id,
             total=1,
         )
@@ -212,6 +253,84 @@ Python, Machine Learning
             assert created is not None
             assert existing.is_active is True
             assert created.is_active is False
+
+    def test_execute_student_profile_generation_saves_profile(
+        self, test_db, test_user, monkeypatch
+    ):
+        """Test background student profile generation persists generated fields."""
+        user_id = self._get_test_user_id(test_db)
+
+        def fake_generate(self, materials, manual_inputs):
+            return {
+                "academic_profile": "# 学生学术画像\n\n## 学术定位\n关注 NLP。",
+                "profile_analysis": {
+                    "academic_positioning": "NLP applicant",
+                    "research_interests": [
+                        {
+                            "topic": "NLP",
+                            "evidence": ["research_interests"],
+                            "inferred": False,
+                        }
+                    ],
+                    "evidence_notes": ["手填研究兴趣提到 NLP"],
+                    "conflict_notes": ["手填信息优先"],
+                },
+                "evidence_notes": ["手填研究兴趣提到 NLP"],
+                "conflict_notes": ["手填信息优先"],
+            }
+
+        monkeypatch.setattr("prof_finder.llm.StudentProfileGenerator.generate", fake_generate)
+
+        task = create_task(
+            task_type="profile-generate",
+            task_name="生成学生画像 · NLP Profile",
+            user_id=user_id,
+            total=3,
+        )
+        asyncio.run(
+            execute_student_profile_generation(
+                task,
+                title="NLP Profile",
+                materials=[
+                    {
+                        "source_type": "file",
+                        "filename": "resume.md",
+                        "extension": ".md",
+                        "content": "# Jane Doe\n\n## Skills\nPython, NLP",
+                    },
+                    {
+                        "source_type": "file",
+                        "filename": "plan.txt",
+                        "extension": ".txt",
+                        "content": "I want to study natural language processing.",
+                    },
+                ],
+                manual_inputs={
+                    "research_interests": "NLP",
+                    "personal_statement": "",
+                    "research_plan": "",
+                    "notes": "手填信息优先",
+                },
+                use_llm=False,
+                session_factory=test_db.SessionLocal,
+            )
+        )
+
+        assert task.status == TaskStatus.COMPLETED
+        assert task.success_count == 1
+        with test_db.session() as session:
+            profile = (
+                session.query(UserProfile)
+                .filter(UserProfile.user_id == user_id, UserProfile.title == "NLP Profile")
+                .first()
+            )
+            assert profile is not None
+            assert profile.source_format == "materials"
+            assert "学生学术画像" in profile.academic_profile
+            assert profile.profile_analysis["academic_positioning"] == "NLP applicant"
+            assert profile.evidence_notes == ["手填研究兴趣提到 NLP"]
+            assert profile.conflict_notes == ["手填信息优先"]
+            assert len(profile.profile_materials) == 4
 
     def test_upload_latex_success(self, test_client: TestClient, auth_headers: dict):
         """Test successful LaTeX file upload."""
@@ -316,7 +435,7 @@ class TestProfileGet:
         """Test getting non-existent profile."""
         response = test_client.get("/api/profiles/99999", headers=auth_headers)
         assert response.status_code == 404
-        assert "简历不存在" in response.json()["detail"]
+        assert "画像不存在" in response.json()["detail"]
 
     def test_get_profile_other_user(self, test_client: TestClient, test_db, test_user):
         """Test getting another user's profile (should fail)."""
@@ -492,7 +611,7 @@ class TestProfileBatchDelete:
             json={"ids": profile_ids[:2]},
         )
         assert response.status_code == 200
-        assert "已删除 2 份简历" in response.json()["message"]
+        assert "已删除 2 份画像" in response.json()["message"]
 
         # Verify only one remains
         remaining = test_client.get("/api/profiles", headers=auth_headers).json()

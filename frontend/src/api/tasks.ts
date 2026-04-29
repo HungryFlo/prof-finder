@@ -4,6 +4,7 @@ import type { TaskListItem } from '@/types'
 export interface TaskStartResponse {
   task_id: string
   message: string
+  total?: number
 }
 
 export interface BatchCrawlRequest {

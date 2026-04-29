@@ -44,6 +44,13 @@ export interface Profile {
   projects: ProjectItem[]
   skills: string[]
   source_format?: string
+  profile_materials?: Array<Record<string, unknown>>
+  manual_inputs?: Record<string, string>
+  academic_profile?: string
+  profile_analysis?: Record<string, unknown>
+  evidence_notes?: unknown[]
+  conflict_notes?: unknown[]
+  profile_generated_at?: string
   created_at: string
   updated_at: string
 }
@@ -62,9 +69,20 @@ export interface ProfileCreate {
 // Professor types
 export interface Publication {
   title: string
-  year?: number
+  year?: number | string
   citations?: number
   authors?: string
+  author_pub_id?: string
+  gscholar_url?: string
+  abstract?: string
+  pub_url?: string
+  eprint_url?: string
+  journal?: string
+  conference?: string
+  volume?: string
+  number?: string
+  pages?: string
+  publisher?: string
 }
 
 export interface PaperSummary {
@@ -89,6 +107,12 @@ export interface Professor {
   h_index?: number
   total_citations?: number
   manual_notes?: string
+  research_profile?: string
+  research_profile_analysis?: Record<string, unknown>
+  research_profile_sources?: Array<Record<string, unknown>>
+  research_profile_evidence?: unknown[]
+  research_profile_conflicts?: unknown[]
+  research_profile_generated_at?: string
   created_at: string
   updated_at: string
 }
@@ -182,6 +206,11 @@ export type TaskType =
   | 'university-crawl'
   | 'paper-summary'
   | 'profile-parse'
+  | 'profile-generate'
+  | 'professor-profile'
+  | 'batch-professor-profiles'
+  | 'fill-publications'
+  | 'batch-refresh'
   | 'match'
   | 'single-letter'
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
@@ -213,6 +242,9 @@ export interface TaskProgress {
 
 export interface TaskResult {
   status: string
+  current?: number
+  total?: number
+  message?: string
   success_count: number
   failed_count: number
   results: Array<{

@@ -52,6 +52,25 @@ class Database:
     def _migrate(self) -> None:
         """Apply incremental schema changes that create_all cannot handle."""
         with self.engine.connect() as conn:
+            # Add generated student profile columns for existing deployments.
+            profile_result = conn.execute(text("PRAGMA table_info(user_profiles)"))
+            profile_columns = {row[1] for row in profile_result}
+            profile_additions = {
+                "profile_materials": "JSON",
+                "manual_inputs": "JSON",
+                "academic_profile": "TEXT",
+                "profile_analysis": "JSON",
+                "evidence_notes": "JSON",
+                "conflict_notes": "JSON",
+                "profile_generated_at": "DATETIME",
+            }
+            for column, sql_type in profile_additions.items():
+                if column not in profile_columns:
+                    conn.execute(
+                        text(f"ALTER TABLE user_profiles ADD COLUMN {column} {sql_type}")
+                    )
+                    conn.commit()
+
             # Add professors.embedding column if missing (added in semantic-matching change)
             result = conn.execute(text("PRAGMA table_info(professors)"))
             existing_columns = {row[1] for row in result}
@@ -64,6 +83,21 @@ class Database:
             if "paper_summaries" not in existing_columns:
                 conn.execute(text("ALTER TABLE professors ADD COLUMN paper_summaries JSON"))
                 conn.commit()
+
+            prof_research_additions = {
+                "research_profile": "TEXT",
+                "research_profile_analysis": "JSON",
+                "research_profile_sources": "JSON",
+                "research_profile_evidence": "JSON",
+                "research_profile_conflicts": "JSON",
+                "research_profile_generated_at": "DATETIME",
+            }
+            for column, sql_type in prof_research_additions.items():
+                if column not in existing_columns:
+                    conn.execute(
+                        text(f"ALTER TABLE professors ADD COLUMN {column} {sql_type}")
+                    )
+                    conn.commit()
 
             # Backfill source_inputs incremental columns for existing deployments.
             source_table_exists = conn.execute(

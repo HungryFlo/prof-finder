@@ -45,7 +45,7 @@ async def run_matching(
     if not active_profile:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先激活一份简历",
+            detail="请先激活一份画像",
         )
 
     professor_count = (
@@ -104,7 +104,7 @@ def get_match_results(
     if not active_profile:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先激活一份简历",
+            detail="请先激活一份画像",
         )
     
     # Build query
@@ -179,7 +179,7 @@ def get_match_detail(
     if not active_profile:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先激活一份简历",
+            detail="请先激活一份画像",
         )
     
     # Get match record

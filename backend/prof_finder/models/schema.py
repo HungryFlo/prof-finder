@@ -89,6 +89,15 @@ class UserProfile(Base):
     # Raw content
     raw_content = Column(Text)
     source_format = Column(String(20))  # "markdown", "latex", "manual"
+
+    # Generated academic profile from multi-material intake
+    profile_materials = Column(JSON, default=list)
+    manual_inputs = Column(JSON, default=dict)
+    academic_profile = Column(Text)
+    profile_analysis = Column(JSON, default=dict)
+    evidence_notes = Column(JSON, default=list)
+    conflict_notes = Column(JSON, default=list)
+    profile_generated_at = Column(DateTime)
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -130,7 +139,15 @@ class Professor(Base):
 
     # Semantic embedding (list[float], allenai-specter 768-dim, nullable)
     embedding = Column(JSON, nullable=True)
-    
+
+    # Generated professor research profile
+    research_profile = Column(Text)
+    research_profile_analysis = Column(JSON, default=dict)
+    research_profile_sources = Column(JSON, default=list)
+    research_profile_evidence = Column(JSON, default=list)
+    research_profile_conflicts = Column(JSON, default=list)
+    research_profile_generated_at = Column(DateTime)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

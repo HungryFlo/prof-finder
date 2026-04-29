@@ -97,7 +97,6 @@ class LetterGenerator:
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.7,
-            max_tokens=1000,
         )
 
         return response.choices[0].message.content
@@ -109,6 +108,16 @@ class LetterGenerator:
         name = _get_attr(profile, 'name')
         if name:
             parts.append(f"姓名：{name}")
+
+        academic_profile = _get_attr(profile, 'academic_profile')
+        if academic_profile:
+            parts.append(f"学生学术画像：\n{str(academic_profile)[:1200]}")
+
+        profile_analysis = _get_attr(profile, 'profile_analysis') or {}
+        if isinstance(profile_analysis, dict):
+            positioning = profile_analysis.get('academic_positioning')
+            if positioning:
+                parts.append(f"学术定位：{positioning}")
 
         # Education
         education = _get_attr(profile, 'education') or []
@@ -153,10 +162,31 @@ class LetterGenerator:
 
         name = _get_attr(professor, 'name')
         parts.append(f"姓名：{name}")
-        
+
         affiliation = _get_attr(professor, 'affiliation')
         if affiliation:
             parts.append(f"单位：{affiliation}")
+
+        # Include generated research profile for richer context
+        research_profile = _get_attr(professor, 'research_profile')
+        if research_profile:
+            parts.append(f"教授科研画像：\n{str(research_profile)[:1500]}")
+
+        research_profile_analysis = _get_attr(professor, 'research_profile_analysis') or {}
+        if isinstance(research_profile_analysis, dict):
+            positioning = research_profile_analysis.get('research_positioning')
+            if positioning:
+                parts.append(f"科研定位：{positioning}")
+            fit_signals = research_profile_analysis.get('student_fit_signals') or []
+            if isinstance(fit_signals, list):
+                signal_lines = []
+                for item in fit_signals:
+                    if isinstance(item, dict) and item.get('signal'):
+                        signal_lines.append(f"- {item['signal']}")
+                    elif isinstance(item, str):
+                        signal_lines.append(f"- {item}")
+                if signal_lines:
+                    parts.append("学生适配信号：\n" + "\n".join(signal_lines))
 
         research_interests = _get_attr(professor, 'research_interests') or []
         if research_interests:

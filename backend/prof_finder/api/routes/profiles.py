@@ -2,7 +2,7 @@
 
 import asyncio
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session, sessionmaker
@@ -17,9 +17,16 @@ from ..schemas import (
     BatchDeleteRequest,
     MessageResponse,
 )
-from ..task_manager import cleanup_old_tasks, create_task, execute_profile_parse
+from ..task_manager import (
+    MAX_PROFILE_MATERIAL_CHARS,
+    cleanup_old_tasks,
+    create_task,
+    execute_student_profile_generation,
+)
 
-router = APIRouter(prefix="/profiles", tags=["简历管理"])
+router = APIRouter(prefix="/profiles", tags=["学生画像"])
+
+SUPPORTED_PROFILE_MATERIAL_EXTENSIONS = {".md", ".markdown", ".txt", ".tex", ".latex"}
 
 
 @router.get("", response_model=List[ProfileResponse])
@@ -89,56 +96,101 @@ def create_profile(
 
 @router.post("/upload", response_model=TaskStartResponse)
 async def upload_profile(
-    file: UploadFile = File(...),
+    file: Optional[UploadFile] = File(None),
+    files: List[UploadFile] = File(default=[]),
     title: str = Form(...),
     use_llm: bool = Form(True),
+    research_interests: str = Form(""),
+    personal_statement: str = Form(""),
+    research_plan: str = Form(""),
+    notes: str = Form(""),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
 ):
-    """Upload a resume file and start a background parse/save task.
+    """Upload profile materials and start a background generation/save task.
 
     Args:
-        file: Resume file (markdown or latex).
+        file: Legacy single resume/material file.
+        files: Multiple profile material files.
         title: Profile title.
-        use_llm: Whether to use LLM for parsing.
+        use_llm: Whether to use LLM for legacy resume field extraction.
+        research_interests: Directly entered research interests.
+        personal_statement: Directly entered personal statement.
+        research_plan: Directly entered research plan.
+        notes: Directly entered free-form notes.
         current_user: Authenticated user.
         session: Database session.
 
     Returns:
         Task ID for progress tracking via SSE.
     """
-    # Validate file extension
-    filename = file.filename or ""
-    ext = Path(filename).suffix.lower()
+    uploaded_files: List[UploadFile] = []
+    if file and file.filename:
+        uploaded_files.append(file)
+    uploaded_files.extend(item for item in files if item.filename)
 
-    if ext not in [".md", ".markdown", ".tex", ".latex"]:
+    manual_inputs = {
+        "research_interests": research_interests.strip(),
+        "personal_statement": personal_statement.strip(),
+        "research_plan": research_plan.strip(),
+        "notes": notes.strip(),
+    }
+    has_manual_input = any(manual_inputs.values())
+    if not uploaded_files and not has_manual_input:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="仅支持 .md/.markdown/.tex/.latex 格式的文件",
+            detail="请至少上传一个材料文件或填写一项画像材料",
         )
 
-    # Read file content
-    content = await file.read()
-    try:
-        text_content = content.decode("utf-8")
-    except UnicodeDecodeError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="文件编码错误，请使用 UTF-8 编码",
+    materials = []
+    for upload in uploaded_files:
+        filename = upload.filename or ""
+        ext = Path(filename).suffix.lower()
+        if ext not in SUPPORTED_PROFILE_MATERIAL_EXTENSIONS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="仅支持 .md/.markdown/.txt/.tex/.latex 格式的文件",
+            )
+
+        content = await upload.read()
+        try:
+            text_content = content.decode("utf-8")
+        except UnicodeDecodeError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"文件编码错误，请使用 UTF-8 编码：{filename}",
+            )
+
+        if not text_content.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"文件内容为空：{filename}",
+            )
+
+        materials.append(
+            {
+                "source_type": "file",
+                "filename": filename,
+                "extension": ext,
+                "content": text_content,
+            }
         )
 
-    if not text_content.strip():
+    total_chars = sum(len(item["content"]) for item in materials) + sum(
+        len(value) for value in manual_inputs.values()
+    )
+    if total_chars > MAX_PROFILE_MATERIAL_CHARS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="文件内容为空",
+            detail=f"画像材料过长，请控制在 {MAX_PROFILE_MATERIAL_CHARS} 字符以内",
         )
 
     cleanup_old_tasks()
     task = create_task(
-        task_type="profile-parse",
-        task_name=f"解析简历 · {title}",
+        task_type="profile-generate",
+        task_name=f"生成学生画像 · {title}",
         user_id=current_user.id,
-        total=1,
+        total=3,
     )
     task_session_factory = sessionmaker(
         autocommit=False,
@@ -146,11 +198,11 @@ async def upload_profile(
         bind=session.get_bind(),
     )
     asyncio.create_task(
-        execute_profile_parse(
+        execute_student_profile_generation(
             task,
             title=title,
-            text_content=text_content,
-            extension=ext,
+            materials=materials,
+            manual_inputs=manual_inputs,
             use_llm=use_llm,
             session_factory=task_session_factory,
         )
@@ -158,7 +210,7 @@ async def upload_profile(
 
     return TaskStartResponse(
         task_id=task.task_id,
-        message="已启动简历解析任务，完成后会自动保存到列表",
+        message="已启动学生画像生成任务，完成后会自动保存到列表",
     )
 
 
@@ -187,7 +239,7 @@ def get_profile(
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="简历不存在",
+            detail="画像不存在",
         )
 
     return profile
@@ -220,7 +272,7 @@ def update_profile(
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="简历不存在",
+            detail="画像不存在",
         )
 
     # Update fields
@@ -268,12 +320,12 @@ def delete_profile(
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="简历不存在",
+            detail="画像不存在",
         )
 
     session.delete(profile)
 
-    return MessageResponse(message="简历已删除")
+    return MessageResponse(message="画像已删除")
 
 
 @router.post("/{profile_id}/activate", response_model=ProfileResponse)
@@ -301,7 +353,7 @@ def activate_profile(
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="简历不存在",
+            detail="画像不存在",
         )
 
     # Deactivate all profiles
@@ -339,4 +391,4 @@ def batch_delete_profiles(
         .delete(synchronize_session=False)
     )
 
-    return MessageResponse(message=f"已删除 {deleted_count} 份简历")
+    return MessageResponse(message=f"已删除 {deleted_count} 份画像")

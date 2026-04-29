@@ -130,4 +130,34 @@ export const professorsApi = {
     })
     return response.data
   },
+
+  async generateProfile(id: number): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(
+      `/professors/${id}/generate-profile`
+    )
+    return response.data
+  },
+
+  async batchGenerateProfiles(ids: number[]): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(
+      '/professors/batch-generate-profiles',
+      { ids }
+    )
+    return response.data
+  },
+
+  async startFillPublications(id: number): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(
+      `/professors/${id}/fill-publications`
+    )
+    return response.data
+  },
+
+  async batchRefresh(ids: number[]): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(
+      '/professors/batch-refresh',
+      { ids }
+    )
+    return response.data
+  },
 }

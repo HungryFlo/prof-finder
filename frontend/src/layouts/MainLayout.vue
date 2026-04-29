@@ -42,7 +42,7 @@ onMounted(() => {
 const menuOptions = computed<MenuOption[]>(() => {
   const options: MenuOption[] = [
     {
-      label: '简历管理',
+      label: '学生画像',
       key: 'profile',
       icon: () => h(NIcon, null, { default: () => h(DocumentTextOutline) }),
     },
