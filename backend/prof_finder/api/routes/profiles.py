@@ -1,6 +1,7 @@
 """Profile management API routes."""
 
 import asyncio
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -13,6 +14,9 @@ from ..schemas import (
     ProfileCreate,
     ProfileUpdate,
     ProfileResponse,
+    ProfileChatRequest,
+    ProfileChatResponse,
+    ProfileChatRefineRequest,
     TaskStartResponse,
     BatchDeleteRequest,
     MessageResponse,
@@ -22,7 +26,9 @@ from ..task_manager import (
     cleanup_old_tasks,
     create_task,
     execute_student_profile_generation,
+    execute_profile_chat_refinement,
 )
+from ...llm.student_profile_generator import StudentProfileGenerator
 
 router = APIRouter(prefix="/profiles", tags=["学生画像"])
 
@@ -392,3 +398,128 @@ def batch_delete_profiles(
     )
 
     return MessageResponse(message=f"已删除 {deleted_count} 份画像")
+
+
+@router.post("/{profile_id}/chat", response_model=ProfileChatResponse)
+def profile_chat(
+    profile_id: int,
+    data: ProfileChatRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """AI interviewer chat: send a message and get the next AI question.
+
+    Args:
+        profile_id: Profile ID.
+        data: User message + full chat history.
+        current_user: Authenticated user.
+        session: Database session.
+
+    Returns:
+        AI interviewer reply.
+    """
+    profile = (
+        session.query(UserProfile)
+        .filter(UserProfile.id == profile_id, UserProfile.user_id == current_user.id)
+        .first()
+    )
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="画像不存在",
+        )
+
+    generator = StudentProfileGenerator()
+    if not generator.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="请先配置 DeepSeek API Key",
+        )
+
+    analysis = profile.profile_analysis or {}
+    academic_profile = profile.academic_profile or ""
+
+    try:
+        reply = generator.interview(
+            profile_analysis=analysis,
+            academic_profile=academic_profile,
+            history=data.history,
+            message=data.message,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
+
+    return ProfileChatResponse(reply=reply)
+
+
+@router.post("/{profile_id}/chat/refine", response_model=TaskStartResponse)
+async def profile_chat_refine(
+    profile_id: int,
+    data: ProfileChatRefineRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Start a background task to regenerate the profile from chat Q&A.
+
+    Args:
+        profile_id: Profile ID.
+        data: Full chat history.
+        current_user: Authenticated user.
+        session: Database session.
+
+    Returns:
+        Task ID for progress tracking via SSE.
+    """
+    profile = (
+        session.query(UserProfile)
+        .filter(UserProfile.id == profile_id, UserProfile.user_id == current_user.id)
+        .first()
+    )
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="画像不存在",
+        )
+
+    generator = StudentProfileGenerator()
+    if not generator.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="请先配置 DeepSeek API Key",
+        )
+
+    if not data.history:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请先与 AI 进行至少一轮对话",
+        )
+
+    cleanup_old_tasks()
+    task = create_task(
+        task_type="profile-refine",
+        task_name=f"优化学生画像 · {profile.title}",
+        user_id=current_user.id,
+        total=4,
+    )
+    task.total = 4
+    task_session_factory = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=session.get_bind(),
+    )
+    asyncio.create_task(
+        execute_profile_chat_refinement(
+            task,
+            profile_id=profile_id,
+            chat_history=data.history,
+            session_factory=task_session_factory,
+        )
+    )
+
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message="画像优化任务已启动，完成后自动更新",
+    )

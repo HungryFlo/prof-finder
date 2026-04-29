@@ -191,6 +191,16 @@ export interface Letter {
   is_generated: boolean
 }
 
+// Chat types
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ProfileChatResponse {
+  reply: string
+}
+
 // Settings types
 export interface UserSettings {
   deepseek_api_key_masked?: string | null
@@ -211,6 +221,7 @@ export type TaskType =
   | 'batch-professor-profiles'
   | 'fill-publications'
   | 'batch-refresh'
+  | 'profile-refine'
   | 'match'
   | 'single-letter'
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'

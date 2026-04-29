@@ -17,6 +17,7 @@ import {
   useMessage,
 } from 'naive-ui'
 import { profilesApi } from '@/api/profiles'
+import ProfileChatPanel from '@/components/ProfileChatPanel.vue'
 import type { Profile, EducationItem, ResearchItem, ProjectItem } from '@/types'
 
 const router = useRouter()
@@ -25,7 +26,9 @@ const message = useMessage()
 
 const loading = ref(false)
 const saving = ref(false)
+const showChat = ref(false)
 const profile = ref<Profile | null>(null)
+const profileId = ref(0)
 
 // Editable form data
 const formData = ref({
@@ -48,6 +51,7 @@ async function fetchProfile() {
   loading.value = true
   try {
     profile.value = await profilesApi.get(id)
+    profileId.value = id
     // Initialize form data
     formData.value = {
       title: profile.value.title,
@@ -63,6 +67,16 @@ async function fetchProfile() {
     router.push('/profile')
   } finally {
     loading.value = false
+  }
+}
+
+async function refreshProfileSilent() {
+  if (!profileId.value) return
+  try {
+    const data = await profilesApi.get(profileId.value)
+    profile.value = data
+  } catch {
+    // silent — don't disturb the chat flow
   }
 }
 
@@ -117,6 +131,13 @@ onMounted(() => {
       <template #header-extra>
         <n-space>
           <n-button @click="goBack">返回</n-button>
+          <n-button
+            v-if="profile.academic_profile"
+            :type="showChat ? 'default' : 'info'"
+            @click="showChat = !showChat"
+          >
+            {{ showChat ? '收起 AI' : 'AI 优化' }}
+          </n-button>
           <n-button type="primary" :loading="saving" @click="handleSave">保存</n-button>
         </n-space>
       </template>
@@ -168,6 +189,14 @@ onMounted(() => {
           </div>
         </n-space>
       </template>
+
+      <ProfileChatPanel
+        v-if="profileId"
+        :profile-id="profileId"
+        :visible="showChat"
+        @profile-refreshed="refreshProfileSilent"
+        style="margin-bottom: 16px"
+      />
 
       <n-form label-placement="top">
         <n-form-item label="画像标题">

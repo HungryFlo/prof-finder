@@ -160,6 +160,25 @@ class BatchDeleteRequest(BaseModel):
     ids: List[int]
 
 
+class ProfileChatRequest(BaseModel):
+    """AI interviewer chat message request."""
+
+    message: str
+    history: List[dict] = []
+
+
+class ProfileChatResponse(BaseModel):
+    """AI interviewer chat message response."""
+
+    reply: str
+
+
+class ProfileChatRefineRequest(BaseModel):
+    """Request to regenerate profile from chat Q&A."""
+
+    history: List[dict] = []
+
+
 # ============= Professor Schemas =============
 
 

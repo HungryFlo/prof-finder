@@ -26,7 +26,7 @@ class TaskState:
     """State of a background task."""
 
     task_id: str
-    task_type: str  # batch-crawl | batch-letters | single-crawl | match | single-letter | paper-summary | profile-parse | profile-generate | professor-profile | fill-publications | batch-refresh
+    task_type: str  # batch-crawl | batch-letters | single-crawl | match | single-letter | paper-summary | profile-parse | profile-generate | professor-profile | fill-publications | batch-refresh | profile-refine
     task_name: str
     user_id: int
     status: TaskStatus
@@ -139,17 +139,18 @@ def extract_scholar_id_from_url(url: str) -> str:
 
 
 def _profile_material_metadata(materials: list[dict], manual_inputs: dict) -> list[dict]:
-    """Return material metadata without duplicating full source text."""
+    """Return material metadata, preserving content for refinement use."""
     metadata: list[dict] = []
     for item in materials:
-        metadata.append(
-            {
-                "source_type": item.get("source_type", "file"),
-                "filename": item.get("filename"),
-                "extension": item.get("extension"),
-                "char_count": len(item.get("content") or ""),
-            }
-        )
+        entry: dict = {
+            "source_type": item.get("source_type", "file"),
+            "filename": item.get("filename"),
+            "extension": item.get("extension"),
+        }
+        content = item.get("content") or ""
+        if content:
+            entry["content"] = content
+        metadata.append(entry)
     for field_name, value in manual_inputs.items():
         if str(value or "").strip():
             metadata.append(
@@ -199,9 +200,18 @@ def _parse_materials_as_resume(materials: list[dict], use_llm: bool) -> dict:
         parsed, _ = parser.parse(content, item.get("extension") or ".md")
         if not merged["name"] and parsed.name:
             merged["name"] = parsed.name
-        merged["education"].extend(e.to_dict() for e in parsed.education)
-        merged["research_experience"].extend(e.to_dict() for e in parsed.research_experience)
-        merged["projects"].extend(p.to_dict() for p in parsed.projects)
+        for edu in parsed.education:
+            entry = edu.to_dict()
+            if entry not in merged["education"]:
+                merged["education"].append(entry)
+        for exp in parsed.research_experience:
+            entry = exp.to_dict()
+            if entry not in merged["research_experience"]:
+                merged["research_experience"].append(entry)
+        for proj in parsed.projects:
+            entry = proj.to_dict()
+            if entry not in merged["projects"]:
+                merged["projects"].append(entry)
         for skill in parsed.skills:
             normalized = skill.strip()
             if normalized and normalized.lower() not in seen_skills:
@@ -1549,3 +1559,120 @@ async def execute_batch_refresh(
 
     task.status = TaskStatus.COMPLETED
     task.message = f"批量更新完成：成功 {task.success_count}，失败 {task.failed_count}"
+
+
+async def execute_profile_chat_refinement(
+    task: TaskState,
+    *,
+    profile_id: int,
+    chat_history: list[dict],
+    session_factory: Callable[[], Any],
+) -> None:
+    """Regenerate an academic profile incorporating chat Q&A insights."""
+    from ..config import settings as app_settings
+    from ..db.database import get_db
+    from ..llm import StudentProfileGenerator
+    from ..models.schema import UserProfile, UserSettings
+
+    task.status = TaskStatus.RUNNING
+    task.total = 4
+    task.current = 0
+    task.message = "正在整理对话内容..."
+
+    try:
+        task.message = "正在调用 AI 分析..."
+        task.current = 1
+        await asyncio.sleep(0)
+
+        if session_factory is None:
+            session_context = get_db().session
+        else:
+
+            def session_context():
+                return _session_scope(session_factory)
+
+        with session_context() as session:
+            user_settings = (
+                session.query(UserSettings)
+                .filter(UserSettings.user_id == task.user_id)
+                .first()
+            )
+            api_key = (
+                user_settings.deepseek_api_key if user_settings else None
+            ) or app_settings.deepseek_api_key
+            base_url = (
+                user_settings.deepseek_base_url if user_settings else None
+            ) or app_settings.deepseek_base_url
+
+            profile = (
+                session.query(UserProfile)
+                .filter(UserProfile.id == profile_id, UserProfile.user_id == task.user_id)
+                .first()
+            )
+            if not profile:
+                raise ValueError("画像不存在")
+
+            materials = profile.profile_materials or []
+            manual_inputs = profile.manual_inputs or {}
+            academic_profile = profile.academic_profile or ""
+            profile_analysis = profile.profile_analysis or {}
+
+            # Old profiles stored materials without content; reconstruct from raw_content.
+            if (
+                not any(
+                    m.get("content") for m in materials if m.get("source_type") == "file"
+                )
+                and profile.raw_content
+            ):
+                file_materials = [
+                    {"source_type": "file", "filename": "原始材料汇总", "content": profile.raw_content}
+                ]
+                manual_materials = [m for m in materials if m.get("source_type") == "manual"]
+                materials = file_materials + manual_materials
+
+        task.current = 2
+        task.message = "正在重新生成学生画像..."
+        await asyncio.sleep(0)
+
+        generator = StudentProfileGenerator(api_key=api_key, base_url=base_url)
+        result = await asyncio.to_thread(
+            generator.refine_from_chat,
+            materials=materials,
+            manual_inputs=manual_inputs,
+            chat_history=chat_history,
+            academic_profile=academic_profile,
+            profile_analysis=profile_analysis,
+        )
+
+        task.current = 3
+        task.message = "正在保存优化结果..."
+        await asyncio.sleep(0)
+
+        with session_context() as session:
+            profile = (
+                session.query(UserProfile)
+                .filter(UserProfile.id == profile_id, UserProfile.user_id == task.user_id)
+                .first()
+            )
+            if profile:
+                profile.academic_profile = result["academic_profile"]
+                profile.profile_analysis = result["profile_analysis"]
+                profile.evidence_notes = result["evidence_notes"]
+                profile.conflict_notes = result["conflict_notes"]
+                profile.profile_generated_at = datetime.now(timezone.utc)
+                session.flush()
+
+        task.current = 4
+        task.success_count = 1
+        task.status = TaskStatus.COMPLETED
+        task.message = "学生画像优化完成"
+
+    except ValueError as exc:
+        task.status = TaskStatus.FAILED
+        task.error_message = str(exc)
+        task.message = f"画像优化失败：{exc}"
+    except Exception as exc:
+        task.status = TaskStatus.FAILED
+        task.error_message = str(exc)
+        task.message = "画像优化过程中发生未知错误"
+        logger.exception("Profile chat refinement failed for profile %s", profile_id)

@@ -30,12 +30,23 @@ class StudentProfileGenerator:
         if self.enabled:
             self.client = OpenAI(api_key=actual_api_key, base_url=actual_base_url)
 
-    def generate(self, materials: list[dict], manual_inputs: dict) -> dict:
+    def generate(
+        self,
+        materials: list[dict],
+        manual_inputs: dict,
+        previous_academic_profile: str = "",
+        previous_profile_analysis: dict | None = None,
+    ) -> dict:
         """Run analyzer and builder prompts for a student profile."""
         if not self.enabled or self.client is None:
             raise ValueError("请先配置 DeepSeek API Key 后再生成学生画像")
 
-        analysis = self._analyze(materials=materials, manual_inputs=manual_inputs)
+        analysis = self._analyze(
+            materials=materials,
+            manual_inputs=manual_inputs,
+            previous_academic_profile=previous_academic_profile,
+            previous_profile_analysis=previous_profile_analysis,
+        )
         academic_profile = self._build_profile(analysis=analysis)
         return {
             "academic_profile": academic_profile,
@@ -44,7 +55,114 @@ class StudentProfileGenerator:
             "conflict_notes": self._as_list(analysis.get("conflict_notes")),
         }
 
-    def _analyze(self, materials: list[dict], manual_inputs: dict) -> dict:
+    def interview(
+        self,
+        profile_analysis: dict,
+        academic_profile: str,
+        history: list[dict],
+        message: str,
+    ) -> str:
+        """Generate the next AI interviewer response based on profile gaps and chat history.
+
+        Args:
+            profile_analysis: Current structured profile analysis JSON.
+            academic_profile: Current readable Markdown profile.
+            history: Chat history as [{role: "user"|"assistant", content: str}].
+            message: Latest message from the student.
+
+        Returns:
+            AI interviewer reply string.
+        """
+        if not self.enabled or self.client is None:
+            raise ValueError("请先配置 DeepSeek API Key")
+
+        system_prompt = get_prompt("student_profile", "profile_interviewer", "system")
+        history_text = self._format_chat_history(history, message)
+
+        user_prompt = get_prompt(
+            "student_profile",
+            "profile_interviewer",
+            "user",
+            profile_analysis=json.dumps(profile_analysis, ensure_ascii=False, indent=2),
+            academic_profile=academic_profile or "（尚未生成）",
+            history_text=history_text,
+        )
+
+        response = self.client.chat.completions.create(
+            model="deepseek-v4-flash",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.5,  # Slightly higher for natural conversation
+        )
+        return (response.choices[0].message.content or "").strip()
+
+    def refine_from_chat(
+        self,
+        materials: list[dict],
+        manual_inputs: dict,
+        chat_history: list[dict],
+        academic_profile: str = "",
+        profile_analysis: dict | None = None,
+    ) -> dict:
+        """Regenerate profile incorporating insights from chat Q&A.
+
+        Enriches manual_inputs with a summary of the chat conversation, then
+        re-runs the full two-stage generate pipeline.
+
+        Args:
+            materials: Original profile materials.
+            manual_inputs: Original manual inputs dict.
+            chat_history: Full chat history [{role, content}].
+            academic_profile: Current readable Markdown profile (for incremental update).
+            profile_analysis: Current structured analysis JSON (for incremental update).
+
+        Returns:
+            Same dict as generate(): academic_profile, profile_analysis, etc.
+        """
+        chat_summary = self._build_chat_summary(chat_history)
+        enriched = dict(manual_inputs)
+        enriched["_chat_refinement"] = chat_summary
+        return self.generate(
+            materials=materials,
+            manual_inputs=enriched,
+            previous_academic_profile=academic_profile,
+            previous_profile_analysis=profile_analysis,
+        )
+
+    @staticmethod
+    def _format_chat_history(history: list[dict], latest_message: str) -> str:
+        """Format chat history for prompt injection."""
+        lines: list[str] = []
+        for msg in history:
+            role_label = "学生" if msg.get("role") == "user" else "AI"
+            content = (msg.get("content") or "").strip()
+            if content:
+                lines.append(f"{role_label}: {content}")
+        if latest_message.strip():
+            lines.append(f"学生: {latest_message.strip()}")
+        return "\n".join(lines) if lines else "（尚无对话历史，请主动提出第一个问题）"
+
+    @staticmethod
+    def _build_chat_summary(history: list[dict]) -> str:
+        """Convert chat history into a structured summary for the analyzer."""
+        lines = ["以下信息来自学生与 AI 访谈助手的对话：", ""]
+        for msg in history:
+            if not msg.get("content"):
+                continue
+            role_label = "学生" if msg.get("role") == "user" else "AI 提问"
+            lines.append(f"**{role_label}**: {msg['content'].strip()}")
+            lines.append("")
+        return "\n".join(lines).strip()
+
+    def _analyze(
+        self,
+        materials: list[dict],
+        manual_inputs: dict,
+        previous_academic_profile: str = "",
+        previous_profile_analysis: dict | None = None,
+    ) -> dict:
         """Generate structured profile analysis JSON."""
         assert self.client is not None
         system_prompt = get_prompt("student_profile", "material_analysis", "system")
@@ -54,6 +172,12 @@ class StudentProfileGenerator:
             "user",
             manual_inputs=json.dumps(manual_inputs, ensure_ascii=False, indent=2),
             materials=self._format_materials(materials),
+            previous_academic_profile=previous_academic_profile or "（无）",
+            previous_profile_analysis=(
+                json.dumps(previous_profile_analysis, ensure_ascii=False, indent=2)
+                if previous_profile_analysis
+                else "（无）"
+            ),
         )
 
         last_error: Optional[Exception] = None

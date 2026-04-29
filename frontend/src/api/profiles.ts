@@ -1,5 +1,5 @@
 import client from './client'
-import type { Profile, ProfileCreate } from '@/types'
+import type { ChatMessage, Profile, ProfileCreate, ProfileChatResponse } from '@/types'
 import type { TaskStartResponse } from '@/api/tasks'
 
 export interface ProfileMaterialUploadOptions {
@@ -61,6 +61,16 @@ export const profilesApi = {
 
   async batchDelete(ids: number[]): Promise<{ message: string }> {
     const response = await client.post<{ message: string }>('/profiles/batch-delete', { ids })
+    return response.data
+  },
+
+  async chat(profileId: number, message: string, history: ChatMessage[]): Promise<ProfileChatResponse> {
+    const response = await client.post<ProfileChatResponse>(`/profiles/${profileId}/chat`, { message, history })
+    return response.data
+  },
+
+  async refineFromChat(profileId: number, history: ChatMessage[]): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(`/profiles/${profileId}/chat/refine`, { history })
     return response.data
   },
 }
