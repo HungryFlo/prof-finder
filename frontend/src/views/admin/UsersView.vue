@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, h } from 'vue'
+import { ref, onMounted, h, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   NCard,
   NDataTable,
@@ -15,43 +16,43 @@ import { adminApi } from '@/api/auth'
 import type { User } from '@/types'
 
 const message = useMessage()
+const { t, locale } = useI18n()
 
-// State
+const dateLocale = computed(() => (locale.value === 'en' ? 'en-US' : 'zh-CN'))
+
 const loading = ref(false)
 const users = ref<User[]>([])
 
-// Reset password modal
 const showResetModal = ref(false)
 const resetLoading = ref(false)
 const selectedUser = ref<User | null>(null)
 const newPassword = ref('')
 
-// Table columns
-const columns: DataTableColumns<User> = [
-  { title: 'ID', key: 'id', width: 80 },
-  { title: '用户名', key: 'username', width: 150 },
+const columns = computed<DataTableColumns<User>>(() => [
+  { title: t('admin.idColumn'), key: 'id', width: 80 },
+  { title: t('admin.username'), key: 'username', width: 150 },
   {
-    title: '角色',
+    title: t('admin.role'),
     key: 'is_admin',
-    width: 100,
+    width: 118,
     render(row) {
       return row.is_admin
-        ? h(NTag, { type: 'warning', size: 'small' }, { default: () => '管理员' })
-        : h(NTag, { type: 'default', size: 'small' }, { default: () => '普通用户' })
+        ? h(NTag, { type: 'warning', size: 'small' }, { default: () => t('admin.admin') })
+        : h(NTag, { type: 'default', size: 'small' }, { default: () => t('admin.user') })
     },
   },
   {
-    title: '创建时间',
+    title: t('admin.createdAt'),
     key: 'created_at',
     width: 180,
     render(row) {
-      return new Date(row.created_at).toLocaleString('zh-CN')
+      return new Date(row.created_at).toLocaleString(dateLocale.value)
     },
   },
   {
-    title: '操作',
+    title: t('admin.actions'),
     key: 'actions',
-    width: 120,
+    width: 200,
     render(row) {
       return h(
         NButton,
@@ -59,49 +60,46 @@ const columns: DataTableColumns<User> = [
           size: 'small',
           onClick: () => openResetModal(row),
         },
-        { default: () => '重置密码' }
+        { default: () => t('admin.resetPassword') }
       )
     },
   },
-]
+])
 
-// Fetch users
 async function fetchUsers() {
   loading.value = true
   try {
     users.value = await adminApi.listUsers()
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '获取用户列表失败')
+    message.error(err.response?.data?.detail || t('admin.fetchListFailed'))
   } finally {
     loading.value = false
   }
 }
 
-// Open reset password modal
 function openResetModal(user: User) {
   selectedUser.value = user
   newPassword.value = ''
   showResetModal.value = true
 }
 
-// Reset password
 async function handleResetPassword() {
   if (!selectedUser.value) return
-  
+
   if (newPassword.value.length < 6) {
-    message.error('密码至少需要 6 个字符')
+    message.error(t('admin.passwordTooShort'))
     return
   }
 
   resetLoading.value = true
   try {
     await adminApi.resetPassword(selectedUser.value.id, newPassword.value)
-    message.success('密码重置成功')
+    message.success(t('admin.resetSuccess'))
     showResetModal.value = false
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '重置密码失败')
+    message.error(err.response?.data?.detail || t('admin.resetPasswordFail'))
   } finally {
     resetLoading.value = false
   }
@@ -114,33 +112,32 @@ onMounted(() => {
 
 <template>
   <div>
-    <n-card title="用户管理">
+    <n-card :title="$t('admin.title')">
       <n-data-table
         :columns="columns"
         :data="users"
         :loading="loading"
         :row-key="(row: User) => row.id"
-        :scroll-x="650"
+        :scroll-x="820"
       />
     </n-card>
 
-    <!-- Reset Password Modal -->
     <n-modal
       v-model:show="showResetModal"
       preset="dialog"
-      title="重置密码"
-      positive-text="确认重置"
-      negative-text="取消"
+      :title="$t('admin.resetPassword')"
+      :positive-text="$t('admin.confirmResetPwd')"
+      :negative-text="$t('common.cancel')"
       :positive-button-props="{ loading: resetLoading }"
       @positive-click="handleResetPassword"
       style="width: 400px"
     >
-      <p>为用户 <strong>{{ selectedUser?.username }}</strong> 设置新密码：</p>
-      <n-form-item label="新密码">
+      <p>{{ $t('admin.resetPwdIntro', { username: selectedUser?.username ?? '' }) }}</p>
+      <n-form-item :label="t('auth.newPassword')">
         <n-input
           v-model:value="newPassword"
           type="password"
-          placeholder="请输入新密码（至少6位）"
+          :placeholder="$t('admin.newPasswordPlaceholder')"
           show-password-on="click"
         />
       </n-form-item>

@@ -11,6 +11,7 @@ import {
   NAvatar,
   NSpace,
   NIcon,
+  NButton,
   useMessage,
 } from 'naive-ui'
 import {
@@ -21,10 +22,13 @@ import {
   SettingsOutline,
   PeopleCircleOutline,
   LogOutOutline,
+  LanguageOutline,
 } from '@vicons/ionicons5'
 import type { MenuOption } from 'naive-ui'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useTaskStore } from '@/stores/tasks'
+import { setLocale } from '@/i18n'
 import TaskPanel from '@/components/TaskPanel.vue'
 import TaskNotificationHost from '@/components/TaskNotificationHost.vue'
 
@@ -33,6 +37,7 @@ const route = useRoute()
 const authStore = useAuthStore()
 const taskStore = useTaskStore()
 const message = useMessage()
+const { t, locale } = useI18n()
 
 onMounted(() => {
   taskStore.restoreFromServer()
@@ -42,36 +47,35 @@ onMounted(() => {
 const menuOptions = computed<MenuOption[]>(() => {
   const options: MenuOption[] = [
     {
-      label: '学生画像',
+      label: t('nav.profiles'),
       key: 'profile',
       icon: () => h(NIcon, null, { default: () => h(DocumentTextOutline) }),
     },
     {
-      label: '教授管理',
+      label: t('nav.professors'),
       key: 'professor',
       icon: () => h(NIcon, null, { default: () => h(PeopleOutline) }),
     },
     {
-      label: '匹配结果',
+      label: t('nav.match'),
       key: 'match',
       icon: () => h(NIcon, null, { default: () => h(GitCompareOutline) }),
     },
     {
-      label: '联络邮件',
+      label: t('nav.letters'),
       key: 'letter',
       icon: () => h(NIcon, null, { default: () => h(MailOutline) }),
     },
     {
-      label: '设置',
+      label: t('nav.settings'),
       key: 'settings',
       icon: () => h(NIcon, null, { default: () => h(SettingsOutline) }),
     },
   ]
 
-  // Add admin menu for admin users
   if (authStore.isAdmin) {
     options.push({
-      label: '用户管理',
+      label: t('nav.admin'),
       key: 'admin/users',
       icon: () => h(NIcon, null, { default: () => h(PeopleCircleOutline) }),
     })
@@ -80,7 +84,6 @@ const menuOptions = computed<MenuOption[]>(() => {
   return options
 })
 
-// Current menu key based on route
 const activeKey = computed(() => {
   const path = route.path
   if (path.startsWith('/profile')) return 'profile'
@@ -92,44 +95,45 @@ const activeKey = computed(() => {
   return ''
 })
 
-// Handle menu click
 function handleMenuClick(key: string) {
   router.push(`/${key}`)
 }
 
-// User dropdown options
-const userOptions = [
+const userOptions = computed(() => [
   {
-    label: '设置',
+    label: t('nav.settings'),
     key: 'settings',
     icon: () => h(NIcon, null, { default: () => h(SettingsOutline) }),
   },
   {
-    type: 'divider',
+    type: 'divider' as const,
     key: 'd1',
   },
   {
-    label: '退出登录',
+    label: t('nav.logout'),
     key: 'logout',
     icon: () => h(NIcon, null, { default: () => h(LogOutOutline) }),
   },
-]
+])
 
 function handleUserAction(key: string) {
   if (key === 'settings') {
     router.push('/settings')
   } else if (key === 'logout') {
     authStore.logout()
-    message.success('已退出登录')
+    message.success(t('nav.loggedOut'))
     router.push('/login')
   }
+}
+
+function toggleLang() {
+  setLocale(locale.value === 'zh' ? 'en' : 'zh')
 }
 </script>
 
 <template>
   <n-layout has-sider style="height: 100vh">
     <TaskNotificationHost />
-    <!-- Sidebar -->
     <n-layout-sider
       bordered
       collapse-mode="width"
@@ -149,9 +153,14 @@ function handleUserAction(key: string) {
     </n-layout-sider>
 
     <n-layout>
-      <!-- Header -->
       <n-layout-header bordered style="height: 60px; padding: 0 24px;">
         <n-space justify="end" align="center" style="height: 100%">
+          <n-button text @click="toggleLang">
+            <template #icon>
+              <n-icon><LanguageOutline /></n-icon>
+            </template>
+            {{ locale === 'zh' ? 'EN' : '中' }}
+          </n-button>
           <TaskPanel />
           <n-dropdown
             :options="userOptions"
@@ -162,13 +171,12 @@ function handleUserAction(key: string) {
               <n-avatar round size="small">
                 {{ authStore.user?.username?.[0]?.toUpperCase() || 'U' }}
               </n-avatar>
-              <span>{{ authStore.user?.username || '用户' }}</span>
+              <span>{{ authStore.user?.username || t('auth.username') }}</span>
             </n-space>
           </n-dropdown>
         </n-space>
       </n-layout-header>
 
-      <!-- Content -->
       <n-layout-content
         content-style="padding: 24px;"
         style="height: calc(100vh - 60px); overflow: auto;"

@@ -56,6 +56,9 @@ class UserSettings(Base):
     # Crawler settings
     request_delay = Column(Integer, default=3)
 
+    # Language preference for LLM-generated content
+    profile_language = Column(String(10), default="zh")
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -81,6 +84,7 @@ class UserProfile(Base):
     
     # Parsed content
     name = Column(String(100))  # Name from resume
+    name_locales = Column(JSON, default=dict)  # optional {"zh", "en"} for letters / explicit forms
     education = Column(JSON, default=list)  # [{degree, school, major, period}]
     research_experience = Column(JSON, default=list)  # [{title, organization, description, period}]
     projects = Column(JSON, default=list)  # [{name, description}]
@@ -121,6 +125,7 @@ class Professor(Base):
     
     # Basic info
     name = Column(String(200), nullable=False)
+    name_locales = Column(JSON, default=dict)  # optional {"zh", "en"} — not set by crawler
     affiliation = Column(String(500))  # University/Department
     email = Column(String(200))
     homepage = Column(String(500))

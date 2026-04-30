@@ -14,6 +14,7 @@ export interface BatchCrawlRequest {
 export interface BatchLetterRequest {
   professor_ids?: number[]
   top?: number
+  language: 'zh' | 'en'
 }
 
 export const tasksApi = {

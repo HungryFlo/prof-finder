@@ -133,6 +133,7 @@ def create_professor(
     professor = Professor(
         user_id=current_user.id,
         name=data.name,
+        name_locales=data.name_locales or {},
         affiliation=data.affiliation,
         email=data.email,
         homepage=data.homepage,
@@ -336,6 +337,8 @@ def update_professor(
     # Update fields
     if data.name is not None:
         professor.name = data.name
+    if data.name_locales is not None:
+        professor.name_locales = data.name_locales
     invalidate_embedding = False
     if data.affiliation is not None:
         professor.affiliation = data.affiliation
@@ -365,6 +368,8 @@ def _apply_manual_patch(professor: Professor, patch: ProfessorUpdate) -> None:
     invalidate_embedding = False
     if patch.name is not None:
         professor.name = patch.name
+    if patch.name_locales is not None:
+        professor.name_locales = patch.name_locales
     if patch.affiliation is not None:
         professor.affiliation = patch.affiliation
         invalidate_embedding = True
@@ -381,7 +386,7 @@ def _apply_manual_patch(professor: Professor, patch: ProfessorUpdate) -> None:
         professor.embedding = None
 
 
-def _build_source_suggestions(source_inputs: List[SourceInput], summarizer: PaperSummarizer) -> dict:
+def _build_source_suggestions(source_inputs: List[SourceInput], summarizer: PaperSummarizer, language: str = "en") -> dict:
     publications = []
     paper_summaries = []
     for source in source_inputs:
@@ -406,6 +411,7 @@ def _build_source_suggestions(source_inputs: List[SourceInput], summarizer: Pape
                 "extracted_text": source.extracted_text,
             },
             summarizer=summarizer,
+            language=language,
         )
         if summary:
             paper_summaries.append(summary)
@@ -449,6 +455,7 @@ def preview_professor_edits(
 
     manual_preview = {
         "name": professor.name,
+        "name_locales": professor.name_locales or {},
         "affiliation": professor.affiliation,
         "email": professor.email,
         "homepage": professor.homepage,
@@ -459,6 +466,8 @@ def preview_professor_edits(
     if data.manual_patch is not None:
         if data.manual_patch.name is not None:
             manual_preview["name"] = data.manual_patch.name
+        if data.manual_patch.name_locales is not None:
+            manual_preview["name_locales"] = data.manual_patch.name_locales
         if data.manual_patch.affiliation is not None:
             manual_preview["affiliation"] = data.manual_patch.affiliation
         if data.manual_patch.email is not None:
@@ -472,7 +481,7 @@ def preview_professor_edits(
         if data.manual_patch.manual_notes is not None:
             manual_preview["manual_notes"] = data.manual_patch.manual_notes
 
-    suggestions = _build_source_suggestions(sources, summarizer=summarizer)
+    suggestions = _build_source_suggestions(sources, summarizer=summarizer, language="en")
     return ProfessorEditPreviewResponse(
         manual_patch_applied=manual_preview,
         source_suggestions=suggestions,
@@ -511,7 +520,7 @@ def apply_professor_edits(
         if len(sources) != len(set(data.source_input_ids)):
             raise HTTPException(status_code=400, detail="存在无效的来源输入 ID")
 
-        suggestions = _build_source_suggestions(sources, summarizer=summarizer)
+        suggestions = _build_source_suggestions(sources, summarizer=summarizer, language="en")
         if suggestions["publications"]:
             existing_titles = {p.get("title") for p in (professor.publications or [])}
             merged = list(professor.publications or [])

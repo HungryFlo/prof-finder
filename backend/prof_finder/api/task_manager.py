@@ -293,6 +293,7 @@ async def execute_batch_letters(
     professor_ids: List[int],
     profile_id: int,
     api_key: str,
+    language: str,
 ) -> None:
     """Generate contact letters for a list of professors."""
     from datetime import datetime, timezone
@@ -337,6 +338,7 @@ async def execute_batch_letters(
 
                 profile_data = {
                     "name": profile.name,
+                    "name_locales": profile.name_locales or {},
                     "education": profile.education or [],
                     "research_experience": profile.research_experience or [],
                     "projects": profile.projects or [],
@@ -346,6 +348,7 @@ async def execute_batch_letters(
                 }
                 prof_data = {
                     "name": professor.name,
+                    "name_locales": professor.name_locales or {},
                     "affiliation": professor.affiliation,
                     "research_interests": professor.research_interests or [],
                     "publications": professor.publications or [],
@@ -360,6 +363,7 @@ async def execute_batch_letters(
                 profile=profile_data,
                 professor=prof_data,
                 match_reasons=reasons,
+                language=language,
             )
 
             # Write phase — save generated letter
@@ -535,13 +539,13 @@ async def execute_student_profile_generation(
             base_url = (
                 user_settings.deepseek_base_url if user_settings else None
             ) or app_settings.deepseek_base_url
-
         task.message = "正在生成学生学术画像..."
         generator = StudentProfileGenerator(api_key=api_key, base_url=base_url)
         generated = await asyncio.to_thread(
             generator.generate,
             materials=materials,
             manual_inputs=manual_inputs,
+            language="en",
         )
         task.current = 2
         task.message = "正在保存学生画像..."
@@ -732,6 +736,8 @@ async def execute_match(task: TaskState, profile_id: int) -> None:
                 "profile_analysis": active_profile.profile_analysis or {},
             }
 
+            match_reason_lang = "en"
+
             # Prepare texts for encoding (no model access yet).
             missing = [p for p in professors if not p.embedding]
             professor_texts = [
@@ -785,6 +791,7 @@ async def execute_match(task: TaskState, profile_id: int) -> None:
                     prof_data,
                     professor_embedding=professor.embedding,
                     profile_embedding=profile_vec,
+                    language=match_reason_lang,
                 )
                 existing = existing_records.get(professor.id)
                 if existing:
@@ -817,6 +824,7 @@ async def execute_single_letter(
     professor_id: int,
     profile_id: int,
     api_key: str,
+    language: str,
 ) -> None:
     """Generate a contact letter for one professor."""
     from datetime import datetime, timezone
@@ -850,6 +858,7 @@ async def execute_single_letter(
 
             profile_data = {
                 "name": profile.name,
+                "name_locales": profile.name_locales or {},
                 "education": profile.education or [],
                 "research_experience": profile.research_experience or [],
                 "projects": profile.projects or [],
@@ -859,6 +868,7 @@ async def execute_single_letter(
             }
             prof_data = {
                 "name": professor.name,
+                "name_locales": professor.name_locales or {},
                 "affiliation": professor.affiliation,
                 "research_interests": professor.research_interests or [],
                 "publications": professor.publications or [],
@@ -874,6 +884,7 @@ async def execute_single_letter(
             profile=profile_data,
             professor=prof_data,
             match_reasons=reasons,
+            language=language,
         )
 
         # Write phase
@@ -1075,6 +1086,7 @@ async def execute_professor_source_summary(
                         "extracted_text": source.extracted_text,
                     },
                     summarizer=summarizer,
+                    language="en",
                 )
                 if not summary:
                     task.failed_count += 1
@@ -1198,7 +1210,7 @@ async def execute_professor_profile_generation(
         await asyncio.sleep(0)  # yield so SSE reads current=1
 
         generator = ProfessorProfileGenerator(api_key=api_key, base_url=base_url)
-        generated = await asyncio.to_thread(generator.generate, prof_data)
+        generated = await asyncio.to_thread(generator.generate, prof_data, language="en")
         task.current = 2
         task.message = "正在保存教授科研画像..."
         await asyncio.sleep(0)  # yield so SSE reads current=2
@@ -1308,7 +1320,7 @@ async def execute_batch_professor_profiles(
                     "google_scholar_url": professor.google_scholar_url,
                 }
 
-            generated = await asyncio.to_thread(generator.generate, prof_data)
+            generated = await asyncio.to_thread(generator.generate, prof_data, language="en")
 
             with session_context() as session:
                 professor = (
@@ -1642,6 +1654,7 @@ async def execute_profile_chat_refinement(
             chat_history=chat_history,
             academic_profile=academic_profile,
             profile_analysis=profile_analysis,
+            language="en",
         )
 
         task.current = 3

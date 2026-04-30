@@ -11,11 +11,13 @@ import {
   useMessage,
 } from 'naive-ui'
 import type { FormInst, FormRules } from 'naive-ui'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const message = useMessage()
+const { t } = useI18n()
 
 const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
@@ -28,19 +30,19 @@ const formData = ref({
 
 const rules: FormRules = {
   username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 2, max: 50, message: '用户名长度应在 2-50 个字符之间', trigger: 'blur' },
+    { required: true, message: () => t('auth.usernamePlaceholder'), trigger: 'blur' },
+    { min: 2, max: 50, message: '2-50 characters', trigger: 'blur' },
   ],
   password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, message: '密码至少需要 6 个字符', trigger: 'blur' },
+    { required: true, message: () => t('auth.passwordPlaceholder'), trigger: 'blur' },
+    { min: 6, message: () => t('auth.newPasswordPlaceholder'), trigger: 'blur' },
   ],
   confirmPassword: [
-    { required: true, message: '请确认密码', trigger: 'blur' },
+    { required: true, message: () => t('auth.confirmPasswordPlaceholder'), trigger: 'blur' },
     {
       validator: (_rule, value) => {
         if (value !== formData.value.password) {
-          return new Error('两次输入的密码不一致')
+          return new Error(t('auth.passwordMismatch'))
         }
         return true
       },
@@ -59,11 +61,11 @@ async function handleRegister() {
   loading.value = true
   try {
     await authStore.register(formData.value.username, formData.value.password)
-    message.success('注册成功，请登录')
+    message.success(t('auth.registerSuccess'))
     router.push('/login')
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '注册失败')
+    message.error(err.response?.data?.detail || t('auth.registerFailed'))
   } finally {
     loading.value = false
   }
@@ -76,7 +78,7 @@ function goToLogin() {
 
 <template>
   <div class="register-container">
-    <n-card title="注册 Prof-Finder" style="width: 400px">
+    <n-card :title="t('auth.registerTitle')" style="width: 400px">
       <n-form
         ref="formRef"
         :model="formData"
@@ -84,25 +86,25 @@ function goToLogin() {
         label-placement="left"
         label-width="80"
       >
-        <n-form-item label="用户名" path="username">
+        <n-form-item :label="t('auth.username')" path="username">
           <n-input
             v-model:value="formData.username"
-            placeholder="请输入用户名"
+            :placeholder="t('auth.usernamePlaceholder')"
           />
         </n-form-item>
-        <n-form-item label="密码" path="password">
+        <n-form-item :label="t('auth.password')" path="password">
           <n-input
             v-model:value="formData.password"
             type="password"
-            placeholder="请输入密码（至少6位）"
+            :placeholder="t('auth.newPasswordPlaceholder')"
             show-password-on="click"
           />
         </n-form-item>
-        <n-form-item label="确认密码" path="confirmPassword">
+        <n-form-item :label="t('auth.confirmPassword')" path="confirmPassword">
           <n-input
             v-model:value="formData.confirmPassword"
             type="password"
-            placeholder="请再次输入密码"
+            :placeholder="t('auth.confirmPasswordPlaceholder')"
             show-password-on="click"
             @keyup.enter="handleRegister"
           />
@@ -116,10 +118,10 @@ function goToLogin() {
           :loading="loading"
           @click="handleRegister"
         >
-          注册
+          {{ t('auth.register') }}
         </n-button>
         <n-button block quaternary @click="goToLogin">
-          已有账号？去登录
+          {{ t('auth.hasAccount') }}
         </n-button>
       </n-space>
     </n-card>

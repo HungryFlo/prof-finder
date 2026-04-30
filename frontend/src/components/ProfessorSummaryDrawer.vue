@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import {
   NButton,
   NDescriptions,
@@ -28,8 +29,17 @@ const emit = defineEmits<{
 
 const router = useRouter()
 const message = useMessage()
+const { t, locale } = useI18n()
+
+const dateLocale = computed(() => (locale.value === 'en' ? 'en-US' : 'zh-CN'))
+
 const loading = ref(false)
 const professor = ref<Professor | null>(null)
+
+function fmtDate(iso: string | null | undefined) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString(dateLocale.value)
+}
 
 watch(
   () => [props.show, props.professorId] as const,
@@ -40,7 +50,7 @@ watch(
         professor.value = await professorsApi.get(id)
       } catch (error: unknown) {
         const err = error as { response?: { data?: { detail?: string } } }
-        message.error(err.response?.data?.detail || '获取教授信息失败')
+        message.error(err.response?.data?.detail || t('professor.drawerLoadFailed'))
         emit('update:show', false)
       } finally {
         loading.value = false
@@ -70,13 +80,13 @@ function formatJsonNote(note: unknown): string {
     >
       <n-spin :show="loading">
         <n-descriptions :column="1" label-placement="left" bordered>
-          <n-descriptions-item label="机构">
+          <n-descriptions-item :label="$t('professor.affiliation')">
             {{ professor.affiliation || '-' }}
           </n-descriptions-item>
-          <n-descriptions-item label="邮箱">
+          <n-descriptions-item :label="$t('professor.email')">
             {{ professor.email || '-' }}
           </n-descriptions-item>
-          <n-descriptions-item label="主页">
+          <n-descriptions-item :label="$t('professor.homepage')">
             <a
               v-if="professor.homepage"
               :href="professor.homepage"
@@ -86,23 +96,23 @@ function formatJsonNote(note: unknown): string {
             </a>
             <span v-else>-</span>
           </n-descriptions-item>
-          <n-descriptions-item label="Google Scholar">
+          <n-descriptions-item :label="$t('professor.googleScholar')">
             <a
               v-if="professor.google_scholar_url"
               :href="professor.google_scholar_url"
               target="_blank"
             >
-              查看 Scholar 主页
+              {{ $t('professor.scholarHome') }}
             </a>
             <span v-else>-</span>
           </n-descriptions-item>
-          <n-descriptions-item label="H-Index">
+          <n-descriptions-item :label="$t('professor.hIndex')">
             {{ professor.h_index ?? '-' }}
           </n-descriptions-item>
-          <n-descriptions-item label="总引用">
+          <n-descriptions-item :label="$t('professor.totalCitations')">
             {{ professor.total_citations ?? '-' }}
           </n-descriptions-item>
-          <n-descriptions-item label="研究方向">
+          <n-descriptions-item :label="$t('professor.researchInterests')">
             <n-space size="small">
               <n-tag
                 v-for="interest in professor.research_interests"
@@ -120,14 +130,14 @@ function formatJsonNote(note: unknown): string {
         <template v-if="professor.research_profile">
           <n-divider />
           <h4 style="margin: 8px 0 12px">
-            科研画像
+            {{ $t('professor.researchProfile') }}
             <n-tag
               v-if="professor.research_profile_generated_at"
               size="small"
               type="success"
               style="margin-left: 8px"
             >
-              {{ new Date(professor.research_profile_generated_at).toLocaleString('zh-CN') }}
+              {{ fmtDate(professor.research_profile_generated_at) }}
             </n-tag>
           </h4>
           <div
@@ -149,7 +159,7 @@ function formatJsonNote(note: unknown): string {
             vertical
             style="margin-top: 12px"
           >
-            <strong>证据摘要</strong>
+            <strong>{{ $t('professor.evidenceNotes') }}</strong>
             <div>
               <n-tag
                 v-for="(note, index) in professor.research_profile_evidence"
@@ -166,7 +176,7 @@ function formatJsonNote(note: unknown): string {
             vertical
             style="margin-top: 12px"
           >
-            <strong>冲突说明</strong>
+            <strong>{{ $t('professor.conflictNotes') }}</strong>
             <div>
               <n-tag
                 v-for="(note, index) in professor.research_profile_conflicts"
@@ -183,7 +193,7 @@ function formatJsonNote(note: unknown): string {
         <n-divider />
         <n-space justify="end">
           <n-button type="primary" @click="handleViewDetail">
-            查看详情
+            {{ $t('professor.drawerOpenDetail') }}
           </n-button>
         </n-space>
       </n-spin>

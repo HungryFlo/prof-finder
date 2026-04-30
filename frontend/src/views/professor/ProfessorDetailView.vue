@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import {
   NButton,
   NCard,
@@ -16,6 +17,7 @@ import {
   NSpace,
   NSpin,
   NTag,
+  NDataTable,
   useMessage,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
@@ -29,6 +31,9 @@ const route = useRoute()
 const router = useRouter()
 const message = useMessage()
 const taskStore = useTaskStore()
+const { t, locale } = useI18n()
+
+const dateLocale = computed(() => (locale.value === 'en' ? 'en-US' : 'zh-CN'))
 
 const professorId = Number(route.params.id)
 
@@ -39,6 +44,7 @@ const sourceInputs = ref<SourceInput[]>([])
 
 const form = ref({
   name: '',
+  name_locales: { zh: '', en: '' },
   affiliation: '',
   email: '',
   homepage: '',
@@ -46,13 +52,11 @@ const form = ref({
   manual_notes: '',
 })
 
-// Task operation loading states
 const refreshLoading = ref(false)
 const fillPublicationsLoading = ref(false)
 const summarizeLoading = ref(false)
 const generateProfileLoading = ref(false)
 
-// Computed data
 const publications = computed<Publication[]>(() => {
   return (professor.value?.publications || []) as Publication[]
 })
@@ -61,7 +65,6 @@ const paperSummaries = computed<PaperSummary[]>(() => {
   return (professor.value?.paper_summaries || []) as PaperSummary[]
 })
 
-// Cross-reference: publication title → matching paper_summary
 const summaryByTitle = computed(() => {
   const map = new Map<string, PaperSummary>()
   for (const s of paperSummaries.value) {
@@ -75,14 +78,18 @@ function hasMatchingSummary(pub: Publication): boolean {
   return summaryByTitle.value.has(pub.title.toLowerCase())
 }
 
-// Publications data table
-const publicationColumns: DataTableColumns<Publication> = [
+function fmtDate(iso: string | undefined | null): string {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString(dateLocale.value)
+}
+
+const publicationColumns = computed<DataTableColumns<Publication>>(() => [
   {
-    title: '标题',
+    title: t('professor.pubColTitle'),
     key: 'title',
-    width: 400,
+    width: 420,
     render(row) {
-      const children: any[] = []
+      const children: ReturnType<typeof h>[] = []
       if (row.gscholar_url) {
         children.push(
           h('a', {
@@ -98,26 +105,26 @@ const publicationColumns: DataTableColumns<Publication> = [
       }
       if (hasMatchingSummary(row)) {
         children.push(
-          h(NTag, { size: 'tiny', type: 'success', style: 'margin-left: 6px' }, { default: () => '有总结' })
+          h(NTag, { size: 'tiny', type: 'success', style: 'margin-left: 6px' }, { default: () => t('professor.hasSummaryBadge') })
         )
       }
       return h('div', { style: 'display: flex; align-items: center' }, children)
     },
   },
-  { title: '年份', key: 'year', width: 60 },
-  { title: '引用', key: 'citations', width: 60 },
+  { title: t('professor.pubColYear'), key: 'year', width: 72 },
+  { title: t('professor.pubColCitations'), key: 'citations', width: 88 },
   {
-    title: '期刊/会议',
+    title: t('professor.pubColVenue'),
     key: 'journal',
-    width: 180,
+    width: 200,
     render(row) {
       return row.journal || row.conference || '-'
     },
   },
   {
-    title: '摘要',
+    title: t('professor.pubColAbstract'),
     key: 'abstract',
-    width: 300,
+    width: 340,
     render(row) {
       if (!row.abstract) return h('span', { style: 'color: #999' }, '-')
       return h(NEllipsis, {
@@ -127,11 +134,11 @@ const publicationColumns: DataTableColumns<Publication> = [
       }, { default: () => row.abstract || '' })
     },
   },
-]
+])
 
 async function fetchData() {
   if (!professorId) {
-    message.error('无效的教授 ID')
+    message.error(t('professor.invalidId'))
     router.push('/professor')
     return
   }
@@ -141,6 +148,10 @@ async function fetchData() {
     professor.value = data
     form.value = {
       name: data.name,
+      name_locales: {
+        zh: data.name_locales?.zh ?? '',
+        en: data.name_locales?.en ?? '',
+      },
       affiliation: data.affiliation || '',
       email: data.email || '',
       homepage: data.homepage || '',
@@ -154,7 +165,7 @@ async function fetchData() {
     }
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '加载教授信息失败')
+    message.error(err.response?.data?.detail || t('professor.loadFailed'))
     router.push('/professor')
   } finally {
     loading.value = false
@@ -164,8 +175,14 @@ async function fetchData() {
 async function handleSave() {
   saving.value = true
   try {
+    const nl: Record<string, string> = {}
+    const z = form.value.name_locales.zh?.trim()
+    const e = form.value.name_locales.en?.trim()
+    if (z) nl.zh = z
+    if (e) nl.en = e
     const updated = await professorsApi.update(professorId, {
       name: form.value.name,
+      name_locales: nl,
       affiliation: form.value.affiliation || undefined,
       email: form.value.email || undefined,
       homepage: form.value.homepage || undefined,
@@ -173,10 +190,10 @@ async function handleSave() {
       manual_notes: form.value.manual_notes || undefined,
     })
     professor.value = updated
-    message.success('保存成功')
+    message.success(t('profile.saveSuccess'))
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '保存失败')
+    message.error(err.response?.data?.detail || t('profile.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -187,11 +204,11 @@ async function handleRefreshScholar() {
   try {
     const updated = await professorsApi.refresh(professorId)
     professor.value = updated
-    message.success('Scholar 数据已更新')
+    message.success(t('professor.scholarSynced'))
     await fetchData()
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || 'Scholar 更新失败')
+    message.error(err.response?.data?.detail || t('professor.scholarSyncFailed'))
   } finally {
     refreshLoading.value = false
   }
@@ -203,13 +220,19 @@ async function handleFillPublications() {
   fillPublicationsLoading.value = true
   try {
     const { task_id, total } = await professorsApi.startFillPublications(professorId)
-    message.success('论文详情获取任务已启动')
-    taskStore.addTask(task_id, 'fill-publications', `获取论文摘要 · ${professor.value.name}`, total ?? 0, () => {
-      fetchData()
-    })
+    message.success(t('professor.abstractsTaskStarted'))
+    taskStore.addTask(
+      task_id,
+      'fill-publications',
+      t('professor.fetchAbstractsTask', { name: professor.value.name }),
+      total ?? 0,
+      () => {
+        fetchData()
+      }
+    )
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '启动任务失败')
+    message.error(err.response?.data?.detail || t('professor.startTaskFailed'))
   } finally {
     fillPublicationsLoading.value = false
   }
@@ -228,20 +251,26 @@ async function handleSummarizeSources() {
     .filter((id) => !summarizedIds.has(id))
 
   if (!pendingIds.length) {
-    message.info('所有来源均已总结')
+    message.info(t('professor.summariesAllDone'))
     return
   }
 
   summarizeLoading.value = true
   try {
     const { task_id } = await professorsApi.startPaperSummary(professorId, pendingIds)
-    message.success('论文总结任务已启动')
-    taskStore.addTask(task_id, 'paper-summary', `论文总结 · ${professor.value.name}`, pendingIds.length, () => {
-      fetchData()
-    })
+    message.success(t('professor.paperSummaryTaskStarted'))
+    taskStore.addTask(
+      task_id,
+      'paper-summary',
+      t('professor.summarizeTask', { name: professor.value.name }),
+      pendingIds.length,
+      () => {
+        fetchData()
+      }
+    )
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '启动论文总结失败')
+    message.error(err.response?.data?.detail || t('professor.paperSummaryStartFailed'))
   } finally {
     summarizeLoading.value = false
   }
@@ -253,13 +282,19 @@ async function handleGenerateProfile() {
   generateProfileLoading.value = true
   try {
     const { task_id, message: msg } = await professorsApi.generateProfile(professorId)
-    message.success(msg || '科研画像生成任务已启动')
-    taskStore.addTask(task_id, 'professor-profile', `生成科研画像 · ${professor.value.name}`, 3, () => {
-      fetchData()
-    })
+    message.success(msg || t('professor.generateProfileStarting'))
+    taskStore.addTask(
+      task_id,
+      'professor-profile',
+      t('professor.researchProfileGenTask', { name: professor.value.name }),
+      3,
+      () => {
+        fetchData()
+      }
+    )
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '启动画像生成失败')
+    message.error(err.response?.data?.detail || t('professor.generateProfileStartFailed'))
   } finally {
     generateProfileLoading.value = false
   }
@@ -275,45 +310,49 @@ onMounted(fetchData)
 <template>
   <n-spin :show="loading">
     <n-space v-if="professor" vertical size="large">
-      <!-- 1. Basic Info Card -->
-      <n-card title="基本信息">
+      <n-card :title="$t('professor.basicInfoCard')">
         <template #header-extra>
           <n-space>
-            <n-button @click="router.push('/professor')">返回列表</n-button>
+            <n-button @click="router.push('/professor')">{{ $t('professor.backToList') }}</n-button>
             <n-button type="primary" :loading="saving" @click="handleSave">
-              保存
+              {{ $t('professor.save') }}
             </n-button>
           </n-space>
         </template>
 
         <n-form label-placement="top">
-          <n-form-item label="姓名">
+          <n-form-item :label="$t('professor.name')">
             <n-input v-model:value="form.name" />
           </n-form-item>
-          <n-form-item label="机构">
+          <n-form-item :label="$t('professor.nameLocaleZh')">
+            <n-input v-model:value="form.name_locales.zh" />
+          </n-form-item>
+          <n-form-item :label="$t('professor.nameLocaleEn')">
+            <n-input v-model:value="form.name_locales.en" />
+          </n-form-item>
+          <n-form-item :label="$t('professor.affiliation')">
             <n-input v-model:value="form.affiliation" />
           </n-form-item>
-          <n-form-item label="邮箱">
+          <n-form-item :label="$t('professor.email')">
             <n-input v-model:value="form.email" />
           </n-form-item>
-          <n-form-item label="主页">
+          <n-form-item :label="$t('professor.homepage')">
             <n-input v-model:value="form.homepage" />
           </n-form-item>
-          <n-form-item label="研究方向">
+          <n-form-item :label="$t('professor.researchInterests')">
             <n-dynamic-tags v-model:value="form.research_interests" />
           </n-form-item>
-          <n-form-item label="手工备注">
+          <n-form-item :label="$t('professor.manualNotes')">
             <n-input
               v-model:value="form.manual_notes"
               type="textarea"
               :rows="4"
-              placeholder="可用于补充教授的研究方向、招生偏好等备注信息"
+              :placeholder="$t('professor.manualNotesPlaceholder')"
             />
           </n-form-item>
         </n-form>
       </n-card>
 
-      <!-- 2. Source Inputs Card -->
       <SourceInputPanel v-model="sourceInputs">
         <template #actions>
           <n-button
@@ -322,29 +361,28 @@ onMounted(fetchData)
             :loading="summarizeLoading"
             @click="handleSummarizeSources"
           >
-            论文总结
+            {{ $t('professor.summarizePapers') }}
           </n-button>
         </template>
       </SourceInputPanel>
       <div style="color: #888; font-size: 12px; margin-top: -8px">
-        上传 PDF/ArXiv 后点击「论文总结」，后台完成后自动保存到教授信息
+        {{ $t('professor.sourceCardsHintAfterUpload') }}
       </div>
 
-      <!-- 3. Publications Card -->
-      <n-card title="论文列表（Google Scholar）">
+      <n-card :title="$t('professor.publicationsCardTitle')">
         <template #header-extra>
           <n-space>
             <n-popconfirm @positive-click="handleRefreshScholar">
               <template #trigger>
                 <n-button size="small" :loading="refreshLoading">
-                  Scholar 更新
+                  {{ $t('professor.scholarSyncButton') }}
                 </n-button>
               </template>
               <template v-if="paperSummaries.length">
-                Scholar 更新会清空已有的论文总结，确定继续？
+                {{ $t('professor.scholarSyncClearsSummaries') }}
               </template>
               <template v-else>
-                确定从 Google Scholar 重新同步数据？
+                {{ $t('professor.scholarResyncQuestion') }}
               </template>
             </n-popconfirm>
             <n-button
@@ -353,7 +391,7 @@ onMounted(fetchData)
               :loading="fillPublicationsLoading"
               @click="handleFillPublications"
             >
-              获取论文摘要
+              {{ $t('professor.fetchAbstracts') }}
             </n-button>
           </n-space>
         </template>
@@ -362,15 +400,15 @@ onMounted(fetchData)
           v-if="publications.length"
           :columns="publicationColumns"
           :data="publications"
-          :row-key="(_row: Publication, index: number) => index"
+          :row-key="(row: Publication) => row.gscholar_url || `${row.title ?? ''}:${row.year ?? ''}:${row.citations ?? ''}`"
           :max-height="500"
+          :scroll-x="1260"
           size="small"
         />
-        <n-empty v-else description="暂无论文数据" />
+        <n-empty v-else :description="$t('professor.noPublications')" />
       </n-card>
 
-      <!-- 4. Paper Summaries Card -->
-      <n-card title="论文总结（来源输入）">
+      <n-card :title="$t('professor.paperSummariesFromSources')">
         <n-list v-if="paperSummaries.length" bordered>
           <n-list-item
             v-for="(item, index) in paperSummaries"
@@ -401,22 +439,21 @@ onMounted(fetchData)
             </n-space>
           </n-list-item>
         </n-list>
-        <n-empty v-else description="暂无论文总结，上传 PDF/ArXiv 后点击「论文总结」生成" />
+        <n-empty v-else :description="$t('professor.noPaperSummariesHint')" />
       </n-card>
 
-      <!-- 5. Research Profile Card -->
-      <n-card v-if="professor.research_profile" title="科研画像">
+      <n-card v-if="professor.research_profile" :title="$t('professor.researchProfile')">
         <template #header-extra>
           <n-space>
             <n-tag v-if="professor.research_profile_generated_at" type="success">
-              {{ new Date(professor.research_profile_generated_at).toLocaleString('zh-CN') }}
+              {{ fmtDate(professor.research_profile_generated_at) }}
             </n-tag>
             <n-button
               size="small"
               :loading="generateProfileLoading"
               @click="handleGenerateProfile"
             >
-              重新生成
+              {{ $t('professor.regenerateProfile') }}
             </n-button>
           </n-space>
         </template>
@@ -439,7 +476,7 @@ onMounted(fetchData)
           vertical
           style="margin-top: 16px"
         >
-          <strong>证据摘要</strong>
+          <strong>{{ $t('professor.evidenceNotes') }}</strong>
           <div>
             <n-tag
               v-for="(note, index) in professor.research_profile_evidence"
@@ -456,7 +493,7 @@ onMounted(fetchData)
           vertical
           style="margin-top: 16px"
         >
-          <strong>冲突说明</strong>
+          <strong>{{ $t('professor.conflictNotes') }}</strong>
           <div>
             <n-tag
               v-for="(note, index) in professor.research_profile_conflicts"
@@ -470,21 +507,21 @@ onMounted(fetchData)
         </n-space>
       </n-card>
 
-      <n-card v-else title="科研画像">
-        <n-empty description="尚未生成科研画像">
+      <n-card v-else :title="$t('professor.researchProfile')">
+        <n-empty :description="$t('professor.noResearchProfileYet')">
           <template #extra>
             <n-button
               type="warning"
               :loading="generateProfileLoading"
               @click="handleGenerateProfile"
             >
-              生成科研画像
+              {{ $t('professor.generateProfile') }}
             </n-button>
           </template>
         </n-empty>
       </n-card>
     </n-space>
 
-    <n-empty v-else-if="!loading" description="教授不存在" />
+    <n-empty v-else-if="!loading" :description="$t('professor.professorMissing')" />
   </n-spin>
 </template>

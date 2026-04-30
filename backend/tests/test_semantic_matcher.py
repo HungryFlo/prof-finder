@@ -214,6 +214,43 @@ class TestSemanticMatcherScore:
         )
         assert any("较好" in r for r in reasons)
 
+    def test_reasons_contain_similarity_value_en(self):
+        matcher = self._make_matcher()
+        vec = _SIMILAR_A.tolist()
+        _, reasons = matcher.match(
+            profile={},
+            professor={"research_interests": ["NLP"]},
+            professor_embedding=vec,
+            profile_embedding=vec,
+            language="en",
+        )
+        assert any("Semantic similarity" in r for r in reasons)
+
+    def test_reasons_high_similarity_label_en(self):
+        matcher = self._make_matcher()
+        vec = _SIMILAR_A.tolist()
+        _, reasons = matcher.match(
+            profile={},
+            professor={"research_interests": ["deep learning"]},
+            professor_embedding=vec,
+            profile_embedding=vec,
+            language="en",
+        )
+        assert any("Strong semantic match" in r for r in reasons)
+
+    def test_reasons_moderate_similarity_label_en(self):
+        ref = _unit_vec(1.0, 0.0, 0.0)
+        moderate = _unit_vec(0.45, 0.89, 0.0)
+        matcher = self._make_matcher()
+        _, reasons = matcher.match(
+            profile={},
+            professor={"research_interests": ["computer vision"]},
+            professor_embedding=moderate.tolist(),
+            profile_embedding=ref.tolist(),
+            language="en",
+        )
+        assert any("Moderate semantic match" in r for r in reasons)
+
     def test_on_the_fly_encoding_does_not_crash(self):
         """When no cached embeddings are provided, the model is called.
         We mock the model to avoid downloading it in tests.

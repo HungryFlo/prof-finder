@@ -474,3 +474,44 @@ The system SHALL provide an embedded chat interface on the profile detail page f
 - **THEN** an error message is shown in the chat (not as a separate toast)
 - **AND** the user can retry sending the message
 
+### Requirement: Internationalization Framework
+
+前端 SHALL 基于 vue-i18n 提供国际化支持。
+
+#### Scenario: Locale files
+- **WHEN** 构建前端
+- **THEN** 存在 `src/locales/zh.json` 和 `src/locales/en.json` 翻译文件
+- **AND** 所有用户可见的 UI 字符串从 locale 文件中获取
+
+#### Scenario: Language switching
+- **WHEN** 用户在 Header 点击语言切换按钮
+- **THEN** 整个界面语言即时切换
+- **AND** Naive UI 组件（日期选择器、分页等）同步切换语言
+
+#### Scenario: Language persistence
+- **WHEN** 用户切换语言后刷新页面
+- **THEN** 语言选择保留（localStorage）
+
+### Requirement: Letter language selector (independent of UI locale)
+
+套磁信生成 SHALL 由用户在联络邮件或匹配结果界面选择 `zh` 或 `en`，与 vue-i18n 界面语言无关。
+
+#### Scenario: Choose letter language before generate
+- **WHEN** 用户点击生成或重新生成套磁信
+- **THEN** 请求携带所选 `language`（`zh` 或 `en`）
+- **AND** 不与 Header 界面语言开关联动
+
+#### Scenario: Multilingual display names for letters
+- **WHEN** 用户在学生画像或教授详情中填写 `name_locales`（中文名/英文名）
+- **THEN** 套磁信正文生成时使用当前所选邮件语言对应的姓名字符串
+- **IF** 对应语言未填写
+- **THEN** 回退到主字段 `name`
+
+### Requirement: Academic content language (English LLM outputs)
+
+学生学术画像、教授科研画像及语义匹配理由等 SHALL 由后端固定生成英文；设置页不再提供「画像生成语言」。
+
+#### Scenario: No profile_language in settings UI
+- **WHEN** 用户打开设置页
+- **THEN** 不显示「画像生成语言」或 `profile_language` 配置项
+

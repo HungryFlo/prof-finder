@@ -1,4 +1,5 @@
 import client from './client'
+import { getLocale } from '@/i18n'
 import type { ChatMessage, Profile, ProfileCreate, ProfileChatResponse } from '@/types'
 import type { TaskStartResponse } from '@/api/tasks'
 
@@ -64,8 +65,16 @@ export const profilesApi = {
     return response.data
   },
 
-  async chat(profileId: number, message: string, history: ChatMessage[]): Promise<ProfileChatResponse> {
-    const response = await client.post<ProfileChatResponse>(`/profiles/${profileId}/chat`, { message, history })
+  async chat(
+    profileId: number,
+    message: string,
+    history: ChatMessage[]
+  ): Promise<ProfileChatResponse> {
+    const response = await client.post<ProfileChatResponse>(`/profiles/${profileId}/chat`, {
+      message,
+      history,
+      locale: getLocale(),
+    })
     return response.data
   },
 

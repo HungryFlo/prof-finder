@@ -10,14 +10,15 @@ import {
   NSpace,
   useMessage,
 } from 'naive-ui'
+import { useI18n } from 'vue-i18n'
 import { settingsApi } from '@/api/settings'
 import { useAuthStore } from '@/stores/auth'
 import type { UserSettings } from '@/types'
 
 const authStore = useAuthStore()
 const message = useMessage()
+const { t } = useI18n()
 
-// Settings state
 const loading = ref(false)
 const saving = ref(false)
 const settings = ref<UserSettings>({
@@ -26,12 +27,10 @@ const settings = ref<UserSettings>({
   request_delay: 3,
 })
 
-// Form for updates
 const apiKeyInput = ref('')
 const baseUrlInput = ref('')
 const delayInput = ref(3)
 
-// Password change
 const passwordLoading = ref(false)
 const passwordForm = ref({
   currentPassword: '',
@@ -39,7 +38,6 @@ const passwordForm = ref({
   confirmPassword: '',
 })
 
-// Fetch settings
 async function fetchSettings() {
   loading.value = true
   try {
@@ -48,22 +46,17 @@ async function fetchSettings() {
     delayInput.value = settings.value.request_delay
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '获取设置失败')
+    message.error(err.response?.data?.detail || t('settings.saveFailed'))
   } finally {
     loading.value = false
   }
 }
 
-// Save settings
 async function handleSaveSettings() {
   saving.value = true
   try {
-    const updateData: {
-      deepseek_api_key?: string
-      deepseek_base_url?: string
-      request_delay?: number
-    } = {}
-    
+    const updateData: Record<string, string | number> = {}
+
     if (apiKeyInput.value) {
       updateData.deepseek_api_key = apiKeyInput.value
     }
@@ -73,27 +66,26 @@ async function handleSaveSettings() {
     if (delayInput.value !== settings.value.request_delay) {
       updateData.request_delay = delayInput.value
     }
-    
+
     settings.value = await settingsApi.update(updateData)
     apiKeyInput.value = ''
-    message.success('设置保存成功')
+    message.success(t('settings.saveSuccess'))
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '保存失败')
+    message.error(err.response?.data?.detail || t('settings.saveFailed'))
   } finally {
     saving.value = false
   }
 }
 
-// Change password
 async function handleChangePassword() {
   if (passwordForm.value.newPassword !== passwordForm.value.confirmPassword) {
-    message.error('两次输入的密码不一致')
+    message.error(t('auth.passwordMismatch'))
     return
   }
-  
+
   if (passwordForm.value.newPassword.length < 6) {
-    message.error('新密码至少需要 6 个字符')
+    message.error(t('auth.passwordMismatch'))
     return
   }
 
@@ -103,7 +95,7 @@ async function handleChangePassword() {
       passwordForm.value.currentPassword,
       passwordForm.value.newPassword
     )
-    message.success('密码修改成功')
+    message.success(t('auth.changeSuccess'))
     passwordForm.value = {
       currentPassword: '',
       newPassword: '',
@@ -111,7 +103,7 @@ async function handleChangePassword() {
     }
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '密码修改失败')
+    message.error(err.response?.data?.detail || t('auth.changeFailed'))
   } finally {
     passwordLoading.value = false
   }
@@ -125,68 +117,64 @@ onMounted(() => {
 <template>
   <div>
     <n-space vertical :size="24">
-      <!-- API Settings -->
-      <n-card title="API 配置">
+      <n-card :title="t('settings.apiConfig')">
         <n-form label-placement="left" label-width="120">
-          <n-form-item label="当前 API Key">
+          <n-form-item :label="t('settings.currentApiKey')">
             <span style="color: #999">
-              {{ settings.deepseek_api_key_masked || '未配置' }}
+              {{ settings.deepseek_api_key_masked || t('common.noData') }}
             </span>
           </n-form-item>
-          <n-form-item label="新 API Key">
+          <n-form-item :label="t('settings.newApiKey')">
             <n-input
               v-model:value="apiKeyInput"
-              placeholder="输入新的 DeepSeek API Key（留空则不修改）"
+              placeholder="sk-..."
               type="password"
               show-password-on="click"
             />
           </n-form-item>
-          <n-form-item label="API Base URL">
+          <n-form-item :label="t('settings.apiBaseUrl')">
             <n-input v-model:value="baseUrlInput" placeholder="API Base URL" />
           </n-form-item>
-          <n-form-item label="爬虫延时">
-            <n-input-number v-model:value="delayInput" :min="1" :max="60">
-              <template #suffix>秒</template>
-            </n-input-number>
+          <n-form-item :label="t('settings.requestDelay')">
+            <n-input-number v-model:value="delayInput" :min="1" :max="60" />
           </n-form-item>
           <n-form-item>
             <n-button type="primary" :loading="saving" @click="handleSaveSettings">
-              保存设置
+              {{ t('settings.saveSettings') }}
             </n-button>
           </n-form-item>
         </n-form>
       </n-card>
 
-      <!-- Password Change -->
-      <n-card title="修改密码">
+      <n-card :title="t('settings.changePassword')">
         <n-form label-placement="left" label-width="120">
-          <n-form-item label="当前密码">
+          <n-form-item :label="t('auth.currentPassword')">
             <n-input
               v-model:value="passwordForm.currentPassword"
               type="password"
-              placeholder="请输入当前密码"
+              :placeholder="t('auth.currentPasswordPlaceholder')"
               show-password-on="click"
             />
           </n-form-item>
-          <n-form-item label="新密码">
+          <n-form-item :label="t('auth.newPassword')">
             <n-input
               v-model:value="passwordForm.newPassword"
               type="password"
-              placeholder="请输入新密码（至少6位）"
+              :placeholder="t('auth.newPasswordPlaceholder')"
               show-password-on="click"
             />
           </n-form-item>
-          <n-form-item label="确认新密码">
+          <n-form-item :label="t('auth.confirmNewPasswordLabel')">
             <n-input
               v-model:value="passwordForm.confirmPassword"
               type="password"
-              placeholder="请再次输入新密码"
+              :placeholder="t('auth.confirmNewPasswordPlaceholder')"
               show-password-on="click"
             />
           </n-form-item>
           <n-form-item>
             <n-button type="primary" :loading="passwordLoading" @click="handleChangePassword">
-              修改密码
+              {{ t('settings.changePassword') }}
             </n-button>
           </n-form-item>
         </n-form>

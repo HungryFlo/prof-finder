@@ -260,7 +260,7 @@ Python, Machine Learning
         """Test background student profile generation persists generated fields."""
         user_id = self._get_test_user_id(test_db)
 
-        def fake_generate(self, materials, manual_inputs):
+        def fake_generate(self, materials, manual_inputs, language="zh"):
             return {
                 "academic_profile": "# 学生学术画像\n\n## 学术定位\n关注 NLP。",
                 "profile_analysis": {

@@ -117,7 +117,7 @@ TBD - created by archiving change add-vue-web-frontend. Update Purpose after arc
 系统 SHALL 支持批量生成邮件的异步任务。
 
 #### Scenario: Start batch letter generation
-- **WHEN** POST `/api/tasks/batch-letters` with `{ "professor_ids": [...] }` 或 `{ "top": 5 }`
+- **WHEN** POST `/api/tasks/batch-letters` with `{ "professor_ids": [...], "language": "zh"|"en" }` 或 `{ "top": 5, "language": "zh"|"en" }`
 - **THEN** 创建批量生成任务
 - **AND** 返回 `{ "task_id": "uuid" }`
 

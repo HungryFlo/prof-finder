@@ -38,6 +38,7 @@ export interface Profile {
   id: number
   title: string
   name?: string
+  name_locales?: Record<string, string>
   is_active: boolean
   education: EducationItem[]
   research_experience: ResearchItem[]
@@ -58,6 +59,7 @@ export interface Profile {
 export interface ProfileCreate {
   title: string
   name?: string
+  name_locales?: Record<string, string>
   education: EducationItem[]
   research_experience: ResearchItem[]
   projects: ProjectItem[]
@@ -96,6 +98,7 @@ export interface PaperSummary {
 export interface Professor {
   id: number
   name: string
+  name_locales?: Record<string, string>
   affiliation?: string
   email?: string
   homepage?: string

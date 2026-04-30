@@ -71,6 +71,11 @@ class Database:
                     )
                     conn.commit()
 
+            profile_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(user_profiles)"))}
+            if "name_locales" not in profile_columns:
+                conn.execute(text("ALTER TABLE user_profiles ADD COLUMN name_locales JSON"))
+                conn.commit()
+
             # Add professors.embedding column if missing (added in semantic-matching change)
             result = conn.execute(text("PRAGMA table_info(professors)"))
             existing_columns = {row[1] for row in result}
@@ -99,6 +104,11 @@ class Database:
                     )
                     conn.commit()
 
+            prof_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(professors)"))}
+            if "name_locales" not in prof_cols:
+                conn.execute(text("ALTER TABLE professors ADD COLUMN name_locales JSON"))
+                conn.commit()
+
             # Backfill source_inputs incremental columns for existing deployments.
             source_table_exists = conn.execute(
                 text(
@@ -113,6 +123,24 @@ class Database:
                     conn.execute(
                         text(
                             "ALTER TABLE source_inputs ADD COLUMN metadata_only BOOLEAN DEFAULT 0"
+                        )
+                    )
+                    conn.commit()
+
+            # Add user_settings.profile_language column if missing (added in i18n-language-support change)
+            settings_table_exists = conn.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='user_settings'"
+                )
+            ).fetchone()
+            if settings_table_exists:
+                settings_cols = {
+                    row[1] for row in conn.execute(text("PRAGMA table_info(user_settings)"))
+                }
+                if "profile_language" not in settings_cols:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE user_settings ADD COLUMN profile_language VARCHAR(10) DEFAULT 'zh'"
                         )
                     )
                     conn.commit()

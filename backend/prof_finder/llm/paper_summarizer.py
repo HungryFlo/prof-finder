@@ -11,6 +11,19 @@ from ..config import settings
 from ..prompts import get_prompt
 
 
+def _language_params(language: str) -> dict:
+    """Return language-dependent prompt variables for paper summarizer."""
+    if language == "en":
+        return {
+            "language_summary_format": "150-300 word English summary focusing on problem, method, results",
+            "language_summary_rule": "summary MUST be in English, concise and accurate, no more than 300 words",
+        }
+    return {
+        "language_summary_format": "150-300字的中文摘要，聚焦问题、方法、结果",
+        "language_summary_rule": "summary 必须是中文，简洁准确，不超过 300 字",
+    }
+
+
 class PaperSummarizer:
     """Summarize paper text into summary + keywords."""
 
@@ -24,11 +37,11 @@ class PaperSummarizer:
         if self.enabled:
             self.client = OpenAI(api_key=actual_api_key, base_url=actual_base_url)
 
-    def summarize_with_fallback(self, source_type: str, title: str, content: str) -> dict:
+    def summarize_with_fallback(self, source_type: str, title: str, content: str, language: str = "en") -> dict:
         """Try LLM summary first; fallback to heuristic summary when unavailable."""
         if self.enabled and self.client is not None:
             try:
-                return self._summarize_by_llm(source_type=source_type, title=title, content=content)
+                return self._summarize_by_llm(source_type=source_type, title=title, content=content, language=language)
             except Exception:
                 # Network/model failure should not block edit flow.
                 pass
@@ -39,7 +52,7 @@ class PaperSummarizer:
             "keywords": self._extract_keywords(content)[:12],
         }
 
-    def _summarize_by_llm(self, source_type: str, title: str, content: str) -> dict:
+    def _summarize_by_llm(self, source_type: str, title: str, content: str, language: str = "en") -> dict:
         """Generate summary using managed prompt templates."""
         assert self.client is not None
 
@@ -47,7 +60,8 @@ class PaperSummarizer:
         if len(clipped) > 12000:
             clipped = clipped[:12000]
 
-        system_prompt = get_prompt("paper_summarizer", "paper_summary_extraction", "system")
+        lang_params = _language_params(language)
+        system_prompt = get_prompt("paper_summarizer", "paper_summary_extraction", "system", **lang_params)
         user_prompt = get_prompt(
             "paper_summarizer",
             "paper_summary_extraction",
@@ -55,6 +69,7 @@ class PaperSummarizer:
             source_type=source_type,
             title=title or "Untitled Paper",
             content=clipped or "（无可用正文）",
+            **lang_params,
         )
 
         response = self.client.chat.completions.create(

@@ -28,7 +28,7 @@ TBD - created by archiving change add-vue-web-frontend. Update Purpose after arc
 - **THEN** 更新对应字段
 - **AND** 刷新 `updated_at` 时间戳
 
----
+**Note:** 历史数据库可能仍存在 `profile_language` 列；应用层不再读取或暴露该字段。学生/教授学术画像与论文摘要管线固定使用英文输出；套磁信语言由生成请求指定，与界面语言（vue-i18n）无关。
 
 ### Requirement: API Key Security
 

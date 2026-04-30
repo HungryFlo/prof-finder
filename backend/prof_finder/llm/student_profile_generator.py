@@ -15,6 +15,13 @@ from ..prompts import get_prompt
 logger = logging.getLogger(__name__)
 
 
+def _language_instruction(language: str) -> str:
+    """Return a language instruction string for LLM prompt injection."""
+    if language == "en":
+        return "English（英文）"
+    return "中文（Chinese）"
+
+
 class StudentProfileGenerator:
     """Generate evidence-aware academic profiles from student materials."""
 
@@ -36,6 +43,7 @@ class StudentProfileGenerator:
         manual_inputs: dict,
         previous_academic_profile: str = "",
         previous_profile_analysis: dict | None = None,
+        language: str = "en",
     ) -> dict:
         """Run analyzer and builder prompts for a student profile."""
         if not self.enabled or self.client is None:
@@ -46,8 +54,9 @@ class StudentProfileGenerator:
             manual_inputs=manual_inputs,
             previous_academic_profile=previous_academic_profile,
             previous_profile_analysis=previous_profile_analysis,
+            language=language,
         )
-        academic_profile = self._build_profile(analysis=analysis)
+        academic_profile = self._build_profile(analysis=analysis, language=language)
         return {
             "academic_profile": academic_profile,
             "profile_analysis": analysis,
@@ -61,6 +70,7 @@ class StudentProfileGenerator:
         academic_profile: str,
         history: list[dict],
         message: str,
+        locale: str = "zh",
     ) -> str:
         """Generate the next AI interviewer response based on profile gaps and chat history.
 
@@ -69,6 +79,7 @@ class StudentProfileGenerator:
             academic_profile: Current readable Markdown profile.
             history: Chat history as [{role: "user"|"assistant", content: str}].
             message: Latest message from the student.
+            locale: UI locale ("zh" or "en") for reply language.
 
         Returns:
             AI interviewer reply string.
@@ -76,15 +87,26 @@ class StudentProfileGenerator:
         if not self.enabled or self.client is None:
             raise ValueError("请先配置 DeepSeek API Key")
 
-        system_prompt = get_prompt("student_profile", "profile_interviewer", "system")
-        history_text = self._format_chat_history(history, message)
+        lang = "en" if locale == "en" else "zh"
+        lang_instr = _language_instruction(lang)
+        optimize_hint = '"Optimize Profile"' if lang == "en" else "「优化画像」"
+        empty_profile = "(Not generated yet)" if lang == "en" else "（尚未生成）"
+
+        system_prompt = get_prompt(
+            "student_profile",
+            "profile_interviewer",
+            "system",
+            language_instruction=lang_instr,
+            optimize_button_hint=optimize_hint,
+        )
+        history_text = self._format_chat_history(history, message, locale=lang)
 
         user_prompt = get_prompt(
             "student_profile",
             "profile_interviewer",
             "user",
             profile_analysis=json.dumps(profile_analysis, ensure_ascii=False, indent=2),
-            academic_profile=academic_profile or "（尚未生成）",
+            academic_profile=academic_profile or empty_profile,
             history_text=history_text,
         )
 
@@ -105,6 +127,7 @@ class StudentProfileGenerator:
         chat_history: list[dict],
         academic_profile: str = "",
         profile_analysis: dict | None = None,
+        language: str = "en",
     ) -> dict:
         """Regenerate profile incorporating insights from chat Q&A.
 
@@ -117,6 +140,7 @@ class StudentProfileGenerator:
             chat_history: Full chat history [{role, content}].
             academic_profile: Current readable Markdown profile (for incremental update).
             profile_analysis: Current structured analysis JSON (for incremental update).
+            language: Output language ("zh" or "en").
 
         Returns:
             Same dict as generate(): academic_profile, profile_analysis, etc.
@@ -129,20 +153,29 @@ class StudentProfileGenerator:
             manual_inputs=enriched,
             previous_academic_profile=academic_profile,
             previous_profile_analysis=profile_analysis,
+            language=language,
         )
 
     @staticmethod
-    def _format_chat_history(history: list[dict], latest_message: str) -> str:
+    def _format_chat_history(
+        history: list[dict], latest_message: str, *, locale: str = "zh"
+    ) -> str:
         """Format chat history for prompt injection."""
+        if locale == "en":
+            user_label, assistant_label = "Student", "AI"
+            empty = "(No conversation yet; proactively ask the first question.)"
+        else:
+            user_label, assistant_label = "学生", "AI"
+            empty = "（尚无对话历史，请主动提出第一个问题）"
         lines: list[str] = []
         for msg in history:
-            role_label = "学生" if msg.get("role") == "user" else "AI"
+            role_label = user_label if msg.get("role") == "user" else assistant_label
             content = (msg.get("content") or "").strip()
             if content:
                 lines.append(f"{role_label}: {content}")
         if latest_message.strip():
-            lines.append(f"学生: {latest_message.strip()}")
-        return "\n".join(lines) if lines else "（尚无对话历史，请主动提出第一个问题）"
+            lines.append(f"{user_label}: {latest_message.strip()}")
+        return "\n".join(lines) if lines else empty
 
     @staticmethod
     def _build_chat_summary(history: list[dict]) -> str:
@@ -162,10 +195,15 @@ class StudentProfileGenerator:
         manual_inputs: dict,
         previous_academic_profile: str = "",
         previous_profile_analysis: dict | None = None,
+        language: str = "en",
     ) -> dict:
         """Generate structured profile analysis JSON."""
         assert self.client is not None
-        system_prompt = get_prompt("student_profile", "material_analysis", "system")
+        lang_instr = _language_instruction(language)
+        system_prompt = get_prompt(
+            "student_profile", "material_analysis", "system",
+            language_instruction=lang_instr,
+        )
         base_user = get_prompt(
             "student_profile",
             "material_analysis",
@@ -214,10 +252,14 @@ class StudentProfileGenerator:
                 )
         raise ValueError(f"学生画像分析失败：{last_error}")
 
-    def _build_profile(self, analysis: dict) -> str:
+    def _build_profile(self, analysis: dict, language: str = "en") -> str:
         """Generate the readable Markdown academic profile."""
         assert self.client is not None
-        system_prompt = get_prompt("student_profile", "profile_builder", "system")
+        lang_instr = _language_instruction(language)
+        system_prompt = get_prompt(
+            "student_profile", "profile_builder", "system",
+            language_instruction=lang_instr,
+        )
         user_prompt = get_prompt(
             "student_profile",
             "profile_builder",

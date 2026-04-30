@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, h } from 'vue'
+import { ref, onMounted, h, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   NCard,
   NSpace,
@@ -9,6 +10,7 @@ import {
   NModal,
   NInput,
   NPagination,
+  NSelect,
   useMessage,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
@@ -18,8 +20,10 @@ import type { Letter, PaginatedResponse } from '@/types'
 
 const message = useMessage()
 const taskStore = useTaskStore()
+const { t, locale } = useI18n()
 
-// State
+const dateLocale = computed(() => (locale.value === 'en' ? 'en-US' : 'zh-CN'))
+
 const loading = ref(false)
 const data = ref<PaginatedResponse<Letter>>({
   items: [],
@@ -30,35 +34,44 @@ const data = ref<PaginatedResponse<Letter>>({
 })
 const currentPage = ref(1)
 
-// Letter detail/edit modal
 const showLetterModal = ref(false)
 const currentLetter = ref<Letter | null>(null)
 const editContent = ref('')
 const saving = ref(false)
 
-// Table columns
-const columns: DataTableColumns<Letter> = [
-  { title: '教授', key: 'professor_name', width: 150 },
+const letterLanguage = ref<'zh' | 'en'>('zh')
+const letterLangOptions = computed(() => [
+  { label: '中文', value: 'zh' as const },
+  { label: 'English', value: 'en' as const },
+])
+
+function fmtDate(iso: string | null | undefined) {
+  if (!iso) return '-'
+  return new Date(iso).toLocaleString(dateLocale.value)
+}
+
+const columns = computed<DataTableColumns<Letter>>(() => [
+  { title: t('letter.professor'), key: 'professor_name', width: 168 },
   {
-    title: '状态',
+    title: t('letter.status'),
     key: 'is_generated',
-    width: 100,
+    width: 138,
     render(row) {
       return row.is_generated
-        ? h(NTag, { type: 'success', size: 'small' }, { default: () => '已生成' })
-        : h(NTag, { type: 'default', size: 'small' }, { default: () => '未生成' })
+        ? h(NTag, { type: 'success', size: 'small' }, { default: () => t('letter.generated') })
+        : h(NTag, { type: 'default', size: 'small' }, { default: () => t('letter.notGenerated') })
     },
   },
   {
-    title: '生成时间',
+    title: t('letter.generatedAt'),
     key: 'generated_at',
-    width: 180,
+    width: 200,
     render(row) {
-      return row.generated_at ? new Date(row.generated_at).toLocaleString('zh-CN') : '-'
+      return fmtDate(row.generated_at)
     },
   },
   {
-    title: '内容预览',
+    title: t('letter.preview'),
     key: 'content',
     ellipsis: { tooltip: true },
     render(row) {
@@ -66,17 +79,20 @@ const columns: DataTableColumns<Letter> = [
     },
   },
   {
-    title: '操作',
+    title: t('letter.actions'),
     key: 'actions',
-    width: 200,
+    width: 300,
     render(row) {
-      return h(NSpace, { size: 'small' }, () => [
-        row.is_generated &&
-          h(
-            NButton,
-            { size: 'small', onClick: () => showLetter(row) },
-            { default: () => '查看/编辑' }
-          ),
+      return h(NSpace, { size: 'small', wrap: true }, () => [
+        ...(row.is_generated
+          ? [
+              h(
+                NButton,
+                { size: 'small', onClick: () => showLetter(row) },
+                { default: () => t('letter.viewEdit') }
+              ),
+            ]
+          : []),
         h(
           NButton,
           {
@@ -84,80 +100,78 @@ const columns: DataTableColumns<Letter> = [
             type: 'primary',
             onClick: () => handleGenerate(row.professor_id),
           },
-          { default: () => (row.is_generated ? '重新生成' : '生成') }
+          { default: () => (row.is_generated ? t('match.regenerateLetter') : t('letter.generate')) }
         ),
       ])
     },
   },
-]
+])
 
-// Fetch letters
 async function fetchLetters() {
   loading.value = true
   try {
     data.value = await lettersApi.list({
       page: currentPage.value,
-      page_size: 20,
+      page_size: data.value.page_size || 20,
     })
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '获取邮件列表失败')
+    message.error(err.response?.data?.detail || t('letter.fetchListFailed'))
   } finally {
     loading.value = false
   }
 }
 
-// Show letter detail
 function showLetter(letter: Letter) {
   currentLetter.value = letter
   editContent.value = letter.content || ''
   showLetterModal.value = true
 }
 
-// Generate letter — now async task
+function professorFallback(id: number) {
+  return t('letter.fallBackProfessorNamed', { id })
+}
+
 async function handleGenerate(professorId: number) {
   try {
-    const { task_id } = await lettersApi.generate(professorId)
+    const { task_id } = await lettersApi.generate(professorId, letterLanguage.value)
     const row = data.value.items.find((r) => r.professor_id === professorId)
-    const name = row?.professor_name ?? `教授 #${professorId}`
-    taskStore.addTask(task_id, 'single-letter', `生成邮件 · ${name}`, 1, () => {
+    const name = row?.professor_name ?? professorFallback(professorId)
+    taskStore.addTask(task_id, 'single-letter', t('professor.genLetterTask', { name }), 1, () => {
       fetchLetters()
     })
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '生成邮件失败')
+    message.error(err.response?.data?.detail || t('letter.generateFailed'))
   }
 }
 
-// Save edited letter
 async function handleSave() {
   if (!currentLetter.value) return
 
   saving.value = true
   try {
     await lettersApi.update(currentLetter.value.professor_id, editContent.value)
-    message.success('保存成功')
+    message.success(t('letter.saveSuccess'))
     showLetterModal.value = false
     fetchLetters()
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '保存失败')
+    message.error(err.response?.data?.detail || t('letter.saveFailed'))
   } finally {
     saving.value = false
   }
 }
 
-// Copy to clipboard
 async function handleCopy() {
   try {
     await navigator.clipboard.writeText(editContent.value)
-    message.success('已复制到剪贴板')
+    message.success(t('letter.copySuccess'))
   } catch {
-    message.error('复制失败')
+    message.error(t('letter.copyFailed'))
   }
 }
 
-// Handle page change
 function handlePageChange(page: number) {
   currentPage.value = page
   fetchLetters()
@@ -170,13 +184,21 @@ onMounted(() => {
 
 <template>
   <div>
-    <n-card title="联络邮件">
+    <n-card :title="$t('letter.title')">
+      <n-space align="center" style="margin-bottom: 16px" wrap>
+        <span>{{ $t('letter.letterLanguage') }}</span>
+        <n-select
+          v-model:value="letterLanguage"
+          :options="letterLangOptions"
+          style="width: 140px"
+        />
+      </n-space>
       <n-data-table
         :columns="columns"
         :data="data.items"
         :loading="loading"
         :row-key="(row: Letter) => row.professor_id"
-        :scroll-x="900"
+        :scroll-x="1180"
       />
 
       <n-space justify="end" style="margin-top: 16px">
@@ -188,24 +210,23 @@ onMounted(() => {
       </n-space>
     </n-card>
 
-    <!-- Letter Modal -->
     <n-modal
       v-model:show="showLetterModal"
       preset="card"
-      :title="`给 ${currentLetter?.professor_name} 的邮件`"
+      :title="currentLetter ? $t('letter.letterModalTitle', { name: currentLetter.professor_name }) : ''"
       style="width: 700px"
     >
       <n-input
         v-model:value="editContent"
         type="textarea"
         :rows="15"
-        placeholder="邮件内容"
+        :placeholder="$t('letter.placeholderBody')"
       />
 
       <template #footer>
         <n-space justify="end">
-          <n-button @click="handleCopy">复制到剪贴板</n-button>
-          <n-button type="primary" :loading="saving" @click="handleSave">保存修改</n-button>
+          <n-button @click="handleCopy">{{ $t('letter.copyClipboard') }}</n-button>
+          <n-button type="primary" :loading="saving" @click="handleSave">{{ $t('letter.saveChanges') }}</n-button>
         </n-space>
       </template>
     </n-modal>

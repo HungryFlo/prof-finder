@@ -2,8 +2,8 @@
 
 import asyncio
 from datetime import datetime, timezone
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from typing import List, Optional, Literal
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ...models.schema import User, UserProfile, Professor, MatchRecord, UserSettings
@@ -13,7 +13,6 @@ from ..deps import get_db_session, get_current_user
 from ..schemas import (
     LetterUpdate,
     LetterResponse,
-    BatchLetterRequest,
     MessageResponse,
     PaginatedResponse,
     TaskStartResponse,
@@ -131,6 +130,7 @@ def list_letters(
 @router.post("/generate/{professor_id}", response_model=TaskStartResponse)
 async def generate_letter(
     professor_id: int,
+    language: Literal["zh", "en"],
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
 ):
@@ -184,7 +184,7 @@ async def generate_letter(
         total=1,
     )
     asyncio.create_task(
-        execute_single_letter(task, professor_id, active_profile.id, api_key)
+        execute_single_letter(task, professor_id, active_profile.id, api_key, language)
     )
 
     return TaskStartResponse(task_id=task.task_id, message="邮件生成任务已启动")

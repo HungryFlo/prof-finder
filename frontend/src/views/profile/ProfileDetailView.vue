@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import {
   NCard,
   NSpace,
@@ -23,6 +24,9 @@ import type { Profile, EducationItem, ResearchItem, ProjectItem } from '@/types'
 const router = useRouter()
 const route = useRoute()
 const message = useMessage()
+const { t, locale } = useI18n()
+
+const dateLocale = computed(() => (locale.value === 'en' ? 'en-US' : 'zh-CN'))
 
 const loading = ref(false)
 const saving = ref(false)
@@ -30,20 +34,30 @@ const showChat = ref(false)
 const profile = ref<Profile | null>(null)
 const profileId = ref(0)
 
-// Editable form data
 const formData = ref({
   title: '',
   name: '',
+  name_locales: { zh: '', en: '' },
   skills: [] as string[],
   education: [] as EducationItem[],
   research_experience: [] as ResearchItem[],
   projects: [] as ProjectItem[],
 })
 
+function sourceFormatDisplay(fmt: string | null | undefined): string {
+  if (fmt === 'materials') return t('profile.sourceMaterials')
+  if (!fmt || fmt === 'manual') return t('profile.manualInput')
+  return fmt
+}
+
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleString(dateLocale.value)
+}
+
 async function fetchProfile() {
   const id = Number(route.params.id)
   if (!id) {
-    message.error('无效的画像 ID')
+    message.error(t('profile.invalidProfileId'))
     router.push('/profile')
     return
   }
@@ -52,10 +66,13 @@ async function fetchProfile() {
   try {
     profile.value = await profilesApi.get(id)
     profileId.value = id
-    // Initialize form data
     formData.value = {
       title: profile.value.title,
       name: profile.value.name || '',
+      name_locales: {
+        zh: profile.value.name_locales?.zh ?? '',
+        en: profile.value.name_locales?.en ?? '',
+      },
       skills: [...(profile.value.skills || [])],
       education: [...(profile.value.education || [])],
       research_experience: [...(profile.value.research_experience || [])],
@@ -63,7 +80,7 @@ async function fetchProfile() {
     }
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '获取画像详情失败')
+    message.error(err.response?.data?.detail || t('profile.fetchDetailFailed'))
     router.push('/profile')
   } finally {
     loading.value = false
@@ -76,7 +93,7 @@ async function refreshProfileSilent() {
     const data = await profilesApi.get(profileId.value)
     profile.value = data
   } catch {
-    // silent — don't disturb the chat flow
+    // silent
   }
 }
 
@@ -85,18 +102,25 @@ async function handleSave() {
 
   saving.value = true
   try {
+    const nl: Record<string, string> = {}
+    const z = formData.value.name_locales.zh?.trim()
+    const e = formData.value.name_locales.en?.trim()
+    if (z) nl.zh = z
+    if (e) nl.en = e
+
     await profilesApi.update(profile.value.id, {
       title: formData.value.title,
       name: formData.value.name || undefined,
+      name_locales: nl,
       skills: formData.value.skills,
       education: formData.value.education,
       research_experience: formData.value.research_experience,
       projects: formData.value.projects,
     })
-    message.success('保存成功')
+    message.success(t('profile.saveSuccess'))
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '保存失败')
+    message.error(err.response?.data?.detail || t('profile.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -122,39 +146,39 @@ onMounted(() => {
         <n-space justify="space-between" align="center">
           <span>{{ profile.title }}</span>
           <n-space>
-            <n-tag v-if="profile.is_active" type="success">已激活</n-tag>
-            <n-tag v-else type="default">未激活</n-tag>
+            <n-tag v-if="profile.is_active" type="success">{{ $t('profile.active') }}</n-tag>
+            <n-tag v-else type="default">{{ $t('profile.inactive') }}</n-tag>
           </n-space>
         </n-space>
       </template>
 
       <template #header-extra>
         <n-space>
-          <n-button @click="goBack">返回</n-button>
+          <n-button @click="goBack">{{ $t('profile.back') }}</n-button>
           <n-button
             v-if="profile.academic_profile"
             :type="showChat ? 'default' : 'info'"
             @click="showChat = !showChat"
           >
-            {{ showChat ? '收起 AI' : 'AI 优化' }}
+            {{ showChat ? $t('profile.collapseAi') : $t('profile.aiOptimize') }}
           </n-button>
-          <n-button type="primary" :loading="saving" @click="handleSave">保存</n-button>
+          <n-button type="primary" :loading="saving" @click="handleSave">{{ $t('profile.save') }}</n-button>
         </n-space>
       </template>
 
       <n-descriptions :column="2" label-placement="left" bordered>
-        <n-descriptions-item label="来源格式">
-          {{ profile.source_format || '手动输入' }}
+        <n-descriptions-item :label="$t('profile.sourceFormatLabel')">
+          {{ sourceFormatDisplay(profile.source_format ?? undefined) }}
         </n-descriptions-item>
-        <n-descriptions-item label="创建时间">
-          {{ new Date(profile.created_at).toLocaleString('zh-CN') }}
+        <n-descriptions-item :label="$t('profile.createdAt')">
+          {{ fmtDate(profile.created_at) }}
         </n-descriptions-item>
       </n-descriptions>
 
       <n-divider />
 
       <template v-if="profile.academic_profile">
-        <n-divider>学生学术画像</n-divider>
+        <n-divider>{{ $t('profile.academicProfile') }}</n-divider>
         <n-input
           :value="profile.academic_profile"
           type="textarea"
@@ -163,7 +187,7 @@ onMounted(() => {
         />
 
         <n-space v-if="profile.evidence_notes?.length" vertical style="margin-top: 16px">
-          <strong>证据摘要</strong>
+          <strong>{{ $t('profile.evidenceNotes') }}</strong>
           <div>
             <n-tag
               v-for="(note, index) in profile.evidence_notes"
@@ -176,7 +200,7 @@ onMounted(() => {
         </n-space>
 
         <n-space v-if="profile.conflict_notes?.length" vertical style="margin-top: 16px">
-          <strong>冲突说明</strong>
+          <strong>{{ $t('profile.conflictNotes') }}</strong>
           <div>
             <n-tag
               v-for="(note, index) in profile.conflict_notes"
@@ -199,31 +223,38 @@ onMounted(() => {
       />
 
       <n-form label-placement="top">
-        <n-form-item label="画像标题">
-          <n-input v-model:value="formData.title" placeholder="画像标题" />
+        <n-form-item :label="$t('profile.profileTitleLabel')">
+          <n-input v-model:value="formData.title" :placeholder="$t('profile.profileTitlePlaceholder')" />
         </n-form-item>
 
-        <n-form-item label="姓名">
-          <n-input v-model:value="formData.name" placeholder="姓名" />
+        <n-form-item :label="$t('profile.name')">
+          <n-input v-model:value="formData.name" :placeholder="$t('profile.namePlaceholder')" />
         </n-form-item>
 
-        <n-form-item label="技能">
+        <n-form-item :label="$t('profile.nameLocaleZh')">
+          <n-input v-model:value="formData.name_locales.zh" :placeholder="$t('profile.nameLocaleZh')" />
+        </n-form-item>
+        <n-form-item :label="$t('profile.nameLocaleEn')">
+          <n-input v-model:value="formData.name_locales.en" :placeholder="$t('profile.nameLocaleEn')" />
+        </n-form-item>
+
+        <n-form-item :label="$t('profile.skills')">
           <n-dynamic-tags v-model:value="formData.skills" />
         </n-form-item>
 
-        <n-divider>教育经历</n-divider>
+        <n-divider>{{ $t('profile.educationSection') }}</n-divider>
         <div v-for="(edu, index) in formData.education" :key="index" class="education-item">
           <n-space>
-            <n-input v-model:value="edu.degree" placeholder="学位" style="width: 120px" />
-            <n-input v-model:value="edu.school" placeholder="学校" style="width: 200px" />
-            <n-input v-model:value="edu.major" placeholder="专业" style="width: 150px" />
-            <n-input v-model:value="edu.period" placeholder="时间段" style="width: 150px" />
+            <n-input v-model:value="edu.degree" :placeholder="$t('profile.degreePh')" style="width: 120px" />
+            <n-input v-model:value="edu.school" :placeholder="$t('profile.schoolPh')" style="width: 200px" />
+            <n-input v-model:value="edu.major" :placeholder="$t('profile.majorPh')" style="width: 150px" />
+            <n-input v-model:value="edu.period" :placeholder="$t('profile.periodPh')" style="width: 150px" />
             <n-button
               size="small"
               type="error"
               @click="formData.education.splice(index, 1)"
             >
-              删除
+              {{ $t('profile.delete') }}
             </n-button>
           </n-space>
         </div>
@@ -231,28 +262,28 @@ onMounted(() => {
           dashed
           @click="formData.education.push({ degree: '', school: '', major: '', period: '' })"
         >
-          添加教育经历
+          {{ $t('profile.addEducation') }}
         </n-button>
 
-        <n-divider>研究经历</n-divider>
+        <n-divider>{{ $t('profile.researchSection') }}</n-divider>
         <div v-for="(exp, index) in formData.research_experience" :key="index" class="research-item">
           <n-space vertical style="width: 100%">
             <n-space>
-              <n-input v-model:value="exp.title" placeholder="职位/角色" style="width: 200px" />
-              <n-input v-model:value="exp.organization" placeholder="机构" style="width: 200px" />
-              <n-input v-model:value="exp.period" placeholder="时间段" style="width: 150px" />
+              <n-input v-model:value="exp.title" :placeholder="$t('profile.researchTitlePh')" style="width: 200px" />
+              <n-input v-model:value="exp.organization" :placeholder="$t('profile.organizationPh')" style="width: 200px" />
+              <n-input v-model:value="exp.period" :placeholder="$t('profile.periodPh')" style="width: 150px" />
               <n-button
                 size="small"
                 type="error"
                 @click="formData.research_experience.splice(index, 1)"
               >
-                删除
+                {{ $t('profile.delete') }}
               </n-button>
             </n-space>
             <n-input
               v-model:value="exp.description"
               type="textarea"
-              placeholder="描述"
+              :placeholder="$t('profile.descriptionPh')"
               :rows="2"
             />
           </n-space>
@@ -261,26 +292,26 @@ onMounted(() => {
           dashed
           @click="formData.research_experience.push({ title: '', organization: '', description: '', period: '' })"
         >
-          添加研究经历
+          {{ $t('profile.addResearch') }}
         </n-button>
 
-        <n-divider>项目经历</n-divider>
+        <n-divider>{{ $t('profile.projectsSection') }}</n-divider>
         <div v-for="(proj, index) in formData.projects" :key="index" class="project-item">
           <n-space vertical style="width: 100%">
             <n-space>
-              <n-input v-model:value="proj.name" placeholder="项目名称" style="width: 300px" />
+              <n-input v-model:value="proj.name" :placeholder="$t('profile.projectNamePh')" style="width: 300px" />
               <n-button
                 size="small"
                 type="error"
                 @click="formData.projects.splice(index, 1)"
               >
-                删除
+                {{ $t('profile.delete') }}
               </n-button>
             </n-space>
             <n-input
               v-model:value="proj.description"
               type="textarea"
-              placeholder="项目描述"
+              :placeholder="$t('profile.projectDescPh')"
               :rows="2"
             />
           </n-space>
@@ -289,7 +320,7 @@ onMounted(() => {
           dashed
           @click="formData.projects.push({ name: '', description: '' })"
         >
-          添加项目经历
+          {{ $t('profile.addProject') }}
         </n-button>
       </n-form>
     </n-card>

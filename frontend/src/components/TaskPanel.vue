@@ -18,11 +18,13 @@ import {
   AlertCircleOutline,
   CheckmarkCircleOutline,
 } from '@vicons/ionicons5'
+import { useI18n } from 'vue-i18n'
 import { useTaskStore } from '@/stores/tasks'
 import { tasksApi } from '@/api/tasks'
 import type { TaskEntry } from '@/stores/tasks'
 
 const taskStore = useTaskStore()
+const { t } = useI18n()
 
 const hasAny = computed(() => taskStore.taskList.length > 0)
 const runningTasks = computed(() =>
@@ -40,23 +42,23 @@ function progressPercent(task: TaskEntry): number {
 }
 
 function progressLabel(task: TaskEntry): string {
-  if (task.status === 'completed') return task.message || '已完成'
-  if (task.total <= 1) return task.message || '运行中...'
+  if (task.status === 'completed') return task.message || t('task.completed')
+  if (task.total <= 1) return task.message || ''
   return `${task.current} / ${task.total}`
 }
 
 function statusLabel(task: TaskEntry): string {
-  if (task.status === 'failed') return '失败'
-  if (task.status === 'completed') return '完成'
-  if (task.status === 'pending') return '等待中'
-  return '运行中'
+  if (task.status === 'failed') return t('task.failed')
+  if (task.status === 'completed') return t('task.completed')
+  if (task.status === 'pending') return ''
+  return t('task.running')
 }
 
 async function handleCancel(taskId: string) {
   try {
     await tasksApi.cancel(taskId)
   } catch {
-    // ignore — task may have already finished
+    // ignore
   }
 }
 
@@ -82,9 +84,8 @@ function handleDismiss(taskId: string) {
       </n-badge>
     </template>
 
-    <!-- Panel header -->
     <div class="panel-header">
-      <n-text style="font-weight: 600; font-size: 14px;">任务进度</n-text>
+      <n-text style="font-weight: 600; font-size: 14px;">{{ t('task.title') }}</n-text>
       <n-button
         v-if="completedCount > 0"
         text
@@ -92,25 +93,23 @@ function handleDismiss(taskId: string) {
         style="font-size: 12px; color: #999;"
         @click="taskStore.clearCompleted()"
       >
-        清空已完成
+        {{ t('task.clearCompleted') }}
       </n-button>
     </div>
 
     <n-divider style="margin: 0;" />
 
-    <!-- Empty state -->
     <div v-if="!hasAny" class="panel-empty">
       <n-icon size="28" color="#ccc"><CheckmarkCircleOutline /></n-icon>
-      <n-text depth="3" style="font-size: 13px; margin-top: 8px;">暂无运行中的任务</n-text>
+      <n-text depth="3" style="font-size: 13px; margin-top: 8px;">{{ t('task.noRunningTasks') }}</n-text>
     </div>
 
-    <!-- Task list -->
     <div v-else class="panel-list">
       <template
         v-for="section in [
-          { key: 'running', title: '运行中', tasks: runningTasks },
-          { key: 'failed', title: '失败', tasks: failedTasks },
-          { key: 'completed', title: '已完成', tasks: completedTasks },
+          { key: 'running', title: t('task.running'), tasks: runningTasks },
+          { key: 'failed', title: t('task.failed'), tasks: failedTasks },
+          { key: 'completed', title: t('task.completed'), tasks: completedTasks },
         ]"
         :key="section.key"
       >
@@ -125,7 +124,6 @@ function handleDismiss(taskId: string) {
               'task-completed': task.status === 'completed',
             }"
           >
-            <!-- Task name row -->
             <n-space justify="space-between" align="center" style="width: 100%;">
               <n-space align="center" :size="6">
                 <n-spin v-if="task.status === 'running' || task.status === 'pending'" :size="14" />
@@ -162,12 +160,11 @@ function handleDismiss(taskId: string) {
                   style="font-size: 11px; color: #999;"
                   @click="handleCancel(task.taskId)"
                 >
-                  取消
+                  {{ t('task.cancel') }}
                 </n-button>
               </n-space>
             </n-space>
 
-            <!-- Progress bar (batch tasks) -->
             <n-progress
               v-if="task.total > 1 && task.status !== 'failed'"
               type="line"
@@ -178,7 +175,6 @@ function handleDismiss(taskId: string) {
               style="margin-top: 6px;"
             />
 
-            <!-- Status text -->
             <n-text
               v-if="task.status === 'failed'"
               depth="3"
@@ -249,7 +245,6 @@ function handleDismiss(taskId: string) {
   background-color: #f8fff9;
 }
 
-/* Subtle pulse on the icon button when tasks are running */
 .spinning-icon :deep(.n-button__icon) {
   animation: pulse 1.6s ease-in-out infinite;
 }

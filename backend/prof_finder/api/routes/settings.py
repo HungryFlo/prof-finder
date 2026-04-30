@@ -76,12 +76,12 @@ def update_settings(
     session: Session = Depends(get_db_session),
 ):
     """Update current user's settings.
-    
+
     Args:
         data: Settings to update.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Updated settings with masked API key.
     """
@@ -90,7 +90,7 @@ def update_settings(
         .filter(UserSettings.user_id == current_user.id)
         .first()
     )
-    
+
     if not user_settings:
         # Create settings if not exists
         user_settings = UserSettings(
@@ -100,7 +100,7 @@ def update_settings(
         )
         session.add(user_settings)
         session.flush()
-    
+
     # Update fields
     if data.deepseek_api_key is not None:
         user_settings.deepseek_api_key = data.deepseek_api_key
@@ -108,10 +108,10 @@ def update_settings(
         user_settings.deepseek_base_url = data.deepseek_base_url
     if data.request_delay is not None:
         user_settings.request_delay = data.request_delay
-    
+
     session.flush()
     session.refresh(user_settings)
-    
+
     return UserSettingsResponse(
         deepseek_api_key_masked=mask_api_key(user_settings.deepseek_api_key),
         deepseek_base_url=user_settings.deepseek_base_url or app_settings.deepseek_base_url,

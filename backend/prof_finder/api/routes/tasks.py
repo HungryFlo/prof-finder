@@ -148,7 +148,7 @@ async def start_batch_letters(
         total=len(professor_ids),
     )
     asyncio.create_task(
-        execute_batch_letters(task, professor_ids, active_profile.id, api_key)
+        execute_batch_letters(task, professor_ids, active_profile.id, api_key, data.language)
     )
 
     return TaskStartResponse(

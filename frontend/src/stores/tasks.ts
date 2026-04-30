@@ -2,7 +2,12 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { tasksApi } from '@/api/tasks'
 import { useAuthStore } from '@/stores/auth'
+import { i18n } from '@/i18n'
 import type { TaskType, TaskStatus, TaskResult } from '@/types'
+
+function t(key: string, params?: Record<string, unknown>): string {
+  return (i18n.global.t(key, params as any) as string) || key
+}
 
 export interface TaskEntry {
   taskId: string
@@ -65,44 +70,57 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   function _completionMessage(entry: TaskEntry, result?: TaskResult): string {
-    // Use backend-provided final message when available
+    switch (entry.taskType) {
+      case 'profile-parse':
+      case 'profile-generate': {
+        const profile = result?.results.find((item) => item.success && typeof item.title === 'string')
+        return profile?.title
+          ? t('task.profileGenerated', { title: profile.title })
+          : t('task.profileGenerated', { title: '' })
+      }
+      case 'profile-refine':
+        return t('task.profileRefinementComplete')
+      case 'professor-profile': {
+        const professor = result?.results.find((item) => item.success && typeof item.name === 'string')
+        return professor?.name
+          ? t('task.professorProfileGenerated', { name: professor.name })
+          : t('task.professorProfileGenerated', { name: '' })
+      }
+      case 'match':
+        return t('task.matchCompleted')
+      case 'fill-publications':
+        return t('task.abstractsFetched')
+      case 'paper-summary':
+        return t('task.paperSummariesFinished')
+      case 'single-letter':
+      case 'batch-letters':
+        return t('task.letterGenerationFinished')
+      case 'university-crawl':
+      case 'batch-crawl':
+        return t('task.universityImportFinished', {
+          ok: result?.success_count ?? 0,
+          fail: result?.failed_count ?? 0,
+        })
+      case 'single-crawl':
+        return t('task.professorImportFinished')
+      case 'batch-refresh':
+        return t('task.batchRefreshFinished', {
+          ok: result?.success_count ?? 0,
+          fail: result?.failed_count ?? 0,
+        })
+      case 'batch-professor-profiles':
+        return t('task.batchProfilesFinished', {
+          ok: result?.success_count ?? 0,
+          fail: result?.failed_count ?? 0,
+        })
+      default:
+        break
+    }
+
     if (result?.message && result.message !== entry.message) {
       return result.message
     }
-    if (entry.taskType === 'profile-parse') {
-      const profile = result?.results.find((item) => item.success && typeof item.title === 'string')
-      return profile?.title ? `画像「${profile.title}」已保存到列表` : '画像已保存到列表'
-    }
-    if (entry.taskType === 'profile-generate') {
-      const profile = result?.results.find((item) => item.success && typeof item.title === 'string')
-      return profile?.title ? `画像「${profile.title}」已保存到列表` : '学生画像已保存到列表'
-    }
-    if (entry.taskType === 'professor-profile') {
-      const professor = result?.results.find((item) => item.success && typeof item.name === 'string')
-      return professor?.name ? `教授科研画像「${professor.name}」已保存` : '教授科研画像已保存'
-    }
-    if (entry.taskType === 'batch-professor-profiles') {
-      return `教授科研画像批量生成完成：成功 ${result?.success_count ?? 0} 位`
-    }
-    if (entry.taskType === 'match') {
-      return result?.message || `匹配完成，共 ${result?.success_count ?? entry.total} 位教授`
-    }
-    if (entry.taskType === 'fill-publications') {
-      return result?.message || `论文详情获取完成：成功 ${result?.success_count ?? 0} 篇`
-    }
-    if (entry.taskType === 'batch-refresh') {
-      return result?.message || `批量更新完成：成功 ${result?.success_count ?? 0} 位`
-    }
-    if (entry.taskType === 'batch-crawl') {
-      return result?.message || `批量爬取完成：成功 ${result?.success_count ?? 0} 位`
-    }
-    if (entry.taskType === 'batch-letters') {
-      return result?.message || `批量邮件生成完成：成功 ${result?.success_count ?? 0} 封`
-    }
-    if (entry.taskType === 'paper-summary') {
-      return result?.message || `论文总结完成：成功 ${result?.success_count ?? 0} 篇`
-    }
-    return entry.message || '任务已完成'
+    return entry.message || t('task.taskCompleted')
   }
 
   function _pushTaskEvent(
@@ -172,9 +190,9 @@ export const useTaskStore = defineStore('tasks', () => {
       entry.status = 'failed'
       try {
         const data = JSON.parse(e.data)
-        entry.errorMessage = data.error_message ?? '任务失败'
+        entry.errorMessage = data.error_message ?? t('task.taskFailed')
       } catch {
-        entry.errorMessage = '任务失败'
+        entry.errorMessage = t('task.taskFailed')
       }
       _pushTaskEvent(entry, 'failed', entry.errorMessage)
       es.close()
@@ -184,7 +202,7 @@ export const useTaskStore = defineStore('tasks', () => {
       const entry = activeTasks.value.get(taskId)
       if (entry && entry.status !== 'completed' && entry.status !== 'failed') {
         entry.status = 'failed'
-        entry.errorMessage = '连接失败，任务状态未知'
+        entry.errorMessage = t('task.taskFailed')
         _pushTaskEvent(entry, 'failed', entry.errorMessage)
       }
       es.close()

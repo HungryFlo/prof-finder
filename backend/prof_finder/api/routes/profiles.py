@@ -85,6 +85,7 @@ def create_profile(
         user_id=current_user.id,
         title=data.title,
         name=data.name,
+        name_locales=data.name_locales or {},
         education=[e.model_dump() for e in data.education],
         research_experience=[r.model_dump() for r in data.research_experience],
         projects=[p.model_dump() for p in data.projects],
@@ -286,6 +287,8 @@ def update_profile(
         profile.title = data.title
     if data.name is not None:
         profile.name = data.name
+    if data.name_locales is not None:
+        profile.name_locales = data.name_locales
     if data.education is not None:
         profile.education = [e.model_dump() for e in data.education]
     if data.research_experience is not None:
@@ -445,6 +448,7 @@ def profile_chat(
             academic_profile=academic_profile,
             history=data.history,
             message=data.message,
+            locale=data.locale,
         )
     except ValueError as exc:
         raise HTTPException(

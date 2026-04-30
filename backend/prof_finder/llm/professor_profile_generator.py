@@ -15,6 +15,13 @@ from ..prompts import get_prompt
 logger = logging.getLogger(__name__)
 
 
+def _language_instruction(language: str) -> str:
+    """Return a language instruction string for LLM prompt injection."""
+    if language == "en":
+        return "English（英文）"
+    return "中文（Chinese）"
+
+
 class ProfessorProfileGenerator:
     """Generate evidence-aware research profiles from professor data."""
 
@@ -30,14 +37,14 @@ class ProfessorProfileGenerator:
         if self.enabled:
             self.client = OpenAI(api_key=actual_api_key, base_url=actual_base_url)
 
-    def generate(self, professor_data: dict) -> dict:
+    def generate(self, professor_data: dict, language: str = "en") -> dict:
         """Run analyzer and builder prompts for a professor research profile."""
         if not self.enabled or self.client is None:
             raise ValueError("请先配置 DeepSeek API Key 后再生成教授画像")
 
         source_bundle = self._build_source_bundle(professor_data)
-        analysis = self._analyze(source_bundle)
-        research_profile = self._build_profile(analysis)
+        analysis = self._analyze(source_bundle, language=language)
+        research_profile = self._build_profile(analysis, language=language)
         return {
             "research_profile": research_profile,
             "research_profile_analysis": analysis,
@@ -119,10 +126,14 @@ class ProfessorProfileGenerator:
             blocks.append("\n".join(parts))
         return "\n\n".join(blocks)
 
-    def _analyze(self, source_bundle: dict) -> dict:
+    def _analyze(self, source_bundle: dict, language: str = "en") -> dict:
         """Generate structured professor research analysis JSON."""
         assert self.client is not None
-        system_prompt = get_prompt("professor_profile", "material_analysis", "system")
+        lang_instr = _language_instruction(language)
+        system_prompt = get_prompt(
+            "professor_profile", "material_analysis", "system",
+            language_instruction=lang_instr,
+        )
         user_prompt = get_prompt(
             "professor_profile",
             "material_analysis",
@@ -168,10 +179,14 @@ class ProfessorProfileGenerator:
                 )
         raise ValueError(f"教授画像分析失败：{last_error}")
 
-    def _build_profile(self, analysis: dict) -> str:
+    def _build_profile(self, analysis: dict, language: str = "en") -> str:
         """Generate the readable Markdown research profile."""
         assert self.client is not None
-        system_prompt = get_prompt("professor_profile", "profile_builder", "system")
+        lang_instr = _language_instruction(language)
+        system_prompt = get_prompt(
+            "professor_profile", "profile_builder", "system",
+            language_instruction=lang_instr,
+        )
         user_prompt = get_prompt(
             "professor_profile",
             "profile_builder",

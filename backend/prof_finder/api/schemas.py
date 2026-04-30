@@ -1,9 +1,38 @@
 """Pydantic schemas for API request/response validation."""
 
 from datetime import datetime
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Literal, Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, BeforeValidator
+
+_ALLOWED_NAME_LOCALE_KEYS = frozenset({"zh", "en"})
+
+
+def _parse_name_locales_input(v: Any) -> Optional[dict[str, str]]:
+    """Validate optional name_locales body; None means omit from update."""
+    if v is None:
+        return None
+    if not isinstance(v, dict):
+        raise ValueError("name_locales must be an object")
+    out: dict[str, str] = {}
+    for k, val in v.items():
+        if k not in _ALLOWED_NAME_LOCALE_KEYS:
+            raise ValueError(f"Invalid locale key: {k}")
+        if val is None:
+            continue
+        s = str(val).strip()
+        if s:
+            out[str(k)] = s[:200]
+    return out
+
+
+def _response_name_locales(v: Any) -> dict[str, str]:
+    if not v or not isinstance(v, dict):
+        return {}
+    return {str(k): str(val) for k, val in v.items() if k in _ALLOWED_NAME_LOCALE_KEYS and val}
+
+
+NameLocalesDict = Annotated[dict[str, str], BeforeValidator(_response_name_locales)]
 
 
 # ============= Auth Schemas =============
@@ -109,6 +138,7 @@ class ProfileCreate(BaseModel):
 
     title: str = Field(..., min_length=1, max_length=200)
     name: Optional[str] = None
+    name_locales: dict[str, str] = Field(default_factory=dict)
     education: List[EducationItem] = []
     research_experience: List[ResearchItem] = []
     projects: List[ProjectItem] = []
@@ -116,16 +146,30 @@ class ProfileCreate(BaseModel):
     raw_content: Optional[str] = None
     source_format: str = "manual"
 
+    @field_validator("name_locales", mode="before")
+    @classmethod
+    def _validate_name_locales_create(cls, v: Any) -> dict[str, str]:
+        if v is None:
+            return {}
+        p = _parse_name_locales_input(v)
+        return p if p is not None else {}
+
 
 class ProfileUpdate(BaseModel):
     """Profile update request."""
 
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     name: Optional[str] = None
+    name_locales: Optional[dict] = None
     education: Optional[List[EducationItem]] = None
     research_experience: Optional[List[ResearchItem]] = None
     projects: Optional[List[ProjectItem]] = None
     skills: Optional[List[str]] = None
+
+    @field_validator("name_locales", mode="before")
+    @classmethod
+    def _validate_name_locales_update(cls, v: Any) -> Optional[dict[str, str]]:
+        return _parse_name_locales_input(v)
 
 
 class ProfileResponse(BaseModel):
@@ -134,6 +178,7 @@ class ProfileResponse(BaseModel):
     id: int
     title: str
     name: Optional[str]
+    name_locales: NameLocalesDict = Field(default_factory=dict)
     is_active: bool
     education: List[dict]
     research_experience: List[dict]
@@ -165,6 +210,7 @@ class ProfileChatRequest(BaseModel):
 
     message: str
     history: List[dict] = []
+    locale: Literal["zh", "en"] = "zh"
 
 
 class ProfileChatResponse(BaseModel):
@@ -195,6 +241,7 @@ class ProfessorCreate(BaseModel):
     """Professor creation request (manual)."""
 
     name: str = Field(..., min_length=1, max_length=200)
+    name_locales: dict[str, str] = Field(default_factory=dict)
     affiliation: Optional[str] = None
     email: Optional[str] = None
     homepage: Optional[str] = None
@@ -202,17 +249,31 @@ class ProfessorCreate(BaseModel):
     manual_notes: Optional[str] = None
     paper_summaries: Optional[List[dict]] = None
 
+    @field_validator("name_locales", mode="before")
+    @classmethod
+    def _validate_name_locales_prof_create(cls, v: Any) -> dict[str, str]:
+        if v is None:
+            return {}
+        p = _parse_name_locales_input(v)
+        return p if p is not None else {}
+
 
 class ProfessorUpdate(BaseModel):
     """Professor update request."""
 
     name: Optional[str] = Field(None, min_length=1, max_length=200)
+    name_locales: Optional[dict] = None
     affiliation: Optional[str] = None
     email: Optional[str] = None
     homepage: Optional[str] = None
     research_interests: Optional[List[str]] = None
     manual_notes: Optional[str] = None
     paper_summaries: Optional[List[dict]] = None
+
+    @field_validator("name_locales", mode="before")
+    @classmethod
+    def _validate_name_locales_prof_update(cls, v: Any) -> Optional[dict[str, str]]:
+        return _parse_name_locales_input(v)
 
 
 class ProfessorScholarAdd(BaseModel):
@@ -233,6 +294,7 @@ class ProfessorResponse(BaseModel):
 
     id: int
     name: str
+    name_locales: NameLocalesDict = Field(default_factory=dict)
     affiliation: Optional[str]
     email: Optional[str]
     homepage: Optional[str]
@@ -411,6 +473,7 @@ class BatchLetterRequest(BaseModel):
 
     professor_ids: Optional[List[int]] = None
     top: Optional[int] = Field(None, ge=1, le=50)
+    language: Literal["zh", "en"]
 
 
 # ============= Settings Schemas =============

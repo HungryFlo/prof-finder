@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   NButton,
   NCard,
@@ -25,6 +26,7 @@ const emit = defineEmits<{
 
 const message = useMessage()
 const taskStore = useTaskStore()
+const { t } = useI18n()
 const sending = ref(false)
 const messages = ref<ChatMessage[]>([])
 const inputText = ref('')
@@ -34,7 +36,7 @@ watch(
   () => props.visible,
   async (nowVisible) => {
     if (nowVisible && messages.value.length === 0) {
-      await sendMessage('开始')
+      await sendMessage(t('chat.startPrompt'))
     }
   }
 )
@@ -58,8 +60,8 @@ async function sendMessage(text?: string) {
     scrollToBottom()
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    const errorMsg = err.response?.data?.detail || 'AI 响应失败，请重试'
-    messages.value.push({ role: 'assistant', content: `[错误] ${errorMsg}` })
+    const errorMsg = err.response?.data?.detail || t('chat.errorAiFailed')
+    messages.value.push({ role: 'assistant', content: t('chat.errorLine', { msg: errorMsg }) })
   } finally {
     sending.value = false
   }
@@ -67,20 +69,20 @@ async function sendMessage(text?: string) {
 
 async function handleRefine() {
   if (messages.value.length <= 1) {
-    message.warning('请先与 AI 进行至少一轮对话')
+    message.warning(t('chat.needChatFirst'))
     return
   }
 
   try {
     const { task_id, message: msg } = await profilesApi.refineFromChat(props.profileId, messages.value) as { task_id: string; message: string }
-    message.success(msg || '画像优化任务已启动')
-    taskStore.addTask(task_id, 'profile-refine', '优化学生画像', 4, () => {
-      message.success('学生画像优化完成')
+    message.success(msg || t('chat.refineTaskStarted'))
+    taskStore.addTask(task_id, 'profile-refine', t('chat.refineTaskInPanel'), 4, () => {
+      message.success(t('chat.refineCompleted'))
       emit('profile-refreshed')
     })
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '启动优化任务失败')
+    message.error(err.response?.data?.detail || t('chat.refineStartFailed'))
   }
 }
 
@@ -91,19 +93,19 @@ function scrollToBottom() {
 }
 
 function formatRole(role: string): string {
-  return role === 'user' ? '我' : 'AI'
+  return role === 'user' ? t('chat.roleMe') : t('chat.roleAi')
 }
 </script>
 
 <template>
-  <n-card title="AI 画像优化" size="small" v-if="visible">
+  <n-card :title="$t('chat.title')" size="small" v-if="visible">
     <template #header-extra>
       <n-button
         type="warning"
         size="small"
         @click="handleRefine"
       >
-        优化画像
+        {{ $t('chat.optimizeProfile') }}
       </n-button>
     </template>
 
@@ -113,7 +115,7 @@ function formatRole(role: string): string {
     >
       <n-empty
         v-if="messages.length === 0 && !sending"
-        description="AI 将根据你的画像分析提出优化问题"
+        :description="$t('chat.emptyHint')"
         style="margin-top: 24px"
       />
 
@@ -122,7 +124,7 @@ function formatRole(role: string): string {
         :key="index"
         :class="['chat-message', msg.role === 'user' ? 'chat-user' : 'chat-ai']"
         :title="formatRole(msg.role)"
-        :title-extra="msg.role === 'assistant' ? 'AI 面试官' : ''"
+        :title-extra="msg.role === 'assistant' ? $t('chat.aiInterviewer') : ''"
       >
         <div class="chat-content">{{ msg.content }}</div>
       </n-thing>
@@ -135,7 +137,7 @@ function formatRole(role: string): string {
         v-model:value="inputText"
         type="textarea"
         :rows="3"
-        placeholder="输入你的回答..."
+        :placeholder="$t('chat.inputPlaceholder')"
         :disabled="sending"
         @keydown.enter.exact.prevent="sendMessage()"
         style="flex: 1"
@@ -146,7 +148,7 @@ function formatRole(role: string): string {
         :disabled="!inputText.trim()"
         @click="sendMessage()"
       >
-        发送
+        {{ $t('chat.send') }}
       </n-button>
     </n-space>
   </n-card>

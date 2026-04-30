@@ -16,6 +16,7 @@ export interface UniversityCrawlerInfo {
 
 export interface ProfessorCreate {
   name: string
+  name_locales?: Record<string, string>
   affiliation?: string
   email?: string
   homepage?: string

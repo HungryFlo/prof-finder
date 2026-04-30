@@ -117,7 +117,7 @@ def _text_or_none(node: Optional[ET.Element]) -> Optional[str]:
     return value or None
 
 
-def build_paper_summary_from_source(source_input: dict, summarizer=None) -> Optional[dict]:
+def build_paper_summary_from_source(source_input: dict, summarizer=None, language: str = "zh") -> Optional[dict]:
     """Build a structured paper summary record from one source input."""
     source_type = source_input.get("source_type")
     if source_type not in {"pdf", "arxiv"}:
@@ -144,6 +144,7 @@ def build_paper_summary_from_source(source_input: dict, summarizer=None) -> Opti
             source_type=source_type,
             title=title,
             content=raw_content,
+            language=language,
         )
         summary = llm_result.get("summary") or ""
         keywords = llm_result.get("keywords") or []

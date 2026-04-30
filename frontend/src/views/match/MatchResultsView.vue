@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, h } from 'vue'
+import { ref, onMounted, h, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   NCard,
   NSpace,
@@ -12,6 +13,7 @@ import {
   NDescriptions,
   NDescriptionsItem,
   NSpin,
+  NSelect,
   useMessage,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
@@ -22,8 +24,8 @@ import type { MatchResult, MatchDetail, PaginatedResponse } from '@/types'
 
 const message = useMessage()
 const taskStore = useTaskStore()
+const { t } = useI18n()
 
-// State
 const loading = ref(false)
 const data = ref<PaginatedResponse<MatchResult>>({
   items: [],
@@ -34,31 +36,35 @@ const data = ref<PaginatedResponse<MatchResult>>({
 })
 const currentPage = ref(1)
 
-// Detail modal
 const showDetailModal = ref(false)
 const detailLoading = ref(false)
 const matchDetail = ref<MatchDetail | null>(null)
 
-// Table columns
-const columns: DataTableColumns<MatchResult> = [
+const letterLanguage = ref<'zh' | 'en'>('zh')
+const letterLangOptions = computed(() => [
+  { label: '中文', value: 'zh' as const },
+  { label: 'English', value: 'en' as const },
+])
+
+const columns = computed<DataTableColumns<MatchResult>>(() => [
   {
-    title: '排名',
+    title: t('match.rank'),
     key: 'rank',
     width: 70,
     render(_row, index) {
-      return (currentPage.value - 1) * 20 + index + 1
+      return (currentPage.value - 1) * data.value.page_size + index + 1
     },
   },
-  { title: '教授', key: 'professor_name', width: 150 },
+  { title: t('match.professor'), key: 'professor_name', width: 168 },
   {
-    title: '机构',
+    title: t('match.affiliation'),
     key: 'professor_affiliation',
     ellipsis: { tooltip: true },
   },
   {
-    title: '匹配度',
+    title: t('match.score'),
     key: 'score',
-    width: 150,
+    width: 168,
     render(row) {
       return h(NProgress, {
         type: 'line',
@@ -69,9 +75,9 @@ const columns: DataTableColumns<MatchResult> = [
     },
   },
   {
-    title: '匹配原因',
+    title: t('match.reasons'),
     key: 'match_reasons',
-    width: 250,
+    width: 268,
     render(row) {
       return h(
         NSpace,
@@ -103,25 +109,25 @@ const columns: DataTableColumns<MatchResult> = [
     },
   },
   {
-    title: '邮件状态',
+    title: t('match.letterStatus'),
     key: 'letter_generated',
-    width: 100,
+    width: 148,
     render(row) {
       return row.letter_generated
-        ? h(NTag, { type: 'success', size: 'small' }, { default: () => '已生成' })
-        : h(NTag, { type: 'default', size: 'small' }, { default: () => '未生成' })
+        ? h(NTag, { type: 'success', size: 'small' }, { default: () => t('letter.generated') })
+        : h(NTag, { type: 'default', size: 'small' }, { default: () => t('letter.notGenerated') })
     },
   },
   {
-    title: '操作',
+    title: t('match.actions'),
     key: 'actions',
-    width: 200,
+    width: 320,
     render(row) {
-      return h(NSpace, { size: 'small' }, () => [
+      return h(NSpace, { size: 'small', wrap: true }, () => [
         h(
           NButton,
           { size: 'small', onClick: () => showMatchDetail(row.professor_id) },
-          { default: () => '详情' }
+          { default: () => t('match.detail') }
         ),
         h(
           NButton,
@@ -130,43 +136,40 @@ const columns: DataTableColumns<MatchResult> = [
             type: 'primary',
             onClick: () => handleGenerateLetter(row.professor_id),
           },
-          { default: () => (row.letter_generated ? '重新生成' : '生成邮件') }
+          { default: () => (row.letter_generated ? t('match.regenerateLetter') : t('match.generateLetter')) }
         ),
       ])
     },
   },
-]
+])
 
-// Fetch match results
 async function fetchResults() {
   loading.value = true
   try {
     data.value = await matchApi.getResults({
       page: currentPage.value,
-      page_size: 20,
+      page_size: data.value.page_size || 20,
     })
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '获取匹配结果失败')
+    message.error(err.response?.data?.detail || t('match.fetchFailed'))
   } finally {
     loading.value = false
   }
 }
 
-// Run matching — now async task
 async function handleRunMatch() {
   try {
     const { task_id } = await matchApi.run()
-    taskStore.addTask(task_id, 'match', '运行匹配算法', 0, () => {
+    taskStore.addTask(task_id, 'match', t('professor.runMatching'), 0, () => {
       fetchResults()
     })
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '运行匹配失败')
+    message.error(err.response?.data?.detail || t('match.runMatchFailed'))
   }
 }
 
-// Show match detail
 async function showMatchDetail(professorId: number) {
   showDetailModal.value = true
   detailLoading.value = true
@@ -174,45 +177,53 @@ async function showMatchDetail(professorId: number) {
     matchDetail.value = await matchApi.getDetail(professorId)
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '获取详情失败')
+    message.error(err.response?.data?.detail || t('match.detailFetchFailed'))
     showDetailModal.value = false
   } finally {
     detailLoading.value = false
   }
 }
 
-// Generate letter — now async task
+function professorFallbackName(id: number) {
+  return t('professor.fallBackProfessorNamed', { id })
+}
+
 async function handleGenerateLetter(professorId: number) {
   try {
-    const { task_id } = await lettersApi.generate(professorId)
+    const { task_id } = await lettersApi.generate(professorId, letterLanguage.value)
     const row = data.value.items.find((r) => r.professor_id === professorId)
-    const name = row?.professor_name ?? `教授 #${professorId}`
-    taskStore.addTask(task_id, 'single-letter', `生成邮件 · ${name}`, 1, () => {
+    const name = row?.professor_name ?? professorFallbackName(professorId)
+    taskStore.addTask(task_id, 'single-letter', t('professor.genLetterTask', { name }), 1, () => {
       fetchResults()
     })
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '生成邮件失败')
+    message.error(err.response?.data?.detail || t('match.generateLetterFail'))
   }
 }
 
-// Handle page change
 function handlePageChange(page: number) {
   currentPage.value = page
   fetchResults()
 }
 
-// Export to CSV
 function handleExport() {
   const csv = [
-    ['排名', '教授', '机构', '匹配度', '匹配原因', '邮件状态'].join(','),
+    [
+      t('match.csvRank'),
+      t('match.csvProfessor'),
+      t('match.csvAffiliation'),
+      t('match.csvScore'),
+      t('match.csvReasons'),
+      t('match.csvLetterStatus'),
+    ].join(','),
     ...data.value.items.map((item, index) => [
-      (currentPage.value - 1) * 20 + index + 1,
+      (currentPage.value - 1) * (data.value.page_size || 20) + index + 1,
       item.professor_name,
       item.professor_affiliation || '',
       item.score,
       item.match_reasons.join('; '),
-      item.letter_generated ? '已生成' : '未生成',
+      item.letter_generated ? t('letter.generated') : t('letter.notGenerated'),
     ].join(',')),
   ].join('\n')
 
@@ -230,14 +241,20 @@ onMounted(() => {
 
 <template>
   <div>
-    <n-card title="匹配结果">
+    <n-card :title="$t('match.title')">
       <template #header-extra>
-        <n-space>
+        <n-space align="center" wrap>
+          <span>{{ $t('letter.letterLanguage') }}</span>
+          <n-select
+            v-model:value="letterLanguage"
+            :options="letterLangOptions"
+            style="width: 130px"
+          />
           <n-button @click="handleExport" :disabled="data.items.length === 0">
-            导出 CSV
+            {{ $t('match.exportCsv') }}
           </n-button>
           <n-button type="primary" @click="handleRunMatch">
-            运行匹配
+            {{ $t('match.runMatch') }}
           </n-button>
         </n-space>
       </template>
@@ -247,7 +264,7 @@ onMounted(() => {
         :data="data.items"
         :loading="loading"
         :row-key="(row: MatchResult) => row.professor_id"
-        :scroll-x="1100"
+        :scroll-x="1420"
       />
 
       <n-space justify="end" style="margin-top: 16px">
@@ -259,27 +276,26 @@ onMounted(() => {
       </n-space>
     </n-card>
 
-    <!-- Match Detail Modal -->
     <n-modal
       v-model:show="showDetailModal"
       preset="card"
-      :title="matchDetail?.professor_name || '匹配详情'"
-      style="width: 600px"
+      :title="matchDetail?.professor_name || $t('match.detailTitleFallback')"
+      style="width: 620px"
     >
       <n-spin :show="detailLoading">
         <template v-if="matchDetail">
           <n-descriptions :column="1" label-placement="left" bordered>
-            <n-descriptions-item label="机构">
+            <n-descriptions-item :label="$t('match.affiliation')">
               {{ matchDetail.professor_affiliation || '-' }}
             </n-descriptions-item>
-            <n-descriptions-item label="匹配度">
+            <n-descriptions-item :label="$t('match.score')">
               <n-progress
                 type="line"
                 :percentage="matchDetail.score"
                 indicator-placement="inside"
               />
             </n-descriptions-item>
-            <n-descriptions-item label="研究方向">
+            <n-descriptions-item :label="$t('professor.researchInterests')">
               <n-space size="small">
                 <n-tag
                   v-for="interest in matchDetail.professor_interests"
@@ -291,7 +307,7 @@ onMounted(() => {
                 </n-tag>
               </n-space>
             </n-descriptions-item>
-            <n-descriptions-item label="匹配原因">
+            <n-descriptions-item :label="$t('match.reasons')">
               <div v-for="reason in matchDetail.match_reasons" :key="reason">
                 • {{ reason }}
               </div>
@@ -299,7 +315,7 @@ onMounted(() => {
           </n-descriptions>
 
           <div v-if="matchDetail.letter_content" style="margin-top: 16px">
-            <h4>生成的邮件</h4>
+            <h4>{{ $t('match.generatedLetterHeading') }}</h4>
             <pre style="white-space: pre-wrap; background: #f5f5f5; padding: 12px; border-radius: 4px">{{ matchDetail.letter_content }}</pre>
           </div>
         </template>

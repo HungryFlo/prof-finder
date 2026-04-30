@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   NAlert,
   NButton,
@@ -23,12 +24,19 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
+const { t } = useI18n()
+
 const arxivUrl = ref('')
+const pdfInputRef = ref<HTMLInputElement | null>(null)
 const uploadingPdf = ref(false)
 const creatingArxiv = ref(false)
 
 function updateItems(nextItems: SourceInput[]) {
   emit('update:modelValue', nextItems)
+}
+
+function openPdfPicker() {
+  pdfInputRef.value?.click()
 }
 
 async function handlePdfChange(event: Event) {
@@ -39,10 +47,10 @@ async function handlePdfChange(event: Event) {
   try {
     const created = await sourceInputsApi.uploadPdf(file)
     updateItems([created, ...props.modelValue])
-    message.success('PDF 上传并解析成功')
+    message.success(t('source.pdfUploadedOk'))
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || 'PDF 处理失败')
+    message.error(err.response?.data?.detail || t('source.pdfProcessFail'))
   } finally {
     uploadingPdf.value = false
     target.value = ''
@@ -51,7 +59,7 @@ async function handlePdfChange(event: Event) {
 
 async function handleAddArxiv() {
   if (!arxivUrl.value.trim()) {
-    message.warning('请输入 ArXiv 链接')
+    message.warning(t('source.needArxivUrl'))
     return
   }
   creatingArxiv.value = true
@@ -59,14 +67,14 @@ async function handleAddArxiv() {
     const created = await sourceInputsApi.createFromArxiv(arxivUrl.value.trim())
     updateItems([created, ...props.modelValue])
     if (created.metadata_only) {
-      message.warning('已保存元数据，稍后可重试 PDF 解析')
+      message.warning(t('source.metadataOnlyHint'))
     } else {
-      message.success('ArXiv 来源已添加')
+      message.success(t('source.arxivAddedOk'))
     }
     arxivUrl.value = ''
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || 'ArXiv 添加失败')
+    message.error(err.response?.data?.detail || t('source.arxivAddFail'))
   } finally {
     creatingArxiv.value = false
   }
@@ -78,35 +86,43 @@ async function retryParse(item: SourceInput) {
     const nextItems = props.modelValue.map((entry) => (entry.id === item.id ? updated : entry))
     updateItems(nextItems)
     if (updated.metadata_only) {
-      message.warning('重试失败，请稍后再试')
+      message.warning(t('source.retryParseFailedSoon'))
     } else {
-      message.success('重试解析成功')
+      message.success(t('source.retryParseOk'))
     }
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '重试失败')
+    message.error(err.response?.data?.detail || t('source.retryParseFail'))
   }
 }
 </script>
 
 <template>
-  <n-card title="来源输入（PDF / ArXiv）" size="small">
+  <n-card :title="$t('source.title')" size="small">
     <n-space vertical>
-      <n-space>
-        <label>
-          <input type="file" accept="application/pdf" :disabled="uploadingPdf" @change="handlePdfChange" />
-        </label>
+      <n-space align="center">
+        <input
+          ref="pdfInputRef"
+          type="file"
+          accept="application/pdf"
+          tabindex="-1"
+          aria-hidden="true"
+          style="position: absolute; width: 0; height: 0; opacity: 0; overflow: hidden"
+          :disabled="uploadingPdf"
+          @change="handlePdfChange"
+        />
+        <n-button :disabled="uploadingPdf" @click="openPdfPicker">{{ $t('source.uploadPdf') }}</n-button>
         <slot name="actions" />
-        <n-tag v-if="uploadingPdf" type="info">PDF 处理中...</n-tag>
+        <n-tag v-if="uploadingPdf" type="info">{{ $t('source.processingPdfTag') }}</n-tag>
       </n-space>
 
       <n-space>
         <n-input
           v-model:value="arxivUrl"
-          placeholder="https://arxiv.org/abs/xxxx.xxxxx"
+          :placeholder="$t('source.arxivPlaceholder')"
           style="width: 420px"
         />
-        <n-button type="primary" :loading="creatingArxiv" @click="handleAddArxiv">添加 ArXiv</n-button>
+        <n-button type="primary" :loading="creatingArxiv" @click="handleAddArxiv">{{ $t('source.addArxiv') }}</n-button>
       </n-space>
 
       <n-list bordered>
@@ -116,8 +132,8 @@ async function retryParse(item: SourceInput) {
               <n-space>
                 <n-tag type="info">{{ item.source_type }}</n-tag>
                 <n-tag v-if="item.metadata_only" type="warning">metadata-only</n-tag>
-                <n-tag v-if="item.status === 'succeeded'" type="success">succeeded</n-tag>
-                <n-tag v-else-if="item.status === 'failed'" type="error">failed</n-tag>
+                <n-tag v-if="item.status === 'succeeded'" type="success">{{ $t('source.succeeded') }}</n-tag>
+                <n-tag v-else-if="item.status === 'failed'" type="error">{{ $t('source.failed') }}</n-tag>
                 <n-tag v-else type="default">{{ item.status }}</n-tag>
               </n-space>
               <n-button
@@ -125,7 +141,7 @@ async function retryParse(item: SourceInput) {
                 size="small"
                 @click="retryParse(item)"
               >
-                重试 PDF 解析
+                {{ $t('source.retryParse') }}
               </n-button>
             </n-space>
 

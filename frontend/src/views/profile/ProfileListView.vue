@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, h, shallowRef } from 'vue'
+import { ref, onMounted, h, shallowRef, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import {
   NCard,
   NSpace,
@@ -26,6 +27,9 @@ const router = useRouter()
 const message = useMessage()
 const dialog = useDialog()
 const taskStore = useTaskStore()
+const { t, locale } = useI18n()
+
+const dateLocale = computed(() => (locale.value === 'en' ? 'en-US' : 'zh-CN'))
 
 // State
 const loading = ref(false)
@@ -44,62 +48,67 @@ const personalStatement = ref('')
 const researchPlan = ref('')
 const profileNotes = ref('')
 
-// Table columns
-const columns: DataTableColumns<Profile> = [
+function sourceFormatLabel(format: string | undefined | null): string {
+  if (format === 'materials') return t('profile.sourceMaterials')
+  return format ? String(format) : t('profile.sourceManual')
+}
+
+// Table columns (reactive to locale)
+const columns = computed<DataTableColumns<Profile>>(() => [
   {
     type: 'selection',
   },
   {
-    title: '标题',
+    title: t('profile.title'),
     key: 'title',
     ellipsis: {
       tooltip: true,
     },
   },
   {
-    title: '姓名',
+    title: t('profile.name'),
     key: 'name',
-    width: 120,
+    width: 140,
   },
   {
-    title: '状态',
+    title: t('profile.status'),
     key: 'is_active',
-    width: 100,
+    width: 120,
     render(row) {
       return row.is_active
-        ? h(NTag, { type: 'success', size: 'small' }, { default: () => '已激活' })
-        : h(NTag, { type: 'default', size: 'small' }, { default: () => '未激活' })
+        ? h(NTag, { type: 'success', size: 'small' }, { default: () => t('profile.active') })
+        : h(NTag, { type: 'default', size: 'small' }, { default: () => t('profile.inactive') })
     },
   },
   {
-    title: '来源',
+    title: t('profile.source'),
     key: 'source_format',
-    width: 100,
+    width: 128,
     render(row) {
-      return row.source_format === 'materials' ? '多材料' : row.source_format || '手动'
+      return sourceFormatLabel(row.source_format)
     },
   },
   {
-    title: '更新时间',
+    title: t('profile.updatedAt'),
     key: 'updated_at',
-    width: 180,
+    width: 200,
     render(row) {
-      return new Date(row.updated_at).toLocaleString('zh-CN')
+      return new Date(row.updated_at).toLocaleString(dateLocale.value)
     },
   },
   {
-    title: '操作',
+    title: t('profile.actions'),
     key: 'actions',
-    width: 250,
+    width: 368,
     render(row) {
-      return h(NSpace, { size: 'small' }, () => [
+      return h(NSpace, { size: 'small', wrap: true }, () => [
         h(
           NButton,
           {
             size: 'small',
             onClick: () => router.push(`/profile/${row.id}`),
           },
-          { default: () => '查看' }
+          { default: () => t('profile.view') }
         ),
         !row.is_active &&
           h(
@@ -109,7 +118,7 @@ const columns: DataTableColumns<Profile> = [
               type: 'primary',
               onClick: () => handleActivate(row.id),
             },
-            { default: () => '激活' }
+            { default: () => t('profile.activate') }
           ),
         h(
           NPopconfirm,
@@ -118,14 +127,14 @@ const columns: DataTableColumns<Profile> = [
           },
           {
             trigger: () =>
-              h(NButton, { size: 'small', type: 'error' }, { default: () => '删除' }),
-            default: () => '确定删除该画像吗？',
+              h(NButton, { size: 'small', type: 'error' }, { default: () => t('profile.delete') }),
+            default: () => t('profile.deleteConfirm'),
           }
         ),
       ])
     },
   },
-]
+])
 
 // Fetch profiles
 async function fetchProfiles() {
@@ -134,7 +143,7 @@ async function fetchProfiles() {
     profiles.value = await profilesApi.list()
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '获取画像列表失败')
+    message.error(err.response?.data?.detail || t('profile.fetchListFailed'))
   } finally {
     loading.value = false
   }
@@ -144,11 +153,11 @@ async function fetchProfiles() {
 async function handleActivate(id: number) {
   try {
     await profilesApi.activate(id)
-    message.success('激活成功')
+    message.success(t('profile.activateSuccess'))
     await fetchProfiles()
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '激活失败')
+    message.error(err.response?.data?.detail || t('profile.activateFailed'))
   }
 }
 
@@ -156,35 +165,37 @@ async function handleActivate(id: number) {
 async function handleDelete(id: number) {
   try {
     await profilesApi.delete(id)
-    message.success('删除成功')
+    message.success(t('profile.deleteSuccess'))
     await fetchProfiles()
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '删除失败')
+    message.error(err.response?.data?.detail || t('profile.deleteFailed'))
   }
 }
 
 // Handle batch delete
 async function handleBatchDelete() {
   if (selectedRowKeys.value.length === 0) {
-    message.warning('请选择要删除的画像')
+    message.warning(t('profile.pleaseSelectToDelete'))
     return
   }
 
   dialog.warning({
-    title: '确认删除',
-    content: `确定删除选中的 ${selectedRowKeys.value.length} 份画像吗？`,
-    positiveText: '确定',
-    negativeText: '取消',
+    title: t('profile.confirmDeleteTitle'),
+    content: t('profile.batchDeleteConfirmCount', {
+      count: selectedRowKeys.value.length,
+    }),
+    positiveText: t('common.confirm'),
+    negativeText: t('common.cancel'),
     onPositiveClick: async () => {
       try {
         await profilesApi.batchDelete(selectedRowKeys.value)
-        message.success('批量删除成功')
+        message.success(t('profile.batchDeleteSuccess'))
         selectedRowKeys.value = []
         await fetchProfiles()
       } catch (error: unknown) {
         const err = error as { response?: { data?: { detail?: string } } }
-        message.error(err.response?.data?.detail || '批量删除失败')
+        message.error(err.response?.data?.detail || t('profile.batchDeleteFailed'))
       }
     },
   })
@@ -206,11 +217,11 @@ async function handleUpload(): Promise<boolean> {
     profileNotes.value,
   ].some((value) => value.trim())
   if (!uploadTitle.value) {
-    message.warning('请输入标题')
+    message.warning(t('profile.pleaseEnterTitle'))
     return false
   }
   if (uploadRawFiles.value.length === 0 && !hasManualInput) {
-    message.warning('请至少上传一个材料文件或填写一项画像材料')
+    message.warning(t('profile.needFileOrManual'))
     return false
   }
 
@@ -227,31 +238,33 @@ async function handleUpload(): Promise<boolean> {
         notes: profileNotes.value,
       }
     )
-    taskStore.addTask(result.task_id, 'profile-generate', `生成学生画像 · ${uploadTitle.value}`, 3, () => {
+    taskStore.addTask(result.task_id, 'profile-generate', t('task.profileGeneratingTask', { title: uploadTitle.value }), 3, () => {
       fetchProfiles()
     })
-    message.success(result.message || '学生画像生成任务已加入任务列表')
+    message.success(result.message || t('profile.generateTaskQueued'))
     showUploadModal.value = false
     return false
   } catch (error: unknown) {
     const err = error as {
       code?: string
       message?: string
-      response?: { status?: number; data?: { detail?: string } }
+      response?: { status?: number; data?: { detail?: string | unknown[] } }
     }
     const detailValue = err.response?.data?.detail
     const detailText = Array.isArray(detailValue)
       ? detailValue
-          .map((item) => (typeof item === 'object' && item ? item.msg || JSON.stringify(item) : String(item)))
+          .map((item) => (typeof item === 'object' && item ? (item as { msg?: string }).msg || JSON.stringify(item) : String(item)))
           .join('; ')
-      : detailValue
+      : typeof detailValue === 'string'
+        ? detailValue
+        : ''
 
     const detail =
       detailText ||
-      (err.code === 'ECONNABORTED' ? '请求超时（上传或解析耗时较长）' : '') ||
+      (err.code === 'ECONNABORTED' ? t('profile.timeoutHint') : '') ||
       err.message ||
-      '上传生成失败'
-    message.error(`上传生成失败：${detail}`)
+      t('profile.generateFailed')
+    message.error(t('profile.uploadGenerateFailed', { detail }))
     return false
   } finally {
     uploadLoading.value = false
@@ -277,7 +290,7 @@ onMounted(() => {
 
 <template>
   <div>
-    <n-card title="学生画像管理">
+    <n-card :title="$t('profile.management')">
       <template #header-extra>
         <n-space>
           <n-button
@@ -285,10 +298,10 @@ onMounted(() => {
             type="error"
             @click="handleBatchDelete"
           >
-            批量删除 ({{ selectedRowKeys.length }})
+            {{ $t('profile.batchDelete') }} ({{ selectedRowKeys.length }})
           </n-button>
           <n-button type="primary" @click="showUploadModal = true">
-            新建学生画像
+            {{ $t('profile.createNew') }}
           </n-button>
         </n-space>
       </template>
@@ -299,7 +312,7 @@ onMounted(() => {
         :loading="loading"
         :row-key="(row: Profile) => row.id"
         v-model:checked-row-keys="selectedRowKeys"
-        :scroll-x="1000"
+        :scroll-x="1280"
       />
     </n-card>
 
@@ -307,19 +320,19 @@ onMounted(() => {
     <n-modal
       v-model:show="showUploadModal"
       preset="dialog"
-      title="生成学生画像"
-      positive-text="上传并生成"
-      negative-text="取消"
+      :title="$t('profile.generateModalTitle')"
+      :positive-text="$t('profile.uploadAndGenerate')"
+      :negative-text="$t('common.cancel')"
       :positive-button-props="{ loading: uploadLoading }"
       @positive-click="handleUpload"
       @after-leave="resetUploadModal"
       style="width: 720px"
     >
       <n-form label-placement="top">
-        <n-form-item label="标题">
-          <n-input v-model:value="uploadTitle" placeholder="例如：NLP方向申请画像" />
+        <n-form-item :label="$t('profile.title')">
+          <n-input v-model:value="uploadTitle" :placeholder="$t('profile.titleExamplePlaceholder')" />
         </n-form-item>
-        <n-form-item label="材料文件">
+        <n-form-item :label="$t('profile.materialFilesLabel')">
           <n-upload
             multiple
             accept=".md,.markdown,.txt,.tex,.latex"
@@ -327,45 +340,45 @@ onMounted(() => {
             :file-list="uploadFiles"
             @change="handleFileChange"
           >
-            <n-button>选择文件 (.md/.markdown/.txt/.tex/.latex)</n-button>
+            <n-button>{{ $t('profile.selectFilesButton') }}</n-button>
           </n-upload>
         </n-form-item>
-        <n-form-item label="研究兴趣">
+        <n-form-item :label="$t('profile.researchInterests')">
           <n-input
             v-model:value="researchInterests"
             type="textarea"
-            placeholder="例如：我对多模态大模型、医学图像理解和可解释性方向感兴趣"
+            :placeholder="$t('profile.researchInterestsPlaceholder')"
             :rows="3"
           />
         </n-form-item>
-        <n-form-item label="个人陈述">
+        <n-form-item :label="$t('profile.personalStatement')">
           <n-input
             v-model:value="personalStatement"
             type="textarea"
-            placeholder="可粘贴个人陈述或申请动机片段"
+            :placeholder="$t('profile.personalStatementPlaceholder')"
             :rows="3"
           />
         </n-form-item>
-        <n-form-item label="研究计划">
+        <n-form-item :label="$t('profile.researchPlan')">
           <n-input
             v-model:value="researchPlan"
             type="textarea"
-            placeholder="可粘贴 research proposal / study plan 片段"
+            :placeholder="$t('profile.researchPlanPlaceholder')"
             :rows="3"
           />
         </n-form-item>
-        <n-form-item label="补充备注">
+        <n-form-item :label="$t('profile.freeNotes')">
           <n-input
             v-model:value="profileNotes"
             type="textarea"
-            placeholder="其他希望画像优先参考的信息"
+            :placeholder="$t('profile.freeNotesPlaceholder')"
             :rows="2"
           />
         </n-form-item>
-        <n-form-item label="提取背景字段">
+        <n-form-item :label="$t('profile.extractFieldsLabel')">
           <n-switch v-model:value="useLlm" />
           <span style="margin-left: 8px; color: #999">
-            用 LLM 从材料中辅助提取教育、经历、项目和技能
+            {{ $t('profile.extractFieldsHint') }}
           </span>
         </n-form-item>
       </n-form>

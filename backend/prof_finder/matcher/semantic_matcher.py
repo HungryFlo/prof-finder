@@ -152,6 +152,7 @@ class SemanticMatcher:
         professor: dict,
         professor_embedding: Optional[list[float]] = None,
         profile_embedding: Optional[list[float]] = None,
+        language: str = "zh",
     ) -> tuple[float, list[str]]:
         """Compute semantic match score.
 
@@ -163,6 +164,7 @@ class SemanticMatcher:
             profile_embedding: Pre-computed L2-normalised profile vector. If None,
                 the profile text is encoded on the fly. Pass this when matching one
                 profile against many professors to avoid re-encoding each time.
+            language: "zh" or "en"; controls wording of match_reasons only.
 
         Returns:
             (score in [0, 100], human-readable reasons).
@@ -182,7 +184,7 @@ class SemanticMatcher:
         score = (similarity + 1.0) / 2.0 * 100.0
         score = max(0.0, min(100.0, round(score, 2)))
 
-        reasons = self._build_reasons(similarity, professor)
+        reasons = self._build_reasons(similarity, professor, language=language)
         return score, reasons
 
     # ------------------------------------------------------------------
@@ -190,16 +192,31 @@ class SemanticMatcher:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _build_reasons(similarity: float, professor: dict) -> list[str]:
+    def _build_reasons(
+        similarity: float, professor: dict, *, language: str = "zh"
+    ) -> list[str]:
         interests = professor.get("research_interests") or []
+        lang = language if language in ("zh", "en") else "zh"
+        reasons: list[str] = []
+        if lang == "en":
+            if similarity > 0.6:
+                prefix = "Strong semantic match"
+            elif similarity > 0.3:
+                prefix = "Moderate semantic match"
+            else:
+                prefix = "Weak semantic match"
+            if interests:
+                top = ", ".join(interests[:3])
+                reasons.append(f"{prefix}: {top}")
+            reasons.append(f"Semantic similarity: {similarity:.2f}")
+            return reasons
+
         if similarity > 0.6:
             level = "高度"
         elif similarity > 0.3:
             level = "较好"
         else:
             level = "一般"
-
-        reasons: list[str] = []
         if interests:
             top = ", ".join(interests[:3])
             reasons.append(f"语义{level}匹配: {top}")

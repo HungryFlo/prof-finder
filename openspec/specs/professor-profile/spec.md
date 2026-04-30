@@ -50,6 +50,15 @@ The system SHALL build and save a readable professor research profile from struc
 - **WHEN** generated professor research profile fields change
 - **THEN** the system clears or refreshes the cached professor embedding before the next semantic match uses that professor
 
+#### Scenario: Language-controlled output
+- **WHEN** research profile generation runs
+- **THEN** the system SHALL generate the research profile and structured analysis in English
+- **AND** the language SHALL be passed to the LLM via the prompt template as English
+
+### Requirement: Professor name locales
+
+The system SHALL store optional explicit `name_locales` on `Professor` (`zh` / `en`) for letters; crawler-created professors remain with empty `name_locales` until the user edits them.
+
 ### Requirement: Professor Research Profile Downstream Usage
 The system SHALL use generated professor research profile fields to improve matching and letter generation when they are available.
 
@@ -65,4 +74,12 @@ The system SHALL use generated professor research profile fields to improve matc
 #### Scenario: Professors without generated profiles remain usable
 - **WHEN** a professor does not have generated research profile content
 - **THEN** matching and letter generation continue to use existing professor fields
+
+### Requirement: Paper summarization for research profiles
+
+Paper summarization used in the professor research-profile pipeline SHALL run in English so outputs align with English research profiles.
+
+#### Scenario: Summary language for pipeline
+- **WHEN** paper summarization is invoked from professor edit preview/apply or background summary tasks serving profile generation
+- **THEN** the summary output SHALL be in English
 

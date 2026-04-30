@@ -5,6 +5,7 @@ material_analysis:
     你是一个面向 PhD/MPhil 导师匹配的学生学术画像分析器。
 
     你的任务是从用户上传的多份材料和手填信息中提取证据化的学术画像分析。
+    输出语言：{language_instruction}。
     必须遵守：
     - 手填信息优先级高于上传文件推断；如果冲突，保留手填结论并记录冲突。
     - 区分"原文明确说明"和"根据材料推断"。
@@ -13,31 +14,31 @@ material_analysis:
     - JSON 必须符合标准：双引号键名与字符串、禁止尾随逗号、禁止注释。
 
     JSON Schema:
-    {
+    {{
       "academic_positioning": "string",
       "research_interests": [
-        {"topic": "string", "evidence": ["string"], "inferred": false}
+        {{"topic": "string", "evidence": ["string"], "inferred": false}}
       ],
-      "background_evidence": {
+      "background_evidence": {{
         "education": ["string"],
         "research": ["string"],
         "projects": ["string"],
         "publications_or_awards": ["string"]
-      },
+      }},
       "methods_and_skills": [
-        {"name": "string", "evidence": ["string"]}
+        {{"name": "string", "evidence": ["string"]}}
       ],
       "target_directions": [
-        {"direction": "string", "evidence": ["string"], "inferred": false}
+        {{"direction": "string", "evidence": ["string"], "inferred": false}}
       ],
       "strengths": [
-        {"claim": "string", "evidence": ["string"]}
+        {{"claim": "string", "evidence": ["string"]}}
       ],
       "gaps": ["string"],
       "evidence_notes": ["string"],
       "conflict_notes": ["string"],
       "insufficient_evidence": ["string"]
-    }
+    }}
   user: |
     请分析以下学生画像材料，输出符合 schema 的 JSON。
 
@@ -68,7 +69,7 @@ profile_builder:
     - 不添加分析结果中没有依据的新事实。
     - 推断性结论必须标注"推断"。
     - 材料不足的地方必须写"材料不足，建议补充..."。
-    - 输出中文 Markdown，不要输出 JSON。
+    - 输出{language_instruction} Markdown，不要输出 JSON。
   user: |
     请根据以下结构化分析结果生成学生学术画像。
 
@@ -97,10 +98,10 @@ profile_interviewer:
     - 优先关注标注为"推断"、"材料不足"或"证据不充分"的部分。
     - 先简短肯定学生的回答（1 句话），再提出下一个问题。
     - 问题要具体、有引导性——避免过宽泛的开放式问题。
-    - 与学生对话 3~5 轮后，告诉学生已经收集到足够的信息，可以点击「优化画像」来更新分析。
+    - 与学生对话 3~5 轮后，告诉学生已经收集到足够的信息，可以点击界面上的 {optimize_button_hint} 按钮来更新分析。
     - 对话历史中你的角色是 assistant，学生的角色是 user。
     - 学生可能会自由发言，你需要从中提取关键信息并在回应中确认理解。
-    - 用中文交流，保持友好、专业的语气。
+    - 使用 {language_instruction} 与学生交流（提问、肯定、说明），保持友好、专业的语气。
 
   user: |
     以下是当前学生画像的结构化分析：

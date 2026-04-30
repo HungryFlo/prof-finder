@@ -11,12 +11,14 @@ import {
   useMessage,
 } from 'naive-ui'
 import type { FormInst, FormRules } from 'naive-ui'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const message = useMessage()
+const { t } = useI18n()
 
 const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
@@ -28,10 +30,10 @@ const formData = ref({
 
 const rules: FormRules = {
   username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
+    { required: true, message: () => t('auth.usernamePlaceholder'), trigger: 'blur' },
   ],
   password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
+    { required: true, message: () => t('auth.passwordPlaceholder'), trigger: 'blur' },
   ],
 }
 
@@ -45,20 +47,18 @@ async function handleLogin() {
   loading.value = true
   try {
     const response = await authStore.login(formData.value.username, formData.value.password)
-    
-    message.success('登录成功')
-    
-    // Check if need to change password
+
+    message.success(t('auth.loginSuccess'))
+
     if (response.must_change_password) {
       router.push('/change-password')
     } else {
-      // Redirect to original destination or home
       const redirect = route.query.redirect as string
       router.push(redirect || '/')
     }
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || '登录失败')
+    message.error(err.response?.data?.detail || t('auth.loginFailed'))
   } finally {
     loading.value = false
   }
@@ -71,7 +71,7 @@ function goToRegister() {
 
 <template>
   <div class="login-container">
-    <n-card title="登录 Prof-Finder" style="width: 400px">
+    <n-card :title="t('auth.loginTitle')" style="width: 400px">
       <n-form
         ref="formRef"
         :model="formData"
@@ -79,18 +79,18 @@ function goToRegister() {
         label-placement="left"
         label-width="80"
       >
-        <n-form-item label="用户名" path="username">
+        <n-form-item :label="t('auth.username')" path="username">
           <n-input
             v-model:value="formData.username"
-            placeholder="请输入用户名"
+            :placeholder="t('auth.usernamePlaceholder')"
             @keyup.enter="handleLogin"
           />
         </n-form-item>
-        <n-form-item label="密码" path="password">
+        <n-form-item :label="t('auth.password')" path="password">
           <n-input
             v-model:value="formData.password"
             type="password"
-            placeholder="请输入密码"
+            :placeholder="t('auth.passwordPlaceholder')"
             show-password-on="click"
             @keyup.enter="handleLogin"
           />
@@ -104,10 +104,10 @@ function goToRegister() {
           :loading="loading"
           @click="handleLogin"
         >
-          登录
+          {{ t('auth.login') }}
         </n-button>
         <n-button block quaternary @click="goToRegister">
-          没有账号？去注册
+          {{ t('auth.noAccount') }}
         </n-button>
       </n-space>
     </n-card>

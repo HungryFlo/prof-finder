@@ -18,8 +18,10 @@ export const lettersApi = {
     return response.data
   },
 
-  async generate(professorId: number): Promise<TaskStartResponse> {
-    const response = await client.post<TaskStartResponse>(`/letters/generate/${professorId}`)
+  async generate(professorId: number, language: 'zh' | 'en'): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(`/letters/generate/${professorId}`, null, {
+      params: { language },
+    })
     return response.data
   },
 
