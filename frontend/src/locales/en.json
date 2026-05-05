@@ -194,7 +194,7 @@
     "sourceCardsHintAfterUpload": "After uploading PDF/ArXiv, click Summarize papers; results save to this professor when done.",
     "publicationsCardTitle": "Publications (Google Scholar)",
     "scholarSyncButton": "Sync Scholar",
-    "scholarSyncClearsSummaries": "Refreshing Scholar clears existing paper summaries. Continue?",
+    "scholarSyncClearsSummaries": "Sync updates Scholar data and replaces Scholar-derived summaries. PDF/ArXiv summaries are kept. Continue?",
     "scholarResyncQuestion": "Re-sync publications from Google Scholar?",
     "noPublications": "No publications yet",
     "paperSummariesFromSources": "Paper summaries (sources)",
@@ -248,6 +248,7 @@
     "deleteFail": "Delete failed",
     "fallBackProfessorNamed": "Professor #{id}",
     "importProfessorTask": "Import professor",
+    "enrichmentTask": "Professor enrichment (summaries + profile)",
     "univImportTask": "University bulk import",
     "batchRefreshTask": "Batch refresh professors · {count}",
     "researchProfileGenTask": "Generate research profile · {name}",
@@ -393,6 +394,8 @@
     "professorImportFinished": "Professor import finished",
     "batchRefreshFinished": "Batch refresh finished ({ok} ok, {fail} failed)",
     "batchProfilesFinished": "Batch profile generation finished ({ok} ok, {fail} failed)",
+    "professorEnrichmentFinished": "Professor enrichment finished (summaries + profile)",
+    "batchProfessorEnrichmentFinished": "Batch professor enrichment finished ({ok} ok, {fail} failed)",
     "profileGeneratingTask": "Generating student profile · {title}"
   },
   "chat": {

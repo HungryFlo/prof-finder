@@ -118,6 +118,7 @@ export interface Professor {
   research_profile_generated_at?: string
   created_at: string
   updated_at: string
+  enrichment_task_id?: string
 }
 
 export interface ProfessorListItem {
@@ -221,6 +222,8 @@ export type TaskType =
   | 'profile-parse'
   | 'profile-generate'
   | 'professor-profile'
+  | 'professor-enrichment'
+  | 'batch-professor-enrichment'
   | 'batch-professor-profiles'
   | 'fill-publications'
   | 'batch-refresh'

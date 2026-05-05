@@ -1,6 +1,5 @@
 """Letter generation API routes."""
 
-import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -17,7 +16,7 @@ from ..schemas import (
     PaginatedResponse,
     TaskStartResponse,
 )
-from ..task_manager import create_task, cleanup_old_tasks, execute_single_letter
+from ..task_manager import create_task, cleanup_old_tasks, enqueue_task
 
 router = APIRouter(prefix="/letters", tags=["邮件生成"])
 
@@ -183,8 +182,8 @@ async def generate_letter(
         user_id=current_user.id,
         total=1,
     )
-    asyncio.create_task(
-        execute_single_letter(task, professor_id, active_profile.id, api_key, language)
+    enqueue_task(
+        "single-letter", task.task_id, professor_id, active_profile.id, api_key, language,
     )
 
     return TaskStartResponse(task_id=task.task_id, message="邮件生成任务已启动")

@@ -1,6 +1,5 @@
 """Tests for profile management API endpoints."""
 
-import asyncio
 import pytest
 from fastapi.testclient import TestClient
 from io import BytesIO
@@ -187,15 +186,13 @@ Python, Machine Learning
             user_id=user_id,
             total=1,
         )
-        asyncio.run(
-            execute_profile_parse(
-                task,
-                title="My Resume",
-                text_content="# John Doe\n\n## Skills\nPython, Machine Learning",
-                extension=".md",
-                use_llm=False,
-                session_factory=test_db.SessionLocal,
-            )
+        execute_profile_parse(
+            task.task_id,
+            title="My Resume",
+            text_content="# John Doe\n\n## Skills\nPython, Machine Learning",
+            extension=".md",
+            use_llm=False,
+            session_factory=test_db.SessionLocal,
         )
 
         assert task.status == TaskStatus.COMPLETED
@@ -226,15 +223,13 @@ Python, Machine Learning
             user_id=user_id,
             total=1,
         )
-        asyncio.run(
-            execute_profile_parse(
-                task,
-                title="New Resume",
-                text_content="# Jane Doe\n\n## Skills\nNLP",
-                extension=".md",
-                use_llm=False,
-                session_factory=test_db.SessionLocal,
-            )
+        execute_profile_parse(
+            task.task_id,
+            title="New Resume",
+            text_content="# Jane Doe\n\n## Skills\nNLP",
+            extension=".md",
+            use_llm=False,
+            session_factory=test_db.SessionLocal,
         )
 
         assert task.status == TaskStatus.COMPLETED
@@ -260,10 +255,15 @@ Python, Machine Learning
         """Test background student profile generation persists generated fields."""
         user_id = self._get_test_user_id(test_db)
 
-        def fake_generate(self, materials, manual_inputs, language="zh"):
-            return {
-                "academic_profile": "# 学生学术画像\n\n## 学术定位\n关注 NLP。",
-                "profile_analysis": {
+        from prof_finder.ai_workflows.schemas import StudentProfileResult
+
+        def fake_generate_student_profile(
+            materials, manual_inputs, previous_academic_profile="",
+            previous_profile_analysis=None, language="en", provider=None,
+        ):
+            return StudentProfileResult(
+                academic_profile="# 学生学术画像\n\n## 学术定位\n关注 NLP。",
+                profile_analysis={
                     "academic_positioning": "NLP applicant",
                     "research_interests": [
                         {
@@ -275,11 +275,14 @@ Python, Machine Learning
                     "evidence_notes": ["手填研究兴趣提到 NLP"],
                     "conflict_notes": ["手填信息优先"],
                 },
-                "evidence_notes": ["手填研究兴趣提到 NLP"],
-                "conflict_notes": ["手填信息优先"],
-            }
+                evidence_notes=["手填研究兴趣提到 NLP"],
+                conflict_notes=["手填信息优先"],
+            )
 
-        monkeypatch.setattr("prof_finder.llm.StudentProfileGenerator.generate", fake_generate)
+        monkeypatch.setattr(
+            "prof_finder.ai_workflows.workflows.generate_student_profile",
+            fake_generate_student_profile,
+        )
 
         task = create_task(
             task_type="profile-generate",
@@ -287,33 +290,31 @@ Python, Machine Learning
             user_id=user_id,
             total=3,
         )
-        asyncio.run(
-            execute_student_profile_generation(
-                task,
-                title="NLP Profile",
-                materials=[
-                    {
-                        "source_type": "file",
-                        "filename": "resume.md",
-                        "extension": ".md",
-                        "content": "# Jane Doe\n\n## Skills\nPython, NLP",
-                    },
-                    {
-                        "source_type": "file",
-                        "filename": "plan.txt",
-                        "extension": ".txt",
-                        "content": "I want to study natural language processing.",
-                    },
-                ],
-                manual_inputs={
-                    "research_interests": "NLP",
-                    "personal_statement": "",
-                    "research_plan": "",
-                    "notes": "手填信息优先",
+        execute_student_profile_generation(
+            task.task_id,
+            title="NLP Profile",
+            materials=[
+                {
+                    "source_type": "file",
+                    "filename": "resume.md",
+                    "extension": ".md",
+                    "content": "# Jane Doe\n\n## Skills\nPython, NLP",
                 },
-                use_llm=False,
-                session_factory=test_db.SessionLocal,
-            )
+                {
+                    "source_type": "file",
+                    "filename": "plan.txt",
+                    "extension": ".txt",
+                    "content": "I want to study natural language processing.",
+                },
+            ],
+            manual_inputs={
+                "research_interests": "NLP",
+                "personal_statement": "",
+                "research_plan": "",
+                "notes": "手填信息优先",
+            },
+            use_llm=False,
+            session_factory=test_db.SessionLocal,
         )
 
         assert task.status == TaskStatus.COMPLETED

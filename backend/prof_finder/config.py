@@ -25,12 +25,19 @@ class Settings:
     request_delay: int
     scholarly_proxy: str | None
 
+    # Professor auto-enrichment (Scholar publications → summaries + profile)
+    professor_enrichment_max_publications: int
+
     # Default user (for CLI)
     default_user: str
 
     # Admin account
     admin_username: str
     admin_password: str
+
+    # Huey task queue
+    huey_db_path: str
+    huey_consumer_workers: int
 
     # JWT settings
     jwt_secret_key: str
@@ -47,6 +54,11 @@ class Settings:
             database_path=os.getenv("DATABASE_PATH", "./data/prof_finder.db"),
             request_delay=int(os.getenv("REQUEST_DELAY", "3")),
             scholarly_proxy=os.getenv("SCHOLARLY_PROXY") or None,
+            professor_enrichment_max_publications=int(
+                os.getenv("PROFESSOR_ENRICHMENT_MAX_PUBLICATIONS", "15")
+            ),
+            huey_db_path=os.getenv("HUEY_DB_PATH", "./data/huey_tasks.db"),
+            huey_consumer_workers=int(os.getenv("HUEY_CONSUMER_WORKERS", "2")),
             default_user=os.getenv("DEFAULT_USER", "default"),
             # Admin account
             admin_username=os.getenv("ADMIN_USERNAME", "root"),

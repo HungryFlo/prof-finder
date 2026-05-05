@@ -17,11 +17,75 @@ from .routes.letters import router as letters_router
 from .routes.settings import router as settings_router
 from .routes.tasks import router as tasks_router
 from .routes.source_inputs import router as source_inputs_router
+from .task_queue import start_consumer, stop_consumer, enqueue_task
+from .task_manager import (
+    TaskStatus,
+    TaskState,
+    _tasks,
+    _tasks_lock,
+    persist_task,
+    cleanup_old_tasks,
+)
+
+
+def _rehydrate_tasks():
+    """Load PENDING/RUNNING tasks from DB into in-memory dict on startup."""
+    from ..models.background_task import BackgroundTask
+
+    db = get_db()
+    rehydrated = 0
+    with db.session() as session:
+        pending = (
+            session.query(BackgroundTask)
+            .filter(BackgroundTask.status.in_(["pending", "running"]))
+            .all()
+        )
+        for row in pending:
+            task = TaskState(
+                task_id=row.task_id,
+                task_type=row.task_type,
+                task_name=row.task_name,
+                user_id=row.user_id,
+                status=TaskStatus.PENDING,
+                total=row.total,
+                current=0,
+                success_count=row.success_count,
+                failed_count=row.failed_count,
+                message=row.message,
+                error_message=row.error_message,
+                results=row.results or [],
+                cancel_requested=False,
+                created_at=row.created_at,
+                enqueue_args=row.enqueue_args or [],
+                enqueue_kwargs=row.enqueue_kwargs or {},
+            )
+            with _tasks_lock:
+                _tasks[task.task_id] = task
+
+            # Only re-enqueue tasks that have stored arguments from the
+            # Huey-powered system.  Tasks created before the migration have
+            # no enqueue_args and cannot be replayed — mark them failed.
+            if task.enqueue_args or task.enqueue_kwargs:
+                row.status = "pending"
+                persist_task(task)
+                enqueue_task(
+                    task.task_type, task.task_id,
+                    *task.enqueue_args, **task.enqueue_kwargs,
+                )
+                rehydrated += 1
+            else:
+                row.status = "failed"
+                task.status = TaskStatus.FAILED
+                task.error_message = "任务缺少重放参数（迁移前的旧任务），无法恢复"
+                persist_task(task)
+
+    if rehydrated:
+        print(f"已在数据库中恢复 {rehydrated} 个未完成的任务")
 
 
 def init_admin_user():
     """Initialize the admin user if it doesn't exist.
-    
+
     Creates the admin account with credentials from settings:
     - Default: root / root123
     - Can be overridden via ADMIN_USERNAME and ADMIN_PASSWORD env vars
@@ -31,7 +95,7 @@ def init_admin_user():
     with db.session() as session:
         # Check if admin user already exists
         admin = session.query(User).filter(User.username == settings.admin_username).first()
-        
+
         if not admin:
             # Create admin user
             admin = User(
@@ -42,7 +106,7 @@ def init_admin_user():
             )
             session.add(admin)
             session.flush()
-            
+
             # Create default settings for admin
             admin_settings = UserSettings(
                 user_id=admin.id,
@@ -51,7 +115,7 @@ def init_admin_user():
                 request_delay=settings.request_delay,
             )
             session.add(admin_settings)
-            
+
             print(f"✓ 管理员账户已创建: {settings.admin_username}")
             if settings.is_default_admin_password:
                 print("⚠ 使用默认密码，首次登录请修改密码")
@@ -63,9 +127,18 @@ async def lifespan(app: FastAPI):
     # Startup
     print("启动 Prof-Finder API 服务...")
     init_admin_user()
+
+    # Rehydrate background tasks from DB
+    _rehydrate_tasks()
+
+    # Start Huey consumer thread
+    start_consumer()
+
     yield
+
     # Shutdown
-    print("关闭 Prof-Finder API 服务...")
+    print("正在关闭 Prof-Finder API 服务...")
+    stop_consumer()
 
 
 def create_app() -> FastAPI:

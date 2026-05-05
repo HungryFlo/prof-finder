@@ -194,7 +194,7 @@
     "sourceCardsHintAfterUpload": "上传 PDF/ArXiv 后点击「论文总结」，后台完成后自动保存到教授信息",
     "publicationsCardTitle": "论文列表（Google Scholar）",
     "scholarSyncButton": "Scholar 更新",
-    "scholarSyncClearsSummaries": "Scholar 更新会清空已有的论文总结，确定继续？",
+    "scholarSyncClearsSummaries": "同步会更新 Scholar 数据并替换由 Scholar 自动生成的摘要；PDF/ArXiv 来源的摘要会保留。确定继续？",
     "scholarResyncQuestion": "确定从 Google Scholar 重新同步数据？",
     "noPublications": "暂无论文数据",
     "paperSummariesFromSources": "论文总结（来源输入）",
@@ -248,6 +248,7 @@
     "deleteFail": "删除失败",
     "fallBackProfessorNamed": "教授 #{id}",
     "importProfessorTask": "爬取教授",
+    "enrichmentTask": "教授信息增强（摘要与画像）",
     "univImportTask": "院校批量导入",
     "batchRefreshTask": "批量更新教授 · {count} 位",
     "researchProfileGenTask": "生成科研画像 · {name}",
@@ -393,6 +394,8 @@
     "professorImportFinished": "教授导入完成",
     "batchRefreshFinished": "批量更新完成（成功 {ok}，失败 {fail}）",
     "batchProfilesFinished": "批量画像生成完成（成功 {ok}，失败 {fail}）",
+    "professorEnrichmentFinished": "教授信息增强完成（论文摘要与科研画像）",
+    "batchProfessorEnrichmentFinished": "批量教授信息增强完成（成功 {ok}，失败 {fail}）",
     "profileGeneratingTask": "生成学生画像 · {title}"
   },
   "chat": {

@@ -1,6 +1,5 @@
 """Match API routes."""
 
-import asyncio
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -15,7 +14,7 @@ from ..schemas import (
     MessageResponse,
     TaskStartResponse,
 )
-from ..task_manager import create_task, cleanup_old_tasks, execute_match
+from ..task_manager import create_task, cleanup_old_tasks, enqueue_task
 
 router = APIRouter(prefix="/match", tags=["匹配"])
 
@@ -66,7 +65,7 @@ async def run_matching(
         user_id=current_user.id,
         total=professor_count,
     )
-    asyncio.create_task(execute_match(task, active_profile.id))
+    enqueue_task("match", task.task_id, active_profile.id)
 
     return TaskStartResponse(
         task_id=task.task_id,

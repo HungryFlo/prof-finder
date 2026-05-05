@@ -120,6 +120,7 @@ function handleUserAction(key: string) {
   if (key === 'settings') {
     router.push('/settings')
   } else if (key === 'logout') {
+    taskStore.reset()
     authStore.logout()
     message.success(t('nav.loggedOut'))
     router.push('/login')

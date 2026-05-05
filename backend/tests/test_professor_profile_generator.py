@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from prof_finder.ai_workflows.provider import LLMProvider
 from prof_finder.llm.professor_profile_generator import ProfessorProfileGenerator
 from prof_finder.matcher.semantic_matcher import build_professor_text
 
@@ -16,7 +17,6 @@ from prof_finder.matcher.semantic_matcher import build_professor_text
 class TestSourceBundle:
     def test_builds_bundle_from_full_professor_data(self):
         gen = ProfessorProfileGenerator(api_key="sk-test", base_url="https://test.api/v1")
-        gen.enabled = False  # disable LLM calls
         data = {
             "name": "Jane Smith",
             "affiliation": "Stanford University",
@@ -46,7 +46,6 @@ class TestSourceBundle:
 
     def test_builds_bundle_from_minimal_data(self):
         gen = ProfessorProfileGenerator(api_key="sk-test", base_url="https://test.api/v1")
-        gen.enabled = False
         data = {
             "name": "Minimal Prof",
             "affiliation": "Unknown University",
@@ -103,7 +102,6 @@ class TestManualNotePriority:
     def test_manual_notes_placed_first_in_bundle(self):
         """Manual notes appear as the first element in source_meta and formatter output."""
         gen = ProfessorProfileGenerator(api_key="sk-test", base_url="https://test.api/v1")
-        gen.enabled = False
         data = {
             "name": "Test Prof",
             "affiliation": "Test U",
@@ -217,9 +215,8 @@ class TestSparseData:
         assert text == " [SEP] "
 
     def test_generate_disabled_raises(self):
-        gen = ProfessorProfileGenerator(api_key="sk-test", base_url="https://test.api/v1")
-        gen.enabled = False
-        gen.client = None
+        # "test_key" is in the blocked set, so enabled will be False
+        gen = ProfessorProfileGenerator(api_key="test_key")
         with pytest.raises(ValueError, match="DeepSeek API Key"):
             gen.generate({})
 
@@ -254,8 +251,6 @@ class TestEmbeddingInvalidation:
             mock_build.return_value = "# Test Profile\n\nGenerated content."
 
             gen = ProfessorProfileGenerator(api_key="sk-test", base_url="https://test.api/v1")
-            gen.enabled = True
-            gen.client = MagicMock()
             result = gen.generate({
                 "name": "Test",
                 "affiliation": "U",

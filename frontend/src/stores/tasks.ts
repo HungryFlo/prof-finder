@@ -113,6 +113,13 @@ export const useTaskStore = defineStore('tasks', () => {
           ok: result?.success_count ?? 0,
           fail: result?.failed_count ?? 0,
         })
+      case 'professor-enrichment':
+        return t('task.professorEnrichmentFinished')
+      case 'batch-professor-enrichment':
+        return t('task.batchProfessorEnrichmentFinished', {
+          ok: result?.success_count ?? 0,
+          fail: result?.failed_count ?? 0,
+        })
       default:
         break
     }
@@ -275,24 +282,36 @@ export const useTaskStore = defineStore('tasks', () => {
   async function restoreFromServer(): Promise<void> {
     try {
       const tasks = await tasksApi.listTasks()
+      // Clear stale tasks from previous user before loading new ones
+      activeTasks.value.clear()
       for (const t of tasks) {
-        if (!activeTasks.value.has(t.task_id)) {
-          const entry = _buildEntry(t.task_id, t.task_type, t.task_name, t.total)
-          entry.status = t.status
-          entry.current = t.current
-          entry.message = t.message
-          entry.errorMessage = t.error_message
-          activeTasks.value.set(t.task_id, entry)
+        const entry = _buildEntry(t.task_id, t.task_type, t.task_name, t.total)
+        entry.status = t.status
+        entry.current = t.current
+        entry.message = t.message
+        entry.errorMessage = t.error_message
+        activeTasks.value.set(t.task_id, entry)
 
-          // For running/pending tasks, reconnect SSE; failed tasks need no SSE
-          if (t.status === 'running' || t.status === 'pending') {
-            _connectSSE(t.task_id)
-          }
+        // For running/pending tasks, reconnect SSE; failed tasks need no SSE
+        if (t.status === 'running' || t.status === 'pending') {
+          _connectSSE(t.task_id)
         }
       }
     } catch {
       // Server may be unavailable; fail silently
     }
+  }
+
+  /**
+   * Close all SSE connections and clear the task store.
+   * Called on logout so the next user sees a clean slate.
+   */
+  function reset(): void {
+    for (const [, entry] of activeTasks.value) {
+      entry.eventSource?.close()
+    }
+    activeTasks.value.clear()
+    taskEvents.value = []
   }
 
   return {
@@ -306,5 +325,6 @@ export const useTaskStore = defineStore('tasks', () => {
     clearCompleted,
     consumeTaskEvents,
     restoreFromServer,
+    reset,
   }
 })

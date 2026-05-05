@@ -7,9 +7,7 @@ import logging
 import re
 from typing import Optional
 
-from openai import OpenAI
-
-from ..config import settings
+from ..ai_workflows.provider import LLMProvider
 from ..prompts import get_prompt
 
 logger = logging.getLogger(__name__)
@@ -27,19 +25,21 @@ class ProfessorProfileGenerator:
 
     MAX_ANALYZE_RETRIES = 2
 
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
-        actual_api_key = api_key or settings.deepseek_api_key
-        actual_base_url = base_url or settings.deepseek_base_url
-        self.enabled = bool(
-            actual_api_key and actual_api_key not in {"test_key", "your_api_key_here"}
-        )
-        self.client: Optional[OpenAI] = None
-        if self.enabled:
-            self.client = OpenAI(api_key=actual_api_key, base_url=actual_base_url)
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        provider: Optional[LLMProvider] = None,
+    ):
+        self.provider = provider or LLMProvider(api_key=api_key, base_url=base_url)
+
+    @property
+    def enabled(self) -> bool:
+        return self.provider.enabled
 
     def generate(self, professor_data: dict, language: str = "en") -> dict:
         """Run analyzer and builder prompts for a professor research profile."""
-        if not self.enabled or self.client is None:
+        if not self.provider.enabled:
             raise ValueError("请先配置 DeepSeek API Key 后再生成教授画像")
 
         source_bundle = self._build_source_bundle(professor_data)
@@ -128,7 +128,6 @@ class ProfessorProfileGenerator:
 
     def _analyze(self, source_bundle: dict, language: str = "en") -> dict:
         """Generate structured professor research analysis JSON."""
-        assert self.client is not None
         lang_instr = _language_instruction(language)
         system_prompt = get_prompt(
             "professor_profile", "material_analysis", "system",
@@ -151,12 +150,10 @@ class ProfessorProfileGenerator:
             {"role": "user", "content": user_prompt},
         ]
         for attempt in range(self.MAX_ANALYZE_RETRIES + 1):
-            response = self.client.chat.completions.create(
-                model="deepseek-v4-flash",
+            raw = self.provider.chat_completion(
                 messages=messages,
                 temperature=0.2,
             )
-            raw = (response.choices[0].message.content or "").strip()
             payload = self._parse_analysis_json(raw)
             if payload:
                 return payload
@@ -181,7 +178,6 @@ class ProfessorProfileGenerator:
 
     def _build_profile(self, analysis: dict, language: str = "en") -> str:
         """Generate the readable Markdown research profile."""
-        assert self.client is not None
         lang_instr = _language_instruction(language)
         system_prompt = get_prompt(
             "professor_profile", "profile_builder", "system",
@@ -194,15 +190,13 @@ class ProfessorProfileGenerator:
             analysis=json.dumps(analysis, ensure_ascii=False, indent=2),
         )
         for attempt in range(self.MAX_ANALYZE_RETRIES + 1):
-            response = self.client.chat.completions.create(
-                model="deepseek-v4-flash",
+            content = self.provider.chat_completion(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.3,
             )
-            content = (response.choices[0].message.content or "").strip()
             if content:
                 return content
             logger.warning("Professor profile builder returned empty (attempt %s)", attempt + 1)

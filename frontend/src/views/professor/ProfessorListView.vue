@@ -69,6 +69,11 @@ const manualForm = ref({
 const showSummaryDrawer = ref(false)
 const summaryDrawerProfId = ref(0)
 
+/** After crawl/refresh tasks finish, pick up chained tasks (e.g. professor-enrichment). */
+function afterImportTasksComplete() {
+  void fetchProfessors().then(() => taskStore.restoreFromServer())
+}
+
 function openSummaryDrawer(id: number) {
   summaryDrawerProfId.value = id
   showSummaryDrawer.value = true
@@ -178,9 +183,7 @@ async function handleCrawlUniversity() {
     const { task_id, message: msg } = await professorsApi.crawlUniversity(selectedUniversityId.value)
     showUniversityModal.value = false
     message.success(msg || t('professor.crawlTaskStarted'))
-    taskStore.addTask(task_id, 'university-crawl', t('professor.univImportTask'), 0, () => {
-      fetchProfessors()
-    })
+    taskStore.addTask(task_id, 'university-crawl', t('professor.univImportTask'), 0, afterImportTasksComplete)
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
     message.error(err.response?.data?.detail || t('professor.startTaskFailed'))
@@ -215,16 +218,66 @@ async function handleAddByScholar() {
     return
   }
 
+  const _addScholarClientT0 = Date.now()
+  // #region agent log
+  fetch('http://127.0.0.1:7318/ingest/97692725-482b-4e9a-9a4d-aa05d366e8fd', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'a6cce7' },
+    body: JSON.stringify({
+      sessionId: 'a6cce7',
+      hypothesisId: 'H1',
+      location: 'ProfessorListView.vue:handleAddByScholar',
+      message: 'client_add_scholar_start',
+      data: {},
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {})
+  // #endregion
   scholarLoading.value = true
   try {
     const { task_id } = await professorsApi.addByScholar(scholarUrl.value)
+    // #region agent log
+    fetch('http://127.0.0.1:7318/ingest/97692725-482b-4e9a-9a4d-aa05d366e8fd', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'a6cce7' },
+      body: JSON.stringify({
+        sessionId: 'a6cce7',
+        hypothesisId: 'H4',
+        location: 'ProfessorListView.vue:handleAddByScholar',
+        message: 'client_add_scholar_ok',
+        data: { task_id, client_elapsed_ms: Date.now() - _addScholarClientT0 },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {})
+    // #endregion
     showScholarModal.value = false
     scholarUrl.value = ''
-    taskStore.addTask(task_id, 'single-crawl', t('professor.importProfessorTask'), 1, () => {
-      fetchProfessors()
-    })
+    taskStore.addTask(task_id, 'single-crawl', t('professor.importProfessorTask'), 1, afterImportTasksComplete)
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
+    const err = error as {
+      code?: string
+      message?: string
+      response?: { status?: number; data?: { detail?: string } }
+    }
+    // #region agent log
+    fetch('http://127.0.0.1:7318/ingest/97692725-482b-4e9a-9a4d-aa05d366e8fd', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'a6cce7' },
+      body: JSON.stringify({
+        sessionId: 'a6cce7',
+        hypothesisId: err.code === 'ECONNABORTED' ? 'H1' : err.response ? 'H3' : 'H2',
+        location: 'ProfessorListView.vue:handleAddByScholar',
+        message: 'client_add_scholar_err',
+        data: {
+          client_elapsed_ms: Date.now() - _addScholarClientT0,
+          code: err.code,
+          axiosMessage: err.message,
+          httpStatus: err.response?.status,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {})
+    // #endregion
     message.error(err.response?.data?.detail || t('professor.addFailed'))
   } finally {
     scholarLoading.value = false
@@ -239,7 +292,7 @@ async function handleAddManually() {
 
   manualLoading.value = true
   try {
-    await professorsApi.create(manualForm.value)
+    const created = await professorsApi.create(manualForm.value)
     message.success(t('professor.manualAddOk'))
     showManualModal.value = false
     manualForm.value = {
@@ -249,7 +302,16 @@ async function handleAddManually() {
       homepage: '',
       research_interests: [],
     }
-    fetchProfessors()
+    await fetchProfessors()
+    if (created.enrichment_task_id) {
+      taskStore.addTask(
+        created.enrichment_task_id,
+        'professor-enrichment',
+        t('professor.enrichmentTask'),
+        3,
+        () => fetchProfessors()
+      )
+    }
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
     message.error(err.response?.data?.detail || t('professor.manualAddFail'))
@@ -260,9 +322,18 @@ async function handleAddManually() {
 
 async function handleRefresh(id: number) {
   try {
-    await professorsApi.refresh(id)
+    const p = await professorsApi.refresh(id)
     message.success(t('professor.updateOk'))
-    fetchProfessors()
+    await fetchProfessors()
+    if (p.enrichment_task_id) {
+      taskStore.addTask(
+        p.enrichment_task_id,
+        'professor-enrichment',
+        t('professor.enrichmentTask'),
+        3,
+        () => fetchProfessors()
+      )
+    }
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
     message.error(err.response?.data?.detail || t('professor.updateFail'))
@@ -282,9 +353,7 @@ async function handleBatchRefresh() {
       'batch-refresh',
       t('professor.batchRefreshTask', { count: selectedRowKeys.value.length }),
       selectedRowKeys.value.length,
-      () => {
-        fetchProfessors()
-      }
+      afterImportTasksComplete
     )
     message.success(msg || t('professor.batchRefreshStarting'))
   } catch (error: unknown) {

@@ -117,6 +117,45 @@ def _text_or_none(node: Optional[ET.Element]) -> Optional[str]:
     return value or None
 
 
+def keep_non_scholar_paper_summaries(items: Optional[list]) -> list:
+    """Drop auto-generated Scholar publication summaries; keep PDF/ArXiv and other entries."""
+    out: list = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("source_type") == "scholar_pub":
+            continue
+        out.append(item)
+    return out
+
+
+def build_paper_summary_from_scholar_publication(
+    pub: dict, summarizer=None, language: str = "en"
+) -> dict:
+    """Build a paper_summaries record from a Google Scholar publication dict."""
+    if summarizer is None:
+        from ..llm.paper_summarizer import PaperSummarizer
+
+        summarizer = PaperSummarizer()
+
+    title = (pub.get("title") or "").strip() or "Untitled Paper"
+    abstract = (pub.get("abstract") or "").strip()
+    author_pub_id = pub.get("author_pub_id")
+
+    result = summarizer.summarize_with_fallback(
+        source_type="scholar_pub", title=title, content=abstract, language=language
+    )
+    rec: dict = {
+        "source_type": "scholar_pub",
+        "title": title,
+        "summary": result.get("summary") or "",
+        "keywords": (result.get("keywords") or [])[:12],
+    }
+    if author_pub_id:
+        rec["scholar_author_pub_id"] = author_pub_id
+    return rec
+
+
 def build_paper_summary_from_source(source_input: dict, summarizer=None, language: str = "zh") -> Optional[dict]:
     """Build a structured paper summary record from one source input."""
     source_type = source_input.get("source_type")

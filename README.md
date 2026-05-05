@@ -222,17 +222,26 @@ cd frontend && npm run dev
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
 
+## 任务队列
+
+后台任务（爬虫、LLM 调用、匹配）使用 **Huey** 管理，后端为 **SQLite**（`SqliteHuey`）。Huey consumer 作为 daemon 线程在 uvicorn 进程内运行 — 无需单独启动 worker 进程或安装 Redis。
+
+- 任务状态同时存储在内存 dict（用于快速 SSE 进度推送）和 `background_tasks` 表中（用于服务器重启后的持久化恢复）。
+- 服务器重启时，数据库中状态为 `pending` 或 `running` 的任务会被自动恢复并重新入队。
+- Huey 队列的 SQLite 文件默认存储在 `data/huey_tasks.db`（可通过 `HUEY_DB_PATH` 环境变量配置）。
+- Worker 线程数默认为 2（可通过 `HUEY_CONSUMER_WORKERS` 调整）。
+
 ## License
 
 MIT License
 
 
-# 想做的事情
+# 继续优化的方向
 
-1. 改进各个环节的 prompt
-2. 在添加教授时就自动收集全部信息，后续只做更新和增加，把论文摘要爬取和画像变成每个教授都有的信息
-3. 增加对教授个人主页的解析
-4. 生成邮件即时弹框选择语言，不要使用候选框来控制全局邮件生成语言
-5. 学校网站爬虫支持
-6. 匹配算法换成更高级的推荐算法，增加 rubrics, reranking 等
-7. 将 AI 聊天画像优化的前端做成悬浮球
+- 在添加教授时就自动收集全部信息，后续开放更新和增加，把论文摘要爬取和画像变成每个教授都有的信息
+- 增加对教授个人主页的解析
+- 生成邮件即时弹框选择语言，不要使用候选框来控制全局邮件生成语言
+- 匹配算法换成更高级的推荐算法，增加 rubrics, reranking 等
+- 将 AI 聊天画像优化的前端做成悬浮球，优化更新逻辑，保持聊天的同时让AI自己决定是否需要更新，不需要手动点击按钮
+- 学校网站爬虫支持
+- 改进各个环节的 prompt

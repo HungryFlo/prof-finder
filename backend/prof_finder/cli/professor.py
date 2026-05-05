@@ -10,6 +10,8 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from ..db import get_db
 from ..models import Professor
 from ..crawler import ScholarCrawler
+from ..api.task_manager import TaskStatus, create_task, execute_professor_enrichment
+from ..api.source_input_service import keep_non_scholar_paper_summaries
 from .utils import get_current_user, display_professor, display_professors_table
 
 app = typer.Typer(no_args_is_help=True)
@@ -18,16 +20,29 @@ console = Console()
 
 def extract_scholar_id(url_or_id: str) -> Optional[str]:
     """Extract Google Scholar ID from URL or return ID directly."""
-    # If it's already an ID (alphanumeric with hyphens/underscores)
     if re.match(r"^[\w-]+$", url_or_id) and len(url_or_id) < 30:
         return url_or_id
-    
-    # Try to extract from URL
+
     match = re.search(r"user=([^&]+)", url_or_id)
     if match:
         return match.group(1)
-    
+
     return None
+
+
+def _cli_run_professor_enrichment(user_id: int, professor_id: int) -> None:
+    """Run paper summaries + research profile pipeline (blocks until done)."""
+    t = create_task("professor-enrichment", "教授信息增强", user_id, total=3)
+    console.print("[cyan]正在生成论文摘要与科研画像（可能需要数分钟）...[/cyan]")
+    execute_professor_enrichment(t.task_id, professor_id=professor_id)
+    state = t
+    if state.status == TaskStatus.FAILED:
+        console.print(f"[red]增强失败: {state.error_message}[/red]")
+        return
+    if state.status == TaskStatus.CANCELLED:
+        console.print("[yellow]增强已取消[/yellow]")
+        return
+    console.print("[green]✓ 论文摘要与科研画像已完成[/green]")
 
 
 @app.command("add")
@@ -60,6 +75,7 @@ def add_professor(
                 console.print(f"[yellow]教授 {existing.name} 已存在 (ID: {existing.id})[/yellow]")
                 if Confirm.ask("是否更新信息?", default=True):
                     _update_professor_from_scholar(session, existing, scholar_id)
+                    _cli_run_professor_enrichment(current_user.id, existing.id)
                 return
 
         # Fetch from Scholar
@@ -89,7 +105,6 @@ def add_professor(
             console.print("[yellow]已取消[/yellow]")
             return
 
-        # Save to database
         with db.session() as session:
             professor = Professor(
                 user_id=current_user.id,
@@ -105,10 +120,13 @@ def add_professor(
                 total_citations=author_data.get("citations"),
             )
             session.add(professor)
-            session.commit()
+            session.flush()
             session.refresh(professor)
-            
+            pid = professor.id
+
             console.print(f"[green]✓ 已添加教授: {professor.name} (ID: {professor.id})[/green]")
+
+        _cli_run_professor_enrichment(current_user.id, pid)
 
     elif name:
         # Manual add
@@ -119,11 +137,14 @@ def add_professor(
                 affiliation=affiliation,
             )
             session.add(professor)
-            session.commit()
+            session.flush()
             session.refresh(professor)
-            
+            pid = professor.id
+
             console.print(f"[green]✓ 已添加教授: {professor.name} (ID: {professor.id})[/green]")
             console.print("[dim]提示: 可以稍后使用 --scholar 选项补充 Google Scholar 数据[/dim]")
+
+        _cli_run_professor_enrichment(current_user.id, pid)
 
     else:
         console.print("[red]错误: 请提供 --scholar 或 --name 参数[/red]")
@@ -152,6 +173,7 @@ def _update_professor_from_scholar(session, professor: Professor, scholar_id: st
     professor.homepage = author_data.get("homepage", professor.homepage)
     professor.research_interests = author_data.get("interests", professor.research_interests)
     professor.publications = author_data.get("publications", professor.publications)
+    professor.paper_summaries = keep_non_scholar_paper_summaries(professor.paper_summaries or [])
     professor.h_index = author_data.get("h_index", professor.h_index)
     professor.total_citations = author_data.get("citations", professor.total_citations)
 
@@ -228,6 +250,10 @@ def update_professor(
             raise typer.Exit(1)
 
         _update_professor_from_scholar(session, professor, professor.google_scholar_id)
+        uid = current_user.id
+        pid = professor.id
+
+    _cli_run_professor_enrichment(uid, pid)
 
 
 @app.command("delete")

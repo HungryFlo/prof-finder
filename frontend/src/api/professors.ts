@@ -9,6 +9,9 @@ import type {
 } from '@/types'
 import type { TaskStartResponse } from './tasks'
 
+/** Same-origin connection limit + one EventSource per running task (e.g. 教授信息增强) can queue short POSTs. */
+const POST_BEHIND_SSE_TIMEOUT_MS = 120_000
+
 export interface UniversityCrawlerInfo {
   university_id: string
   display_name: string
@@ -46,12 +49,18 @@ export const professorsApi = {
   },
 
   async create(data: ProfessorCreate): Promise<Professor> {
-    const response = await client.post<Professor>('/professors', data)
+    const response = await client.post<Professor>('/professors', data, {
+      timeout: POST_BEHIND_SSE_TIMEOUT_MS,
+    })
     return response.data
   },
 
   async addByScholar(url: string): Promise<TaskStartResponse> {
-    const response = await client.post<TaskStartResponse>('/professors/scholar', { url })
+    const response = await client.post<TaskStartResponse>(
+      '/professors/scholar',
+      { url },
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
+    )
     return response.data
   },
 
@@ -111,7 +120,9 @@ export const professorsApi = {
   },
 
   async refresh(id: number): Promise<Professor> {
-    const response = await client.post<Professor>(`/professors/${id}/refresh`)
+    const response = await client.post<Professor>(`/professors/${id}/refresh`, {}, {
+      timeout: POST_BEHIND_SSE_TIMEOUT_MS,
+    })
     return response.data
   },
 
@@ -126,15 +137,19 @@ export const professorsApi = {
   },
 
   async crawlUniversity(universityId: string): Promise<TaskStartResponse> {
-    const response = await client.post<TaskStartResponse>('/professors/crawl-university', {
-      university_id: universityId,
-    })
+    const response = await client.post<TaskStartResponse>(
+      '/professors/crawl-university',
+      { university_id: universityId },
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
+    )
     return response.data
   },
 
   async generateProfile(id: number): Promise<TaskStartResponse> {
     const response = await client.post<TaskStartResponse>(
-      `/professors/${id}/generate-profile`
+      `/professors/${id}/generate-profile`,
+      {},
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
     )
     return response.data
   },
@@ -142,14 +157,17 @@ export const professorsApi = {
   async batchGenerateProfiles(ids: number[]): Promise<TaskStartResponse> {
     const response = await client.post<TaskStartResponse>(
       '/professors/batch-generate-profiles',
-      { ids }
+      { ids },
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
     )
     return response.data
   },
 
   async startFillPublications(id: number): Promise<TaskStartResponse> {
     const response = await client.post<TaskStartResponse>(
-      `/professors/${id}/fill-publications`
+      `/professors/${id}/fill-publications`,
+      {},
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
     )
     return response.data
   },
@@ -157,7 +175,8 @@ export const professorsApi = {
   async batchRefresh(ids: number[]): Promise<TaskStartResponse> {
     const response = await client.post<TaskStartResponse>(
       '/professors/batch-refresh',
-      { ids }
+      { ids },
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
     )
     return response.data
   },

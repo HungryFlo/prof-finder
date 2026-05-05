@@ -26,9 +26,9 @@ from ..task_manager import (
     get_task,
     get_user_tasks,
     cleanup_old_tasks,
-    execute_batch_crawl,
-    execute_batch_letters,
+    enqueue_task,
 )
+from ..task_queue import huey
 
 router = APIRouter(prefix="/tasks", tags=["异步任务"])
 
@@ -65,7 +65,7 @@ async def start_batch_crawl(
         user_id=current_user.id,
         total=len(data.scholar_urls),
     )
-    asyncio.create_task(execute_batch_crawl(task, data.scholar_urls))
+    enqueue_task("batch-crawl", task.task_id, data.scholar_urls)
 
     return TaskStartResponse(
         task_id=task.task_id,
@@ -147,8 +147,8 @@ async def start_batch_letters(
         user_id=current_user.id,
         total=len(professor_ids),
     )
-    asyncio.create_task(
-        execute_batch_letters(task, professor_ids, active_profile.id, api_key, data.language)
+    enqueue_task(
+        "batch-letters", task.task_id, professor_ids, active_profile.id, api_key, data.language,
     )
 
     return TaskStartResponse(
@@ -283,6 +283,11 @@ async def cancel_task(
         )
 
     task.cancel_requested = True
+
+    # Also revoke from Huey queue if not yet started
+    if task.huey_result_id:
+        huey.revoke(task.huey_result_id)
+
     return TaskCancelResponse(
         message="取消请求已发送",
         completed_count=task.success_count,

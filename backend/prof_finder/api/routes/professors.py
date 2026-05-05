@@ -1,9 +1,10 @@
 """Professor management API routes."""
 
-import asyncio
+import json
+import time
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from ...models.schema import User, Professor, SourceInput
@@ -33,15 +34,9 @@ from ..task_manager import (
     create_task,
     cleanup_old_tasks,
     extract_scholar_id_from_url,
-    execute_single_crawl,
-    execute_university_crawl,
-    execute_professor_source_summary,
-    execute_professor_profile_generation,
-    execute_batch_professor_profiles,
-    execute_fill_publications,
-    execute_batch_refresh,
+    enqueue_task,
 )
-from ..source_input_service import build_paper_summary_from_source
+from ..source_input_service import build_paper_summary_from_source, keep_non_scholar_paper_summaries
 
 router = APIRouter(prefix="/professors", tags=["教授管理"])
 
@@ -115,7 +110,7 @@ def list_professors(
 
 
 @router.post("", response_model=ProfessorResponse, status_code=status.HTTP_201_CREATED)
-def create_professor(
+async def create_professor(
     data: ProfessorCreate,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
@@ -145,8 +140,17 @@ def create_professor(
     session.add(professor)
     session.flush()
     session.refresh(professor)
-    
-    return professor
+
+    enrich_task = create_task(
+        "professor-enrichment",
+        "教授信息增强",
+        current_user.id,
+        total=3,
+    )
+    enqueue_task("professor-enrichment", enrich_task.task_id, professor_id=professor.id)
+
+    base = ProfessorResponse.model_validate(professor)
+    return base.model_copy(update={"enrichment_task_id": enrich_task.task_id})
 
 
 @router.post("/scholar", response_model=TaskStartResponse)
@@ -163,6 +167,26 @@ async def add_professor_by_scholar(
     Returns:
         Task ID for SSE progress tracking.
     """
+    # region agent log
+    _t0 = time.monotonic()
+    try:
+        with open("/Users/floh/Documents/prof-finder/.cursor/debug-a6cce7.log", "a") as _df:
+            _df.write(
+                json.dumps(
+                    {
+                        "sessionId": "a6cce7",
+                        "hypothesisId": "H5",
+                        "location": "professors.py:add_professor_by_scholar:entry",
+                        "message": "server_add_scholar_enter",
+                        "data": {"user_id": current_user.id},
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except OSError:
+        pass
+    # endregion
     try:
         extract_scholar_id_from_url(data.url)
     except ValueError as e:
@@ -178,7 +202,29 @@ async def add_professor_by_scholar(
         user_id=current_user.id,
         total=1,
     )
-    asyncio.create_task(execute_single_crawl(task, data.url))
+    enqueue_task("single-crawl", task.task_id, data.url)
+    # region agent log
+    try:
+        with open("/Users/floh/Documents/prof-finder/.cursor/debug-a6cce7.log", "a") as _df:
+            _df.write(
+                json.dumps(
+                    {
+                        "sessionId": "a6cce7",
+                        "hypothesisId": "H5",
+                        "location": "professors.py:add_professor_by_scholar:return",
+                        "message": "server_add_scholar_return",
+                        "data": {
+                            "task_id": task.task_id,
+                            "handler_elapsed_ms": int((time.monotonic() - _t0) * 1000),
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except OSError:
+        pass
+    # endregion
 
     return TaskStartResponse(task_id=task.task_id, message="爬取任务已启动")
 
@@ -268,7 +314,7 @@ async def crawl_university(
         user_id=current_user.id,
         total=0,
     )
-    asyncio.create_task(execute_university_crawl(task, data.university_id))
+    enqueue_task("university-crawl", task.task_id, data.university_id)
 
     return TaskStartResponse(task_id=task.task_id, message=f"已启动爬取任务：{display_name}")
 
@@ -594,8 +640,8 @@ async def summarize_professor_sources(
         user_id=current_user.id,
         total=len(pending_source_ids),
     )
-    asyncio.create_task(
-        execute_professor_source_summary(task, professor_id=professor_id, source_input_ids=pending_source_ids)
+    enqueue_task(
+        "paper-summary", task.task_id, professor_id=professor_id, source_input_ids=pending_source_ids,
     )
     return TaskStartResponse(task_id=task.task_id, message="论文总结任务已启动")
 
@@ -631,17 +677,8 @@ async def generate_professor_profile(
         user_id=current_user.id,
         total=3,
     )
-    task_session_factory = sessionmaker(
-        autocommit=False,
-        autoflush=False,
-        bind=session.get_bind(),
-    )
-    asyncio.create_task(
-        execute_professor_profile_generation(
-            task,
-            professor_id=professor_id,
-            session_factory=task_session_factory,
-        )
+    enqueue_task(
+        "professor-profile", task.task_id, professor_id=professor_id,
     )
     return TaskStartResponse(task_id=task.task_id, message="教授科研画像生成任务已启动")
 
@@ -692,17 +729,8 @@ async def fill_publications(
         user_id=current_user.id,
         total=len(to_fill),
     )
-    task_session_factory = sessionmaker(
-        autocommit=False,
-        autoflush=False,
-        bind=session.get_bind(),
-    )
-    asyncio.create_task(
-        execute_fill_publications(
-            task,
-            professor_id=professor_id,
-            session_factory=task_session_factory,
-        )
+    enqueue_task(
+        "fill-publications", task.task_id, professor_id=professor_id,
     )
     return TaskStartResponse(
         task_id=task.task_id,
@@ -751,17 +779,8 @@ async def batch_generate_professor_profiles(
         user_id=current_user.id,
         total=len(data.ids),
     )
-    task_session_factory = sessionmaker(
-        autocommit=False,
-        autoflush=False,
-        bind=session.get_bind(),
-    )
-    asyncio.create_task(
-        execute_batch_professor_profiles(
-            task,
-            professor_ids=list(data.ids),
-            session_factory=task_session_factory,
-        )
+    enqueue_task(
+        "batch-professor-profiles", task.task_id, professor_ids=list(data.ids),
     )
     return TaskStartResponse(
         task_id=task.task_id,
@@ -809,17 +828,8 @@ async def batch_refresh_professors(
         user_id=current_user.id,
         total=len(data.ids),
     )
-    task_session_factory = sessionmaker(
-        autocommit=False,
-        autoflush=False,
-        bind=session.get_bind(),
-    )
-    asyncio.create_task(
-        execute_batch_refresh(
-            task,
-            professor_ids=list(data.ids),
-            session_factory=task_session_factory,
-        )
+    enqueue_task(
+        "batch-refresh", task.task_id, professor_ids=list(data.ids),
     )
     return TaskStartResponse(
         task_id=task.task_id,
@@ -869,7 +879,7 @@ def delete_professor(
 
 
 @router.post("/{professor_id}/refresh", response_model=ProfessorResponse)
-def refresh_professor(
+async def refresh_professor(
     professor_id: int,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
@@ -925,15 +935,24 @@ def refresh_professor(
     professor.homepage = author_data.get("homepage") or professor.homepage
     professor.research_interests = author_data.get("interests", [])
     professor.publications = author_data.get("publications", [])
-    professor.paper_summaries = []
+    professor.paper_summaries = keep_non_scholar_paper_summaries(professor.paper_summaries or [])
     professor.h_index = author_data.get("h_index")
     professor.total_citations = author_data.get("citations")
     professor.embedding = None
     
     session.flush()
     session.refresh(professor)
+
+    enrich_task = create_task(
+        "professor-enrichment",
+        "教授信息增强",
+        current_user.id,
+        total=3,
+    )
+    enqueue_task("professor-enrichment", enrich_task.task_id, professor_id=professor.id)
     
-    return professor
+    base = ProfessorResponse.model_validate(professor)
+    return base.model_copy(update={"enrichment_task_id": enrich_task.task_id})
 
 
 @router.post("/batch-delete", response_model=MessageResponse)

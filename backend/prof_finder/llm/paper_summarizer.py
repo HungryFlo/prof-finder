@@ -5,9 +5,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
-from openai import OpenAI
-
-from ..config import settings
+from ..ai_workflows.provider import LLMProvider
 from ..prompts import get_prompt
 
 
@@ -27,23 +25,24 @@ def _language_params(language: str) -> dict:
 class PaperSummarizer:
     """Summarize paper text into summary + keywords."""
 
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
-        actual_api_key = api_key or settings.deepseek_api_key
-        actual_base_url = base_url or settings.deepseek_base_url
-        self.enabled = bool(
-            actual_api_key and actual_api_key not in {"test_key", "your_api_key_here"}
-        )
-        self.client: Optional[OpenAI] = None
-        if self.enabled:
-            self.client = OpenAI(api_key=actual_api_key, base_url=actual_base_url)
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        provider: Optional[LLMProvider] = None,
+    ):
+        self.provider = provider or LLMProvider(api_key=api_key, base_url=base_url)
+
+    @property
+    def enabled(self) -> bool:
+        return self.provider.enabled
 
     def summarize_with_fallback(self, source_type: str, title: str, content: str, language: str = "en") -> dict:
         """Try LLM summary first; fallback to heuristic summary when unavailable."""
-        if self.enabled and self.client is not None:
+        if self.provider.enabled:
             try:
                 return self._summarize_by_llm(source_type=source_type, title=title, content=content, language=language)
             except Exception:
-                # Network/model failure should not block edit flow.
                 pass
 
         summary = self._heuristic_summary(content, max_chars=500)
@@ -54,8 +53,6 @@ class PaperSummarizer:
 
     def _summarize_by_llm(self, source_type: str, title: str, content: str, language: str = "en") -> dict:
         """Generate summary using managed prompt templates."""
-        assert self.client is not None
-
         clipped = (content or "").strip()
         if len(clipped) > 12000:
             clipped = clipped[:12000]
@@ -72,15 +69,13 @@ class PaperSummarizer:
             **lang_params,
         )
 
-        response = self.client.chat.completions.create(
-            model="deepseek-v4-flash",
+        content_text = self.provider.chat_completion(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.2,
         )
-        content_text = (response.choices[0].message.content or "").strip()
         payload = self._safe_parse_json(content_text)
         summary = str(payload.get("summary") or "").strip()
         keywords_raw = payload.get("keywords") or []

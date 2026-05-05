@@ -1,6 +1,13 @@
-"""Background task state management and execution coroutines."""
+"""Background task state management and execution coroutines.
 
-import asyncio
+Task execution is backed by Huey (SqliteHuey).  Tasks are enqueued via
+``enqueue_task()`` and executed by the Huey consumer thread.  Task state
+is stored both in-memory (for fast SSE reads) and in the ``background_tasks``
+DB table (for persistence across restarts).
+"""
+
+import threading
+import time
 import re
 import uuid
 from datetime import datetime, timezone
@@ -21,12 +28,16 @@ class TaskStatus(str, Enum):
     FAILED = "failed"
 
 
+class TaskCancelled(Exception):
+    """Raised inside a task executor when cancellation is requested."""
+
+
 @dataclass
 class TaskState:
     """State of a background task."""
 
     task_id: str
-    task_type: str  # batch-crawl | batch-letters | single-crawl | match | single-letter | paper-summary | profile-parse | profile-generate | professor-profile | fill-publications | batch-refresh | profile-refine
+    task_type: str  # batch-crawl | batch-letters | single-crawl | match | single-letter | paper-summary | profile-parse | profile-generate | professor-profile | professor-enrichment | batch-professor-enrichment | fill-publications | batch-refresh | profile-refine
     task_name: str
     user_id: int
     status: TaskStatus
@@ -39,10 +50,16 @@ class TaskState:
     results: List[Dict[str, Any]] = field(default_factory=list)
     cancel_requested: bool = False
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    # Huey result ID for revocation of not-yet-started tasks
+    huey_result_id: Optional[str] = None
+    # Original enqueue arguments for rehydration on restart
+    enqueue_args: list = field(default_factory=list)
+    enqueue_kwargs: dict = field(default_factory=dict)
 
 
-# In-memory task registry (lost on server restart — acceptable for personal use)
+# In-memory task registry (primary for SSE reads; backed by background_tasks DB table)
 _tasks: Dict[str, TaskState] = {}
+_tasks_lock = threading.Lock()
 
 MAX_PROFILE_MATERIAL_CHARS = 60000
 
@@ -67,7 +84,7 @@ def _session_scope(session_factory: Callable[[], Any]) -> Iterator[Any]:
 
 
 def create_task(task_type: str, task_name: str, user_id: int, total: int) -> TaskState:
-    """Create and register a new task."""
+    """Create and register a new task (in-memory + DB)."""
     task_id = str(uuid.uuid4())
     task = TaskState(
         task_id=task_id,
@@ -77,36 +94,92 @@ def create_task(task_type: str, task_name: str, user_id: int, total: int) -> Tas
         status=TaskStatus.PENDING,
         total=total,
     )
-    _tasks[task_id] = task
+    with _tasks_lock:
+        _tasks[task_id] = task
+    persist_task(task)
     return task
 
 
 def get_task(task_id: str) -> Optional[TaskState]:
-    """Look up a task by ID."""
-    return _tasks.get(task_id)
+    """Look up a task by ID (thread-safe)."""
+    with _tasks_lock:
+        return _tasks.get(task_id)
 
 
 def get_user_tasks(user_id: int) -> List[TaskState]:
     """Return PENDING / RUNNING / FAILED tasks for a user (for UI recovery)."""
-    return [
-        t
-        for t in _tasks.values()
-        if t.user_id == user_id
-        and t.status in (TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.FAILED)
-    ]
+    with _tasks_lock:
+        return [
+            t
+            for t in _tasks.values()
+            if t.user_id == user_id
+            and t.status in (TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.FAILED)
+        ]
+
+
+def persist_task(task: TaskState) -> None:
+    """Write the current task state to the BackgroundTask DB row."""
+    from ..models.background_task import BackgroundTask
+    from ..db.database import get_db
+
+    try:
+        db = get_db()
+        with db.session() as session:
+            row = (
+                session.query(BackgroundTask)
+                .filter(BackgroundTask.task_id == task.task_id)
+                .first()
+            )
+            if row:
+                row.status = task.status.value
+                row.current = task.current
+                row.total = task.total
+                row.success_count = task.success_count
+                row.failed_count = task.failed_count
+                row.message = task.message
+                row.error_message = task.error_message
+                row.results = task.results
+                row.cancel_requested = task.cancel_requested
+                row.enqueue_args = task.enqueue_args
+                row.enqueue_kwargs = task.enqueue_kwargs
+                row.updated_at = datetime.now(timezone.utc)
+            else:
+                session.add(
+                    BackgroundTask(
+                        task_id=task.task_id,
+                        task_type=task.task_type,
+                        task_name=task.task_name,
+                        user_id=task.user_id,
+                        status=task.status.value,
+                        total=task.total,
+                        current=task.current,
+                        success_count=task.success_count,
+                        failed_count=task.failed_count,
+                        message=task.message,
+                        error_message=task.error_message,
+                        results=task.results,
+                        cancel_requested=task.cancel_requested,
+                        enqueue_args=task.enqueue_args,
+                        enqueue_kwargs=task.enqueue_kwargs,
+                    )
+                )
+    except Exception:
+        pass  # persist failure should not crash the task
 
 
 def cleanup_old_tasks() -> None:
-    """Remove completed / cancelled tasks older than 5 minutes."""
+    """Remove completed / cancelled tasks older than 5 minutes from memory."""
     now = datetime.now(timezone.utc)
-    stale = [
-        tid
-        for tid, t in _tasks.items()
-        if t.status in (TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.FAILED)
-        and (now - t.created_at).total_seconds() > 300
-    ]
-    for tid in stale:
-        del _tasks[tid]
+    with _tasks_lock:
+        stale = [
+            tid
+            for tid, t in _tasks.items()
+            if t.status
+            in (TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.FAILED)
+            and (now - t.created_at).total_seconds() > 300
+        ]
+        for tid in stale:
+            del _tasks[tid]
 
 
 # ---------------------------------------------------------------------------
@@ -221,19 +294,27 @@ def _parse_materials_as_resume(materials: list[dict], use_llm: bool) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Background execution coroutines
+# Background execution functions (sync — called by Huey consumer thread)
 # ---------------------------------------------------------------------------
 
+from .task_queue import register_task, enqueue_task  # noqa: E402
 
-async def execute_batch_crawl(task: TaskState, scholar_urls: List[str]) -> None:
+
+@register_task("batch-crawl")
+def execute_batch_crawl(task_id: str, scholar_urls: List[str]) -> None:
     """Crawl a list of Google Scholar URLs and persist each author."""
     from ..db.database import get_db
     from ..models.schema import Professor
     from ..crawler.scholar import ScholarCrawler
 
+    task = get_task(task_id)
+    if not task:
+        return
     task.status = TaskStatus.RUNNING
+    persist_task(task)
     db = get_db()
     crawler = ScholarCrawler()
+    new_professor_ids: List[int] = []
 
     for i, url in enumerate(scholar_urls):
         if task.cancel_requested:
@@ -244,8 +325,7 @@ async def execute_batch_crawl(task: TaskState, scholar_urls: List[str]) -> None:
 
         try:
             scholar_id = extract_scholar_id_from_url(url)
-            # Blocking network call — run in thread pool to avoid blocking event loop
-            author_data = await asyncio.to_thread(crawler.get_author, scholar_id)
+            author_data = crawler.get_author(scholar_id)
 
             if author_data:
                 with db.session() as session:
@@ -272,6 +352,8 @@ async def execute_batch_crawl(task: TaskState, scholar_urls: List[str]) -> None:
                             total_citations=author_data.get("citations"),
                         )
                         session.add(professor)
+                        session.flush()
+                        new_professor_ids.append(professor.id)
 
                 task.success_count += 1
                 task.results.append({"url": url, "name": author_data["name"], "success": True})
@@ -283,27 +365,44 @@ async def execute_batch_crawl(task: TaskState, scholar_urls: List[str]) -> None:
             task.failed_count += 1
             task.results.append({"url": url, "success": False, "error": str(e)})
 
-        await asyncio.sleep(0)  # yield to event loop
-
     task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
+    persist_task(task)
+
+    if new_professor_ids and task.status == TaskStatus.COMPLETED:
+        batch_enrich = create_task(
+            "batch-professor-enrichment",
+            f"教授信息增强 ({len(new_professor_ids)} 位)",
+            task.user_id,
+            total=len(new_professor_ids),
+        )
+        enqueue_task(
+            "batch-professor-enrichment",
+            batch_enrich.task_id,
+            professor_ids=new_professor_ids,
+        )
 
 
-async def execute_batch_letters(
-    task: TaskState,
+@register_task("batch-letters")
+def execute_batch_letters(
+    task_id: str,
     professor_ids: List[int],
     profile_id: int,
     api_key: str,
     language: str,
 ) -> None:
     """Generate contact letters for a list of professors."""
-    from datetime import datetime, timezone
     from ..db.database import get_db
     from ..models.schema import MatchRecord, Professor, UserProfile
-    from ..llm.letter_generator import LetterGenerator
+    from ..ai_workflows.provider import LLMProvider
+    from ..ai_workflows.workflows import generate_letter
 
+    task = get_task(task_id)
+    if not task:
+        return
     task.status = TaskStatus.RUNNING
+    persist_task(task)
     db = get_db()
-    generator = LetterGenerator(api_key=api_key)
+    provider = LLMProvider(api_key=api_key)
 
     for i, professor_id in enumerate(professor_ids):
         if task.cancel_requested:
@@ -312,7 +411,6 @@ async def execute_batch_letters(
         task.current = i + 1
 
         try:
-            # Read phase — get match record, professor, and profile
             with db.session() as session:
                 result = (
                     session.query(MatchRecord, Professor, UserProfile)
@@ -357,16 +455,14 @@ async def execute_batch_letters(
                 }
                 reasons = match_record.match_reasons or []
 
-            # LLM call — blocking, run in thread pool
-            letter_content = await asyncio.to_thread(
-                generator.generate,
-                profile=profile_data,
-                professor=prof_data,
+            letter_content = generate_letter(
+                student_info=profile_data,
+                professor_info=prof_data,
                 match_reasons=reasons,
                 language=language,
+                provider=provider,
             )
 
-            # Write phase — save generated letter
             with db.session() as session:
                 mr = (
                     session.query(MatchRecord)
@@ -389,13 +485,13 @@ async def execute_batch_letters(
             task.failed_count += 1
             task.results.append({"professor_id": professor_id, "success": False, "error": str(e)})
 
-        await asyncio.sleep(0)  # yield to event loop
-
     task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
+    persist_task(task)
 
 
-async def execute_profile_parse(
-    task: TaskState,
+@register_task("profile-parse")
+def execute_profile_parse(
+    task_id: str,
     *,
     title: str,
     text_content: str,
@@ -408,6 +504,9 @@ async def execute_profile_parse(
     from ..models.schema import UserProfile
     from ..parser.smart_parser import SmartParser
 
+    task = get_task(task_id)
+    if not task:
+        return
     task.status = TaskStatus.RUNNING
     task.current = 0
     task.total = 1
@@ -416,7 +515,7 @@ async def execute_profile_parse(
 
     try:
         parser = SmartParser(prefer_llm=use_llm)
-        parsed, parse_method = await asyncio.to_thread(parser.parse, text_content, extension)
+        parsed, parse_method = parser.parse(text_content, extension)
 
         task.message = "正在保存画像..."
         if session_factory is None:
@@ -470,7 +569,6 @@ async def execute_profile_parse(
         task.success_count = 1
         task.current = 1
         task.message = f"画像解析完成：{profile_title}"
-        await asyncio.sleep(0)
         task.results.append(
             {
                 "success": True,
@@ -481,16 +579,19 @@ async def execute_profile_parse(
             }
         )
         task.status = TaskStatus.COMPLETED
+        persist_task(task)
 
     except Exception as e:
         task.failed_count = 1
         task.status = TaskStatus.FAILED
         task.error_message = f"解析失败: {str(e)}"
         task.message = "画像解析失败"
+        persist_task(task)
 
 
-async def execute_student_profile_generation(
-    task: TaskState,
+@register_task("profile-generate")
+def execute_student_profile_generation(
+    task_id: str,
     *,
     title: str,
     materials: list[dict],
@@ -501,9 +602,13 @@ async def execute_student_profile_generation(
     """Generate an academic student profile from uploaded and manual materials."""
     from ..config import settings as app_settings
     from ..db.database import get_db
-    from ..llm import StudentProfileGenerator
+    from ..ai_workflows.provider import LLMProvider
+    from ..ai_workflows.workflows import generate_student_profile
     from ..models.schema import UserProfile, UserSettings
 
+    task = get_task(task_id)
+    if not task:
+        return
     task.status = TaskStatus.RUNNING
     task.current = 0
     task.total = 3
@@ -518,9 +623,9 @@ async def execute_student_profile_generation(
             )
 
         task.message = "正在提取背景结构化信息..."
-        parsed_resume = await asyncio.to_thread(_parse_materials_as_resume, materials, use_llm)
+        parsed_resume = _parse_materials_as_resume(materials, use_llm)
         task.current = 1
-        await asyncio.sleep(0)  # yield so SSE reads current=1
+        persist_task(task)
 
         if session_factory is None:
             session_context = get_db().session
@@ -540,16 +645,16 @@ async def execute_student_profile_generation(
                 user_settings.deepseek_base_url if user_settings else None
             ) or app_settings.deepseek_base_url
         task.message = "正在生成学生学术画像..."
-        generator = StudentProfileGenerator(api_key=api_key, base_url=base_url)
-        generated = await asyncio.to_thread(
-            generator.generate,
+        provider = LLMProvider(api_key=api_key, base_url=base_url)
+        result = generate_student_profile(
             materials=materials,
             manual_inputs=manual_inputs,
             language="en",
+            provider=provider,
         )
         task.current = 2
         task.message = "正在保存学生画像..."
-        await asyncio.sleep(0)  # yield so SSE reads current=2
+        persist_task(task)
         with session_context() as session:
             has_active_profile = (
                 session.query(UserProfile)
@@ -569,10 +674,10 @@ async def execute_student_profile_generation(
                 source_format="materials",
                 profile_materials=_profile_material_metadata(materials, manual_inputs),
                 manual_inputs=manual_inputs,
-                academic_profile=generated["academic_profile"],
-                profile_analysis=generated["profile_analysis"],
-                evidence_notes=generated["evidence_notes"],
-                conflict_notes=generated["conflict_notes"],
+                academic_profile=result.academic_profile,
+                profile_analysis=result.profile_analysis,
+                evidence_notes=result.evidence_notes,
+                conflict_notes=result.conflict_notes,
                 profile_generated_at=datetime.now(timezone.utc),
                 is_active=not has_active_profile,
             )
@@ -585,7 +690,7 @@ async def execute_student_profile_generation(
         task.success_count = 1
         task.current = 3
         task.message = f"学生画像生成完成：{profile_title}"
-        await asyncio.sleep(0)  # yield so SSE sees current=3 as running
+        persist_task(task)
         task.results.append(
             {
                 "success": True,
@@ -595,32 +700,41 @@ async def execute_student_profile_generation(
             }
         )
         task.status = TaskStatus.COMPLETED
+        persist_task(task)
 
     except Exception as e:
         task.failed_count = 1
         task.status = TaskStatus.FAILED
         task.error_message = f"画像生成失败: {str(e)}"
         task.message = "学生画像生成失败"
+        persist_task(task)
 
 
-async def execute_single_crawl(task: TaskState, scholar_url: str) -> None:
+@register_task("single-crawl")
+def execute_single_crawl(task_id: str, scholar_url: str) -> None:
     """Crawl a single Google Scholar profile and persist the professor."""
+    task = get_task(task_id)
+    if not task:
+        return
+    task.status = TaskStatus.RUNNING
+    task.message = "正在爬取教授信息..."
+    persist_task(task)
+
     from ..db.database import get_db
     from ..models.schema import Professor
     from ..crawler.scholar import ScholarCrawler
 
-    task.status = TaskStatus.RUNNING
-    task.message = "正在爬取教授信息..."
     db = get_db()
 
     try:
         scholar_id = extract_scholar_id_from_url(scholar_url)
         crawler = ScholarCrawler()
-        author_data = await asyncio.to_thread(crawler.get_author, scholar_id)
+        author_data = crawler.get_author(scholar_id)
 
         if not author_data:
             task.status = TaskStatus.FAILED
             task.error_message = "未找到该学者信息"
+            persist_task(task)
             return
 
         with db.session() as session:
@@ -635,6 +749,7 @@ async def execute_single_crawl(task: TaskState, scholar_url: str) -> None:
             if existing:
                 task.status = TaskStatus.FAILED
                 task.error_message = "该教授已存在"
+                persist_task(task)
                 return
 
             professor = Professor(
@@ -651,20 +766,32 @@ async def execute_single_crawl(task: TaskState, scholar_url: str) -> None:
                 total_citations=author_data.get("citations"),
             )
             session.add(professor)
+            session.flush()
+            enrichment_professor_id = professor.id
 
         task.success_count = 1
         task.current = 1
         task.message = f"教授爬取完成：{author_data['name']}"
         task.results.append({"name": author_data["name"], "success": True})
-        await asyncio.sleep(0)
         task.status = TaskStatus.COMPLETED
+        persist_task(task)
+
+        enrich_task = create_task(
+            "professor-enrichment",
+            "教授信息增强",
+            task.user_id,
+            total=3,
+        )
+        enqueue_task("professor-enrichment", enrich_task.task_id, professor_id=enrichment_professor_id)
 
     except ValueError as e:
         task.status = TaskStatus.FAILED
         task.error_message = str(e)
+        persist_task(task)
     except Exception as e:
         task.status = TaskStatus.FAILED
         task.error_message = f"爬取失败: {str(e)}"
+        persist_task(task)
 
 
 def _run_encoding_in_thread(
@@ -685,11 +812,11 @@ def _run_encoding_in_thread(
     return prof_vecs, profile_vec
 
 
-async def execute_match(task: TaskState, profile_id: int) -> None:
+@register_task("match")
+def execute_match(task_id: str, profile_id: int) -> None:
     """Run semantic matching against all professors using allenai-specter embeddings.
 
-    Model loading and encoding run in a thread pool so the event loop stays responsive
-    (SSE, task list, other requests work while model downloads/encodes).
+    Model loading and encoding run synchronously in the consumer thread.
     """
     from ..db.database import get_db
     from ..models.schema import UserProfile, Professor, MatchRecord
@@ -699,8 +826,12 @@ async def execute_match(task: TaskState, profile_id: int) -> None:
         build_profile_text,
     )
 
+    task = get_task(task_id)
+    if not task:
+        return
     task.status = TaskStatus.RUNNING
     task.message = "正在加载语义匹配模型..."
+    persist_task(task)
     db = get_db()
 
     try:
@@ -709,16 +840,16 @@ async def execute_match(task: TaskState, profile_id: int) -> None:
             if not active_profile:
                 task.status = TaskStatus.FAILED
                 task.error_message = "画像不存在"
+                persist_task(task)
                 return
 
             professors = session.query(Professor).filter(Professor.user_id == task.user_id).all()
             if not professors:
                 task.status = TaskStatus.FAILED
                 task.error_message = "请先添加教授"
+                persist_task(task)
                 return
 
-            # Reset scores/reasons for this profile but keep generated letters.
-            # Deleting records would destroy letter_content stored on MatchRecord.
             existing_records: dict[int, MatchRecord] = {
                 r.professor_id: r
                 for r in session.query(MatchRecord)
@@ -738,7 +869,6 @@ async def execute_match(task: TaskState, profile_id: int) -> None:
 
             match_reason_lang = "en"
 
-            # Prepare texts for encoding (no model access yet).
             missing = [p for p in professors if not p.embedding]
             professor_texts = [
                 build_professor_text(
@@ -755,13 +885,9 @@ async def execute_match(task: TaskState, profile_id: int) -> None:
             ]
             profile_text = build_profile_text(profile_data)
 
-            # Run model load + encode in a thread so event loop stays responsive.
             task.message = "正在计算语义向量（首次可能需下载模型）..."
-            prof_vecs, profile_vec = await asyncio.to_thread(
-                _run_encoding_in_thread, professor_texts, profile_text
-            )
+            prof_vecs, profile_vec = _run_encoding_in_thread(professor_texts, profile_text)
 
-            # Persist professor embeddings in main thread (DB).
             for prof, vec in zip(missing, prof_vecs):
                 prof.embedding = vec
             if missing:
@@ -795,7 +921,6 @@ async def execute_match(task: TaskState, profile_id: int) -> None:
                 )
                 existing = existing_records.get(professor.id)
                 if existing:
-                    # Update score/reasons in place; letter_content is preserved.
                     existing.score = score
                     existing.match_reasons = reasons
                 else:
@@ -808,35 +933,40 @@ async def execute_match(task: TaskState, profile_id: int) -> None:
                         )
                     )
                 task.success_count += 1
-                await asyncio.sleep(0)  # yield so SSE can read task.current
 
         task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
         if task.status == TaskStatus.COMPLETED:
             task.message = f"匹配完成，共 {task.success_count} 位教授"
+        persist_task(task)
 
     except Exception as e:
         task.status = TaskStatus.FAILED
         task.error_message = f"匹配失败: {str(e)}"
+        persist_task(task)
 
 
-async def execute_single_letter(
-    task: TaskState,
+@register_task("single-letter")
+def execute_single_letter(
+    task_id: str,
     professor_id: int,
     profile_id: int,
     api_key: str,
     language: str,
 ) -> None:
     """Generate a contact letter for one professor."""
-    from datetime import datetime, timezone
     from ..db.database import get_db
     from ..models.schema import MatchRecord, Professor, UserProfile
-    from ..llm.letter_generator import LetterGenerator
+    from ..ai_workflows.provider import LLMProvider
+    from ..ai_workflows.workflows import generate_letter
 
+    task = get_task(task_id)
+    if not task:
+        return
     task.status = TaskStatus.RUNNING
+    persist_task(task)
     db = get_db()
 
     try:
-        # Read phase
         with db.session() as session:
             result = (
                 session.query(MatchRecord, Professor, UserProfile)
@@ -851,6 +981,7 @@ async def execute_single_letter(
             if not result:
                 task.status = TaskStatus.FAILED
                 task.error_message = "未找到匹配记录，请先运行匹配"
+                persist_task(task)
                 return
 
             match_record, professor, profile = result
@@ -877,17 +1008,15 @@ async def execute_single_letter(
             }
             reasons = match_record.match_reasons or []
 
-        # LLM call — blocking, run in thread pool
-        generator = LetterGenerator(api_key=api_key)
-        letter_content = await asyncio.to_thread(
-            generator.generate,
-            profile=profile_data,
-            professor=prof_data,
+        provider = LLMProvider(api_key=api_key)
+        letter_content = generate_letter(
+            student_info=profile_data,
+            professor_info=prof_data,
             match_reasons=reasons,
             language=language,
+            provider=provider,
         )
 
-        # Write phase
         with db.session() as session:
             mr = (
                 session.query(MatchRecord)
@@ -904,30 +1033,32 @@ async def execute_single_letter(
         task.success_count = 1
         task.current = 1
         task.message = f"邮件生成完成：{prof_data['name']}"
-        await asyncio.sleep(0)
         task.status = TaskStatus.COMPLETED
+        persist_task(task)
 
     except Exception as e:
         task.status = TaskStatus.FAILED
         task.error_message = f"生成失败: {str(e)}"
+        persist_task(task)
 
 
-async def execute_university_crawl(task: TaskState, university_id: str) -> None:
+@register_task("university-crawl")
+def execute_university_crawl(task_id: str, university_id: str) -> None:
     """Crawl all professors from a registered university department website.
 
-    Runs the university-specific crawler in a thread pool (blocking network I/O),
+    Runs the university-specific crawler synchronously (blocking network I/O),
     then persists each professor to the database, skipping duplicates.
-
-    Args:
-        task: The background task state object (mutated in place).
-        university_id: Key into the university crawler registry (e.g. "xjtu-cs").
     """
     from ..db.database import get_db
     from ..models.schema import Professor
     from ..crawler.universities.registry import get_crawler
 
+    task = get_task(task_id)
+    if not task:
+        return
     task.status = TaskStatus.RUNNING
     task.message = "正在初始化爬虫..."
+    persist_task(task)
     db = get_db()
 
     try:
@@ -935,21 +1066,23 @@ async def execute_university_crawl(task: TaskState, university_id: str) -> None:
     except KeyError:
         task.status = TaskStatus.FAILED
         task.error_message = f"未找到院校爬虫: {university_id}"
+        persist_task(task)
         return
 
     task.message = f"正在爬取 {crawler.display_name}..."
 
     try:
-        # Blocking network I/O — run in thread pool
-        professors_data: list[dict] = await asyncio.to_thread(crawler.crawl_all)
+        professors_data: list[dict] = crawler.crawl_all()
     except Exception as e:
         task.status = TaskStatus.FAILED
         task.error_message = f"爬取失败: {str(e)}"
+        persist_task(task)
         return
 
     total = len(professors_data)
     task.total = total
     task.message = f"共获取 {total} 条记录，正在入库..."
+    new_professor_ids: List[int] = []
 
     for i, prof_data in enumerate(professors_data):
         if task.cancel_requested:
@@ -960,7 +1093,6 @@ async def execute_university_crawl(task: TaskState, university_id: str) -> None:
 
         try:
             with db.session() as session:
-                # Deduplicate by (user_id, name, affiliation)
                 existing = (
                     session.query(Professor)
                     .filter(
@@ -986,6 +1118,8 @@ async def execute_university_crawl(task: TaskState, university_id: str) -> None:
                     publications=[],
                 )
                 session.add(professor)
+                session.flush()
+                new_professor_ids.append(professor.id)
 
             task.success_count += 1
             task.results.append({"name": prof_data["name"], "success": True, "skipped": False})
@@ -996,16 +1130,274 @@ async def execute_university_crawl(task: TaskState, university_id: str) -> None:
                 {"name": prof_data.get("name", "?"), "success": False, "error": str(e)}
             )
 
-        await asyncio.sleep(0)  # yield to event loop
-
     task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
     if task.status == TaskStatus.COMPLETED:
         skipped = sum(1 for r in task.results if r.get("skipped"))
         task.message = f"完成！新增 {task.success_count} 位，跳过重复 {skipped} 位，失败 {task.failed_count} 位"
+        if new_professor_ids:
+            batch_enrich = create_task(
+                "batch-professor-enrichment",
+                f"教授信息增强 ({len(new_professor_ids)} 位)",
+                task.user_id,
+                total=len(new_professor_ids),
+            )
+            enqueue_task(
+                "batch-professor-enrichment",
+                batch_enrich.task_id,
+                professor_ids=new_professor_ids,
+            )
+    persist_task(task)
 
 
-async def execute_professor_source_summary(
-    task: TaskState,
+def _enrich_professor_core(
+    user_id: int,
+    professor_id: int,
+    *,
+    progress: Optional[Callable[[str], None]] = None,
+    cancel_checker: Optional[Callable[[], bool]] = None,
+) -> str:
+    """Fill top-N publication abstracts, English summaries, research profile. Returns professor name."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from ..config import settings as app_settings
+    from ..crawler.scholar import ScholarCrawler
+    from ..db.database import get_db
+    from ..ai_workflows.provider import LLMProvider
+    from ..ai_workflows.source_helpers import build_paper_summary_from_scholar_publication
+    from ..ai_workflows.workflows import generate_professor_profile
+    from ..models.schema import Professor, UserSettings
+    from .source_input_service import keep_non_scholar_paper_summaries
+
+    def _prog(msg: str) -> None:
+        if progress:
+            progress(msg)
+
+    def _cancelled() -> bool:
+        return bool(cancel_checker and cancel_checker())
+
+    db = get_db()
+    max_pub = app_settings.professor_enrichment_max_publications
+
+    with db.session() as session:
+        professor = (
+            session.query(Professor)
+            .filter(Professor.id == professor_id, Professor.user_id == user_id)
+            .first()
+        )
+        if not professor:
+            raise ValueError("教授不存在或无权限")
+        has_scholar = bool(professor.google_scholar_id)
+        publications = list(professor.publications or [])
+        prof_name = professor.name
+
+    if _cancelled():
+        raise TaskCancelled()
+
+    if has_scholar and publications:
+        _prog("正在获取论文详情...")
+        crawler = ScholarCrawler()
+        for i in range(min(len(publications), max_pub)):
+            if _cancelled():
+                raise TaskCancelled()
+            pub = publications[i]
+            if pub.get("author_pub_id") and not (pub.get("abstract") or "").strip():
+                try:
+                    details = crawler.fill_publication(pub["author_pub_id"])
+                    publications[i].update(details)
+                except Exception:
+                    pass
+                time.sleep(app_settings.request_delay)
+
+        with db.session() as session:
+            professor = (
+                session.query(Professor)
+                .filter(Professor.id == professor_id, Professor.user_id == user_id)
+                .first()
+            )
+            if professor:
+                professor.publications = publications
+                flag_modified(professor, "publications")
+                professor.embedding = None
+
+    if _cancelled():
+        raise TaskCancelled()
+
+    _prog("正在生成论文摘要...")
+    with db.session() as session:
+        user_settings = (
+            session.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+        )
+        api_key = (
+            user_settings.deepseek_api_key if user_settings else None
+        ) or app_settings.deepseek_api_key
+        base_url = (
+            user_settings.deepseek_base_url if user_settings else None
+        ) or app_settings.deepseek_base_url
+
+    provider = LLMProvider(api_key=api_key, base_url=base_url)
+
+    with db.session() as session:
+        professor = (
+            session.query(Professor)
+            .filter(Professor.id == professor_id, Professor.user_id == user_id)
+            .first()
+        )
+        if not professor:
+            raise ValueError("教授不存在或无权限")
+        publications = list(professor.publications or [])
+        merged = keep_non_scholar_paper_summaries(professor.paper_summaries or [])
+        new_items: list = []
+        for pub in publications[:max_pub]:
+            if _cancelled():
+                raise TaskCancelled()
+            new_items.append(
+                build_paper_summary_from_scholar_publication(
+                    pub, provider=provider, language="en"
+                )
+            )
+        professor.paper_summaries = merged + new_items
+        flag_modified(professor, "paper_summaries")
+        professor.embedding = None
+
+    if _cancelled():
+        raise TaskCancelled()
+
+    _prog("正在生成科研画像...")
+    with db.session() as session:
+        professor = (
+            session.query(Professor)
+            .filter(Professor.id == professor_id, Professor.user_id == user_id)
+            .first()
+        )
+        if not professor:
+            raise ValueError("教授不存在或无权限")
+        prof_data = {
+            "name": professor.name,
+            "affiliation": professor.affiliation,
+            "research_interests": professor.research_interests or [],
+            "publications": professor.publications or [],
+            "paper_summaries": professor.paper_summaries or [],
+            "manual_notes": professor.manual_notes,
+            "homepage": professor.homepage,
+            "google_scholar_url": professor.google_scholar_url,
+        }
+        prof_name = professor.name
+
+    result = generate_professor_profile(prof_data, language="en", provider=provider)
+
+    with db.session() as session:
+        professor = (
+            session.query(Professor)
+            .filter(Professor.id == professor_id, Professor.user_id == user_id)
+            .first()
+        )
+        if not professor:
+            raise ValueError("教授不存在或无权限")
+        professor.research_profile = result.research_profile
+        professor.research_profile_analysis = result.research_profile_analysis
+        professor.research_profile_sources = result.research_profile_sources
+        professor.research_profile_evidence = result.research_profile_evidence
+        professor.research_profile_conflicts = result.research_profile_conflicts
+        professor.research_profile_generated_at = datetime.now(timezone.utc)
+        professor.embedding = None
+
+    return prof_name
+
+
+@register_task("professor-enrichment")
+def execute_professor_enrichment(task_id: str, professor_id: int) -> None:
+    """Background task: publication fill, paper summaries, research profile."""
+    task = get_task(task_id)
+    if not task:
+        return
+    task.status = TaskStatus.RUNNING
+    task.total = 3
+    task.current = 0
+    persist_task(task)
+
+    try:
+        name = _enrich_professor_core(
+            task.user_id,
+            professor_id,
+            progress=lambda m: setattr(task, "message", m),
+            cancel_checker=lambda: task.cancel_requested,
+        )
+        task.success_count = 1
+        task.current = 3
+        task.results.append(
+            {"success": True, "professor_id": professor_id, "name": name}
+        )
+        task.message = f"教授信息增强完成：{name}"
+        task.status = TaskStatus.COMPLETED
+        persist_task(task)
+    except TaskCancelled:
+        task.status = TaskStatus.CANCELLED
+        persist_task(task)
+    except Exception as e:
+        task.status = TaskStatus.FAILED
+        task.error_message = f"教授信息增强失败: {str(e)}"
+        task.message = "教授信息增强失败"
+        persist_task(task)
+
+
+@register_task("batch-professor-enrichment")
+def execute_batch_professor_enrichment(task_id: str, professor_ids: List[int]) -> None:
+    """Sequential enrichment for many professors (one DB user)."""
+    task = get_task(task_id)
+    if not task:
+        return
+    task.status = TaskStatus.RUNNING
+    task.total = len(professor_ids) if professor_ids else 1
+    persist_task(task)
+
+    if not professor_ids:
+        task.status = TaskStatus.COMPLETED
+        task.message = "无教授需要增强"
+        persist_task(task)
+        return
+
+    for i, pid in enumerate(professor_ids):
+        if task.cancel_requested:
+            task.status = TaskStatus.CANCELLED
+            persist_task(task)
+            return
+        task.current = i + 1
+        task.message = f"正在增强第 {i + 1}/{len(professor_ids)} 位教授..."
+        try:
+            _enrich_professor_core(
+                task.user_id,
+                pid,
+                progress=lambda m: setattr(task, "message", m),
+                cancel_checker=lambda: task.cancel_requested,
+            )
+            task.success_count += 1
+            task.results.append({"professor_id": pid, "success": True})
+        except TaskCancelled:
+            task.status = TaskStatus.CANCELLED
+            persist_task(task)
+            return
+        except Exception as exc:
+            task.failed_count += 1
+            task.results.append({"professor_id": pid, "success": False, "error": str(exc)})
+
+    if task.cancel_requested:
+        task.status = TaskStatus.CANCELLED
+        persist_task(task)
+        return
+    if task.success_count == 0 and task.failed_count > 0:
+        task.status = TaskStatus.FAILED
+        task.error_message = "批量教授信息增强失败"
+        task.message = f"失败：成功 {task.success_count}，失败 {task.failed_count}"
+        persist_task(task)
+        return
+    task.status = TaskStatus.COMPLETED
+    task.message = f"批量教授信息增强完成：成功 {task.success_count}，失败 {task.failed_count}"
+    persist_task(task)
+
+
+@register_task("paper-summary")
+def execute_professor_source_summary(
+    task_id: str,
     professor_id: int,
     source_input_ids: list[int],
 ) -> None:
@@ -1014,17 +1406,22 @@ async def execute_professor_source_summary(
 
     from ..config import settings as app_settings
     from ..db.database import get_db
-    from ..llm import PaperSummarizer
+    from ..ai_workflows.provider import LLMProvider
+    from ..ai_workflows.source_helpers import build_paper_summary_from_source
     from ..models.schema import Professor, SourceInput, UserSettings
-    from .source_input_service import build_paper_summary_from_source
 
+    task = get_task(task_id)
+    if not task:
+        return
     task.status = TaskStatus.RUNNING
     task.message = "正在准备论文总结任务..."
+    persist_task(task)
     db = get_db()
 
     if not source_input_ids:
         task.status = TaskStatus.FAILED
         task.error_message = "请先选择需要总结的来源输入"
+        persist_task(task)
         return
 
     with db.session() as session:
@@ -1036,6 +1433,7 @@ async def execute_professor_source_summary(
         if not professor:
             task.status = TaskStatus.FAILED
             task.error_message = "教授不存在或无权限"
+            persist_task(task)
             return
 
         user_settings = (
@@ -1047,7 +1445,7 @@ async def execute_professor_source_summary(
         base_url = (
             user_settings.deepseek_base_url if user_settings else None
         ) or app_settings.deepseek_base_url
-    summarizer = PaperSummarizer(api_key=api_key, base_url=base_url)
+    provider = LLMProvider(api_key=api_key, base_url=base_url)
 
     for idx, source_id in enumerate(source_input_ids, start=1):
         if task.cancel_requested:
@@ -1085,7 +1483,7 @@ async def execute_professor_source_summary(
                         "extracted_markdown": source.extracted_markdown,
                         "extracted_text": source.extracted_text,
                     },
-                    summarizer=summarizer,
+                    provider=provider,
                     language="en",
                 )
                 if not summary:
@@ -1131,38 +1529,44 @@ async def execute_professor_source_summary(
             task.failed_count += 1
             task.results.append({"source_input_id": source_id, "success": False, "error": str(exc)})
 
-        await asyncio.sleep(0)
-
     if task.cancel_requested:
         task.status = TaskStatus.CANCELLED
+        persist_task(task)
         return
     if task.success_count == 0 and task.failed_count > 0:
         task.status = TaskStatus.FAILED
         task.error_message = "论文总结失败，请检查任务详情后重试"
         task.message = f"论文总结失败：成功 {task.success_count}，失败 {task.failed_count}"
+        persist_task(task)
         return
 
     task.status = TaskStatus.COMPLETED
     task.message = f"论文总结完成：成功 {task.success_count}，失败 {task.failed_count}"
+    persist_task(task)
 
 
-async def execute_professor_profile_generation(
-    task: TaskState,
+@register_task("professor-profile")
+def execute_professor_profile_generation(
+    task_id: str,
     *,
     professor_id: int,
     session_factory: Optional[Callable[[], Any]] = None,
 ) -> None:
     """Generate a research profile for a single professor."""
-    from datetime import datetime, timezone
     from ..config import settings as app_settings
     from ..db.database import get_db
-    from ..llm import ProfessorProfileGenerator
+    from ..ai_workflows.provider import LLMProvider
+    from ..ai_workflows.workflows import generate_professor_profile
     from ..models.schema import Professor, UserSettings
 
+    task = get_task(task_id)
+    if not task:
+        return
     task.status = TaskStatus.RUNNING
     task.current = 0
     task.total = 3
     task.message = "正在准备教授数据..."
+    persist_task(task)
 
     try:
         if session_factory is None:
@@ -1172,7 +1576,6 @@ async def execute_professor_profile_generation(
             def session_context():
                 return _session_scope(session_factory)
 
-        # Read professor and settings
         with session_context() as session:
             professor = (
                 session.query(Professor)
@@ -1182,6 +1585,7 @@ async def execute_professor_profile_generation(
             if not professor:
                 task.status = TaskStatus.FAILED
                 task.error_message = "教授不存在或无权限"
+                persist_task(task)
                 return
 
             prof_data = {
@@ -1207,13 +1611,13 @@ async def execute_professor_profile_generation(
 
         task.current = 1
         task.message = "正在分析教授科研画像..."
-        await asyncio.sleep(0)  # yield so SSE reads current=1
+        persist_task(task)
 
-        generator = ProfessorProfileGenerator(api_key=api_key, base_url=base_url)
-        generated = await asyncio.to_thread(generator.generate, prof_data, language="en")
+        provider = LLMProvider(api_key=api_key, base_url=base_url)
+        result = generate_professor_profile(prof_data, language="en", provider=provider)
         task.current = 2
         task.message = "正在保存教授科研画像..."
-        await asyncio.sleep(0)  # yield so SSE reads current=2
+        persist_task(task)
         with session_context() as session:
             professor = (
                 session.query(Professor)
@@ -1223,21 +1627,21 @@ async def execute_professor_profile_generation(
             if not professor:
                 task.status = TaskStatus.FAILED
                 task.error_message = "教授不存在或无权限"
+                persist_task(task)
                 return
 
-            professor.research_profile = generated["research_profile"]
-            professor.research_profile_analysis = generated["research_profile_analysis"]
-            professor.research_profile_sources = generated["research_profile_sources"]
-            professor.research_profile_evidence = generated["research_profile_evidence"]
-            professor.research_profile_conflicts = generated["research_profile_conflicts"]
+            professor.research_profile = result.research_profile
+            professor.research_profile_analysis = result.research_profile_analysis
+            professor.research_profile_sources = result.research_profile_sources
+            professor.research_profile_evidence = result.research_profile_evidence
+            professor.research_profile_conflicts = result.research_profile_conflicts
             professor.research_profile_generated_at = datetime.now(timezone.utc)
-            # Invalidate cached embedding since matching text changed
             professor.embedding = None
 
         task.success_count = 1
         task.current = 3
         task.message = f"教授科研画像生成完成：{prof_data['name']}"
-        await asyncio.sleep(0)  # yield so SSE sees current=3 as running
+        persist_task(task)
         task.results.append(
             {
                 "success": True,
@@ -1246,27 +1650,35 @@ async def execute_professor_profile_generation(
             }
         )
         task.status = TaskStatus.COMPLETED
+        persist_task(task)
 
     except Exception as e:
         task.failed_count = 1
         task.status = TaskStatus.FAILED
         task.error_message = f"教授画像生成失败: {str(e)}"
         task.message = "教授科研画像生成失败"
+        persist_task(task)
 
 
-async def execute_batch_professor_profiles(
-    task: TaskState,
+@register_task("batch-professor-profiles")
+def execute_batch_professor_profiles(
+    task_id: str,
     professor_ids: list[int],
     session_factory: Optional[Callable[[], Any]] = None,
 ) -> None:
     """Generate research profiles for a batch of professors."""
     from ..config import settings as app_settings
     from ..db.database import get_db
-    from ..llm import ProfessorProfileGenerator
+    from ..ai_workflows.provider import LLMProvider
+    from ..ai_workflows.workflows import generate_professor_profile
     from ..models.schema import Professor, UserSettings
 
+    task = get_task(task_id)
+    if not task:
+        return
     task.status = TaskStatus.RUNNING
     task.total = len(professor_ids)
+    persist_task(task)
 
     if session_factory is None:
         session_context = get_db().session
@@ -1286,7 +1698,7 @@ async def execute_batch_professor_profiles(
             user_settings.deepseek_base_url if user_settings else None
         ) or app_settings.deepseek_base_url
 
-    generator = ProfessorProfileGenerator(api_key=api_key, base_url=base_url)
+    provider = LLMProvider(api_key=api_key, base_url=base_url)
 
     for i, professor_id in enumerate(professor_ids):
         if task.cancel_requested:
@@ -1320,7 +1732,7 @@ async def execute_batch_professor_profiles(
                     "google_scholar_url": professor.google_scholar_url,
                 }
 
-            generated = await asyncio.to_thread(generator.generate, prof_data, language="en")
+            result = generate_professor_profile(prof_data, language="en", provider=provider)
 
             with session_context() as session:
                 professor = (
@@ -1332,11 +1744,11 @@ async def execute_batch_professor_profiles(
                     task.failed_count += 1
                     continue
 
-                professor.research_profile = generated["research_profile"]
-                professor.research_profile_analysis = generated["research_profile_analysis"]
-                professor.research_profile_sources = generated["research_profile_sources"]
-                professor.research_profile_evidence = generated["research_profile_evidence"]
-                professor.research_profile_conflicts = generated["research_profile_conflicts"]
+                professor.research_profile = result.research_profile
+                professor.research_profile_analysis = result.research_profile_analysis
+                professor.research_profile_sources = result.research_profile_sources
+                professor.research_profile_evidence = result.research_profile_evidence
+                professor.research_profile_conflicts = result.research_profile_conflicts
                 professor.research_profile_generated_at = datetime.now(timezone.utc)
                 professor.embedding = None
 
@@ -1347,40 +1759,41 @@ async def execute_batch_professor_profiles(
             task.failed_count += 1
             task.results.append({"professor_id": professor_id, "success": False, "error": str(exc)})
 
-        await asyncio.sleep(0)
-
     if task.cancel_requested:
         task.status = TaskStatus.CANCELLED
+        persist_task(task)
         return
     if task.success_count == 0 and task.failed_count > 0:
         task.status = TaskStatus.FAILED
         task.error_message = "教授画像生成失败，请检查任务详情后重试"
         task.message = f"教授画像批量生成失败：成功 {task.success_count}，失败 {task.failed_count}"
+        persist_task(task)
         return
 
     task.status = TaskStatus.COMPLETED
     task.message = f"教授科研画像批量生成完成：成功 {task.success_count}，失败 {task.failed_count}"
+    persist_task(task)
 
 
-async def execute_fill_publications(
-    task: TaskState,
+@register_task("fill-publications")
+def execute_fill_publications(
+    task_id: str,
     professor_id: int,
     session_factory: Optional[Callable[[], Any]] = None,
 ) -> None:
-    """Fetch full publication details (abstracts, links) for one professor.
-
-    Iterates over publications that have an ``author_pub_id`` but no
-    ``abstract`` yet, calls ``ScholarCrawler.fill_publication()`` for each
-    via a thread pool, and persists the enriched entries.
-    """
+    """Fetch full publication details (abstracts, links) for one professor."""
     from sqlalchemy.orm.attributes import flag_modified
     from ..config import settings as app_settings
     from ..db.database import get_db
     from ..models.schema import Professor
     from ..crawler.scholar import ScholarCrawler
 
+    task = get_task(task_id)
+    if not task:
+        return
     task.status = TaskStatus.RUNNING
     task.message = "正在获取论文详情..."
+    persist_task(task)
 
     if session_factory is None:
         session_context = get_db().session
@@ -1401,6 +1814,7 @@ async def execute_fill_publications(
             if not professor:
                 task.status = TaskStatus.FAILED
                 task.error_message = "教授不存在或无权限"
+                persist_task(task)
                 return
 
             publications: list[dict] = list(professor.publications or [])
@@ -1411,6 +1825,7 @@ async def execute_fill_publications(
             if not to_fill:
                 task.status = TaskStatus.FAILED
                 task.error_message = "没有需要获取详情的论文"
+                persist_task(task)
                 return
 
             task.total = len(to_fill)
@@ -1424,9 +1839,7 @@ async def execute_fill_publications(
                 author_pub_id = pub["author_pub_id"]
 
                 try:
-                    details = await asyncio.to_thread(
-                        crawler.fill_publication, author_pub_id
-                    )
+                    details = crawler.fill_publication(author_pub_id)
                     publications[orig_index].update(details)
                     task.success_count += 1
                     task.results.append({
@@ -1441,40 +1854,42 @@ async def execute_fill_publications(
                         "error": str(exc),
                     })
 
-                await asyncio.sleep(app_settings.request_delay)
-                await asyncio.sleep(0)  # yield to event loop
+                time.sleep(app_settings.request_delay)
 
             professor.publications = publications
             flag_modified(professor, "publications")
-            professor.embedding = None  # publication text changed
+            professor.embedding = None
 
         task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
         if task.status == TaskStatus.COMPLETED:
             task.message = (
                 f"论文详情获取完成：成功 {task.success_count}，失败 {task.failed_count}"
             )
+        persist_task(task)
     except Exception as exc:
         task.status = TaskStatus.FAILED
         task.error_message = f"获取论文详情失败: {str(exc)}"
+        persist_task(task)
 
 
-async def execute_batch_refresh(
-    task: TaskState,
+@register_task("batch-refresh")
+def execute_batch_refresh(
+    task_id: str,
     professor_ids: list[int],
     session_factory: Optional[Callable[[], Any]] = None,
 ) -> None:
-    """Refresh multiple professors from Google Scholar in a background task.
-
-    Iterates over the given professor IDs, re-crawling each one that has a
-    ``google_scholar_id``.  Professors without a Scholar ID are skipped.
-    """
+    """Refresh multiple professors from Google Scholar in a background task."""
     from ..db.database import get_db
     from ..models.schema import Professor
     from ..crawler.scholar import ScholarCrawler
 
+    task = get_task(task_id)
+    if not task:
+        return
     task.status = TaskStatus.RUNNING
     task.total = len(professor_ids)
     task.message = "正在批量更新教授..."
+    persist_task(task)
 
     if session_factory is None:
         session_context = get_db().session
@@ -1484,6 +1899,7 @@ async def execute_batch_refresh(
             return _session_scope(session_factory)
 
     crawler = ScholarCrawler()
+    enrichment_ids: list[int] = []
 
     for i, professor_id in enumerate(professor_ids):
         if task.cancel_requested:
@@ -1506,13 +1922,12 @@ async def execute_batch_refresh(
                         "success": False,
                         "error": "教授不存在或缺少 Google Scholar ID",
                     })
-                    await asyncio.sleep(0)
                     continue
 
                 scholar_id = professor.google_scholar_id
                 prof_name = professor.name
 
-            author_data = await asyncio.to_thread(crawler.get_author, scholar_id)
+            author_data = crawler.get_author(scholar_id)
 
             if not author_data:
                 task.failed_count += 1
@@ -1522,7 +1937,6 @@ async def execute_batch_refresh(
                     "success": False,
                     "error": "未找到学者信息",
                 })
-                await asyncio.sleep(0)
                 continue
 
             with session_context() as session:
@@ -1532,13 +1946,17 @@ async def execute_batch_refresh(
                     .first()
                 )
                 if professor:
+                    from .source_input_service import keep_non_scholar_paper_summaries
+
+                    professor.paper_summaries = keep_non_scholar_paper_summaries(
+                        professor.paper_summaries or []
+                    )
                     professor.name = author_data["name"]
                     professor.affiliation = author_data.get("affiliation")
                     professor.email = author_data.get("email") or professor.email
                     professor.homepage = author_data.get("homepage") or professor.homepage
                     professor.research_interests = author_data.get("interests", [])
                     professor.publications = author_data.get("publications", [])
-                    professor.paper_summaries = []
                     professor.h_index = author_data.get("h_index")
                     professor.total_citations = author_data.get("citations")
                     professor.embedding = None
@@ -1549,6 +1967,7 @@ async def execute_batch_refresh(
                 "name": prof_name,
                 "success": True,
             })
+            enrichment_ids.append(professor_id)
 
         except Exception as exc:
             task.failed_count += 1
@@ -1558,23 +1977,37 @@ async def execute_batch_refresh(
                 "error": str(exc),
             })
 
-        await asyncio.sleep(0)
-
     if task.cancel_requested:
         task.status = TaskStatus.CANCELLED
+        persist_task(task)
         return
     if task.success_count == 0 and task.failed_count > 0:
         task.status = TaskStatus.FAILED
         task.error_message = "批量更新失败，请检查任务详情后重试"
         task.message = f"批量更新失败：成功 {task.success_count}，失败 {task.failed_count}"
+        persist_task(task)
         return
 
     task.status = TaskStatus.COMPLETED
     task.message = f"批量更新完成：成功 {task.success_count}，失败 {task.failed_count}"
+    persist_task(task)
+    if enrichment_ids:
+        batch_enrich = create_task(
+            "batch-professor-enrichment",
+            f"教授信息增强 ({len(enrichment_ids)} 位)",
+            task.user_id,
+            total=len(enrichment_ids),
+        )
+        enqueue_task(
+            "batch-professor-enrichment",
+            batch_enrich.task_id,
+            professor_ids=enrichment_ids,
+        )
 
 
-async def execute_profile_chat_refinement(
-    task: TaskState,
+@register_task("profile-refine")
+def execute_profile_chat_refinement(
+    task_id: str,
     *,
     profile_id: int,
     chat_history: list[dict],
@@ -1583,18 +2016,23 @@ async def execute_profile_chat_refinement(
     """Regenerate an academic profile incorporating chat Q&A insights."""
     from ..config import settings as app_settings
     from ..db.database import get_db
-    from ..llm import StudentProfileGenerator
+    from ..ai_workflows.provider import LLMProvider
+    from ..ai_workflows.workflows import refine_profile_from_chat
     from ..models.schema import UserProfile, UserSettings
 
+    task = get_task(task_id)
+    if not task:
+        return
     task.status = TaskStatus.RUNNING
     task.total = 4
     task.current = 0
     task.message = "正在整理对话内容..."
+    persist_task(task)
 
     try:
         task.message = "正在调用 AI 分析..."
         task.current = 1
-        await asyncio.sleep(0)
+        persist_task(task)
 
         if session_factory is None:
             session_context = get_db().session
@@ -1629,7 +2067,6 @@ async def execute_profile_chat_refinement(
             academic_profile = profile.academic_profile or ""
             profile_analysis = profile.profile_analysis or {}
 
-            # Old profiles stored materials without content; reconstruct from raw_content.
             if (
                 not any(
                     m.get("content") for m in materials if m.get("source_type") == "file"
@@ -1644,22 +2081,22 @@ async def execute_profile_chat_refinement(
 
         task.current = 2
         task.message = "正在重新生成学生画像..."
-        await asyncio.sleep(0)
+        persist_task(task)
 
-        generator = StudentProfileGenerator(api_key=api_key, base_url=base_url)
-        result = await asyncio.to_thread(
-            generator.refine_from_chat,
+        provider = LLMProvider(api_key=api_key, base_url=base_url)
+        profile_result = refine_profile_from_chat(
             materials=materials,
             manual_inputs=manual_inputs,
             chat_history=chat_history,
             academic_profile=academic_profile,
             profile_analysis=profile_analysis,
             language="en",
+            provider=provider,
         )
 
         task.current = 3
         task.message = "正在保存优化结果..."
-        await asyncio.sleep(0)
+        persist_task(task)
 
         with session_context() as session:
             profile = (
@@ -1668,10 +2105,10 @@ async def execute_profile_chat_refinement(
                 .first()
             )
             if profile:
-                profile.academic_profile = result["academic_profile"]
-                profile.profile_analysis = result["profile_analysis"]
-                profile.evidence_notes = result["evidence_notes"]
-                profile.conflict_notes = result["conflict_notes"]
+                profile.academic_profile = profile_result.academic_profile
+                profile.profile_analysis = profile_result.profile_analysis
+                profile.evidence_notes = profile_result.evidence_notes
+                profile.conflict_notes = profile_result.conflict_notes
                 profile.profile_generated_at = datetime.now(timezone.utc)
                 session.flush()
 
@@ -1679,13 +2116,15 @@ async def execute_profile_chat_refinement(
         task.success_count = 1
         task.status = TaskStatus.COMPLETED
         task.message = "学生画像优化完成"
+        persist_task(task)
 
     except ValueError as exc:
         task.status = TaskStatus.FAILED
         task.error_message = str(exc)
         task.message = f"画像优化失败：{exc}"
+        persist_task(task)
     except Exception as exc:
         task.status = TaskStatus.FAILED
         task.error_message = str(exc)
         task.message = "画像优化过程中发生未知错误"
-        logger.exception("Profile chat refinement failed for profile %s", profile_id)
+        persist_task(task)

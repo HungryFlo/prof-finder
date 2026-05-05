@@ -1,10 +1,9 @@
 """Letter generation using LLM (DeepSeek API)."""
 
 from typing import Optional, Union
-from openai import OpenAI
 
-from ..config import settings
-from ..models import UserProfile, Professor
+from ..ai_workflows.provider import LLMProvider
+from ..prompts import get_prompt
 
 
 def _get_attr(obj: Union[dict, object], key: str, default=None):
@@ -28,52 +27,22 @@ def _resolved_name(entity: Union[dict, object], language: str) -> str:
 class LetterGenerator:
     """Generate academic contact letters using LLM."""
 
-    SYSTEM_PROMPT_ZH = """你是一位学术联络邮件写作专家。你的任务是帮助学生撰写给潜在导师的学术联络邮件。
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        provider: Optional[LLMProvider] = None,
+    ):
+        self.provider = provider or LLMProvider(api_key=api_key, base_url=base_url)
 
-邮件应该：
-1. 简洁专业，300-500字左右
-2. 展示对教授研究的了解（引用具体论文或研究方向）
-3. 突出学生的相关背景和匹配点
-4. 表达真诚的研究兴趣
-5. 语气礼貌正式但不卑微
-6. 避免模板化和套话
-
-请直接输出邮件正文，不需要添加任何解释或前言。"""
-
-    SYSTEM_PROMPT_EN = """You are an expert in academic outreach emails. Your task is to help a student draft an email to a prospective supervisor.
-
-The email should:
-1. Be concise and professional, roughly 300–500 words (or a proportional length in English)
-2. Show understanding of the professor's work (cite specific papers or research directions when relevant)
-3. Highlight the student's background and fit
-4. Express genuine research interest
-5. Use a polite, formal tone without sounding obsequious
-6. Avoid boilerplate and clichés
-
-Output only the email body, with no preamble or explanation."""
-
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
-        """Initialize the letter generator.
-
-        Args:
-            api_key: DeepSeek API key. Falls back to settings if not provided.
-            base_url: API base URL. Falls back to settings if not provided.
-        """
-        actual_api_key = api_key or settings.deepseek_api_key
-        actual_base_url = base_url or settings.deepseek_base_url
-
-        if not actual_api_key:
-            raise ValueError("DEEPSEEK_API_KEY is not configured")
-
-        self.client = OpenAI(
-            api_key=actual_api_key,
-            base_url=actual_base_url,
-        )
+    @property
+    def enabled(self) -> bool:
+        return self.provider.enabled
 
     def generate(
         self,
-        profile: Union[UserProfile, dict],
-        professor: Union[Professor, dict],
+        profile: Union[dict, object],
+        professor: Union[dict, object],
         match_reasons: Optional[list[str]] = None,
         language: str = "en",
     ) -> str:
@@ -91,46 +60,28 @@ Output only the email body, with no preamble or explanation."""
         lang = language if language in ("zh", "en") else "en"
         student_info = self._format_student_info(profile, lang)
         professor_info = self._format_professor_info(professor, lang)
+        prompt_name = f"generate_letter_{lang}"
 
         if lang == "zh":
-            system_prompt = self.SYSTEM_PROMPT_ZH
             lang_instruction = "请用中文撰写邮件。"
             no_reasons = "无特定匹配信息"
-            user_prompt = f"""请为以下学生撰写一封给导师的学术联络邮件。
-
-## 学生背景
-{student_info}
-
-## 目标导师信息
-{professor_info}
-
-## 匹配亮点
-{chr(10).join(f'- {r}' for r in (match_reasons or [])) if match_reasons else no_reasons}
-
-{lang_instruction}
-
-请撰写邮件："""
         else:
-            system_prompt = self.SYSTEM_PROMPT_EN
             lang_instruction = "Write the email in English."
             no_reasons = "No specific match highlights provided."
-            user_prompt = f"""Draft an academic outreach email from the student below to the professor described.
 
-## Student background
-{student_info}
+        match_text = "\n".join(f"- {r}" for r in (match_reasons or [])) if match_reasons else no_reasons
+        system_prompt = get_prompt("letter", prompt_name, "system")
+        user_prompt = get_prompt(
+            "letter",
+            prompt_name,
+            "user",
+            student_info=student_info,
+            professor_info=professor_info,
+            match_reasons=match_text,
+            language_instruction=lang_instruction,
+        )
 
-## Professor
-{professor_info}
-
-## Match highlights
-{chr(10).join(f'- {r}' for r in (match_reasons or [])) if match_reasons else no_reasons}
-
-{lang_instruction}
-
-Write the email:"""
-
-        response = self.client.chat.completions.create(
-            model="deepseek-v4-flash",
+        return self.provider.chat_completion(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -138,9 +89,7 @@ Write the email:"""
             temperature=0.7,
         )
 
-        return response.choices[0].message.content
-
-    def _format_student_info(self, profile: Union[UserProfile, dict], language: str) -> str:
+    def _format_student_info(self, profile: Union[dict, object], language: str) -> str:
         """Format student profile for the prompt."""
         parts = []
         name = _resolved_name(profile, language)
@@ -210,7 +159,7 @@ Write the email:"""
 
         return "\n\n".join(parts) if parts else none_detail
 
-    def _format_professor_info(self, professor: Union[Professor, dict], language: str) -> str:
+    def _format_professor_info(self, professor: Union[dict, object], language: str) -> str:
         """Format professor info for the prompt."""
         parts = []
         name = _resolved_name(professor, language)

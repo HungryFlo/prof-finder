@@ -314,6 +314,7 @@ class ProfessorResponse(BaseModel):
     research_profile_generated_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+    enrichment_task_id: Optional[str] = None
 
     class Config:
         from_attributes = True

@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker, Session
 
 from ..config import settings
 from ..models.schema import Base, User
+from ..models.background_task import BackgroundTask  # noqa: ensure create_all picks up table
 
 
 class Database:
@@ -142,6 +143,28 @@ class Database:
                         text(
                             "ALTER TABLE user_settings ADD COLUMN profile_language VARCHAR(10) DEFAULT 'zh'"
                         )
+                    )
+                    conn.commit()
+
+            # Add background_tasks.enqueue_args / enqueue_kwargs columns
+            # (huey-task-queue migration)
+            bg_tasks_exists = conn.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='background_tasks'"
+                )
+            ).fetchone()
+            if bg_tasks_exists:
+                bg_cols = {
+                    row[1] for row in conn.execute(text("PRAGMA table_info(background_tasks)"))
+                }
+                if "enqueue_args" not in bg_cols:
+                    conn.execute(
+                        text("ALTER TABLE background_tasks ADD COLUMN enqueue_args JSON")
+                    )
+                    conn.commit()
+                if "enqueue_kwargs" not in bg_cols:
+                    conn.execute(
+                        text("ALTER TABLE background_tasks ADD COLUMN enqueue_kwargs JSON")
                     )
                     conn.commit()
 

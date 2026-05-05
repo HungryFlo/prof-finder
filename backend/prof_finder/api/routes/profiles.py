@@ -1,12 +1,11 @@
 """Profile management API routes."""
 
-import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from ...models.schema import User, UserProfile
 from ..deps import get_db_session, get_current_user
@@ -25,8 +24,7 @@ from ..task_manager import (
     MAX_PROFILE_MATERIAL_CHARS,
     cleanup_old_tasks,
     create_task,
-    execute_student_profile_generation,
-    execute_profile_chat_refinement,
+    enqueue_task,
 )
 from ...llm.student_profile_generator import StudentProfileGenerator
 
@@ -199,20 +197,13 @@ async def upload_profile(
         user_id=current_user.id,
         total=3,
     )
-    task_session_factory = sessionmaker(
-        autocommit=False,
-        autoflush=False,
-        bind=session.get_bind(),
-    )
-    asyncio.create_task(
-        execute_student_profile_generation(
-            task,
-            title=title,
-            materials=materials,
-            manual_inputs=manual_inputs,
-            use_llm=use_llm,
-            session_factory=task_session_factory,
-        )
+    enqueue_task(
+        "profile-generate",
+        task.task_id,
+        title=title,
+        materials=materials,
+        manual_inputs=manual_inputs,
+        use_llm=use_llm,
     )
 
     return TaskStartResponse(
@@ -509,18 +500,11 @@ async def profile_chat_refine(
         total=4,
     )
     task.total = 4
-    task_session_factory = sessionmaker(
-        autocommit=False,
-        autoflush=False,
-        bind=session.get_bind(),
-    )
-    asyncio.create_task(
-        execute_profile_chat_refinement(
-            task,
-            profile_id=profile_id,
-            chat_history=data.history,
-            session_factory=task_session_factory,
-        )
+    enqueue_task(
+        "profile-refine",
+        task.task_id,
+        profile_id=profile_id,
+        chat_history=data.history,
     )
 
     return TaskStartResponse(
