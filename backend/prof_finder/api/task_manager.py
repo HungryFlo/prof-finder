@@ -2142,7 +2142,7 @@ def execute_profile_chat_refinement(
     *,
     profile_id: int,
     chat_history: list[dict],
-    session_factory: Callable[[], Any],
+    session_factory: Optional[Callable[[], Any]] = None,
 ) -> None:
     """Regenerate an academic profile incorporating chat Q&A insights."""
     from ..config import settings as app_settings

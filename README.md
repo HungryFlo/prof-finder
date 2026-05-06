@@ -9,14 +9,14 @@
 - **智能匹配**：基于研究方向、技能和经历进行智能匹配推荐
 - **邮件生成**：使用 DeepSeek API 生成个性化的学术联络邮件
 - **多用户支持**：每个用户有独立的简历和教授数据库
-- **Web 界面**：基于 Vue 3 + Naive UI 的现代 Web 前端
+- **Web 界面**：Vue 3 + TypeScript + Vite；界面层使用 Naive UI，并配合 Tailwind CSS、shadcn-vue（Reka UI）、vue-i18n 等
 
 ## 快速开始
 
 ### 前置要求
 
-- Python 3.9+
-- Node.js 18+
+- Python 3.10+（与 `pyproject.toml` 中 `>=3.10,<4.0` 一致）
+- Node.js **20.19+** 或 **22.12+**（见 `frontend/package.json` 的 `engines`）
 - Poetry (Python 包管理)
 - Conda (推荐，用于环境管理)
 
@@ -24,7 +24,7 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-username/prof-finder.git
+git clone https://github.com/HungryFlo/prof-finder.git
 cd prof-finder
 
 # 激活 conda 环境
@@ -141,10 +141,12 @@ prof-finder/
 │   ├── prof_finder/
 │   │   ├── api/             # FastAPI REST API
 │   │   ├── cli/             # 命令行接口
+│   │   ├── ai_workflows/    # AI 工作流（画像生成等）
 │   │   ├── parser/          # 简历解析器
-│   │   ├── crawler/         # 网页爬虫
+│   │   ├── crawler/         # 网页爬虫（含 universities 学校适配）
 │   │   ├── matcher/         # 匹配算法
 │   │   ├── llm/             # LLM 集成
+│   │   ├── prompts/         # LLM 提示词与配置
 │   │   ├── models/          # 数据模型
 │   │   └── db/              # 数据库操作
 │   └── tests/               # 后端测试
@@ -169,7 +171,7 @@ prof-finder/
 
 ```bash
 # 创建并激活 conda 环境（首次）
-conda create -n prof-finder python=3.9+
+conda create -n prof-finder python=3.10
 conda activate prof-finder
 
 # 安装依赖
@@ -238,9 +240,8 @@ MIT License
 
 # 继续优化的方向
 
-- 在添加教授时就自动收集全部信息，后续开放更新和增加，把论文摘要爬取和画像变成每个教授都有的信息
 - 增加对教授个人主页的解析
-- 生成邮件即时弹框选择语言，不要使用候选框来控制全局邮件生成语言
+- 使用 search agent 来广泛搜集教授的信息
 - 匹配算法换成更高级的推荐算法，增加 rubrics, reranking 等
 - 将 AI 聊天画像优化的前端做成悬浮球，优化更新逻辑，保持聊天的同时让AI自己决定是否需要更新，不需要手动点击按钮
 - 学校网站爬虫支持

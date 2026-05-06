@@ -1,14 +1,19 @@
 """Profile management API routes."""
 
+import asyncio
+import logging
+import queue
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
+from sse_starlette.sse import EventSourceResponse
 
 from ...models.schema import User, UserProfile
-from ..deps import get_db_session, get_current_user
+from ..deps import get_db_session, get_current_user, get_current_user_sse
 from ..schemas import (
     ProfileCreate,
     ProfileUpdate,
@@ -20,6 +25,8 @@ from ..schemas import (
     BatchDeleteRequest,
     MessageResponse,
 )
+logger = logging.getLogger(__name__)
+
 from ..task_manager import (
     MAX_PROFILE_MATERIAL_CHARS,
     cleanup_old_tasks,
@@ -448,6 +455,81 @@ def profile_chat(
         )
 
     return ProfileChatResponse(reply=reply)
+
+
+@router.post("/{profile_id}/chat/stream")
+async def profile_chat_stream(
+    profile_id: int,
+    data: ProfileChatRequest,
+    current_user: User = Depends(get_current_user_sse),
+    session: Session = Depends(get_db_session),
+):
+    """Streaming AI interviewer response via SSE.
+
+    Yields ``token`` events for each content chunk, ``done`` on completion,
+    and ``error`` on failure.
+    """
+    profile = (
+        session.query(UserProfile)
+        .filter(UserProfile.id == profile_id, UserProfile.user_id == current_user.id)
+        .first()
+    )
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="画像不存在",
+        )
+
+    generator = StudentProfileGenerator()
+    if not generator.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="请先配置 DeepSeek API Key",
+        )
+
+    analysis = profile.profile_analysis or {}
+    academic_profile = profile.academic_profile or ""
+
+    async def event_generator():
+        q: queue.Queue[tuple[str, str]] = queue.Queue()
+        stop = threading.Event()
+
+        def producer():
+            try:
+                for token in generator.interview_stream(
+                    profile_analysis=analysis,
+                    academic_profile=academic_profile,
+                    history=data.history,
+                    message=data.message,
+                    locale=data.locale,
+                ):
+                    if stop.is_set():
+                        return
+                    q.put(("token", token))
+                q.put(("done", ""))
+            except ValueError as exc:
+                q.put(("error", str(exc)))
+            except Exception:
+                logger.exception("Chat stream failed for profile %s", profile_id)
+                q.put(("error", "Internal server error"))
+
+        t = threading.Thread(target=producer, daemon=True)
+        t.start()
+
+        try:
+            while True:
+                try:
+                    evt, payload = q.get(timeout=0.05)
+                    yield {"event": evt, "data": payload}
+                    if evt in ("done", "error"):
+                        break
+                except queue.Empty:
+                    await asyncio.sleep(0.05)
+        finally:
+            stop.set()
+            t.join(timeout=10)
+
+    return EventSourceResponse(event_generator())
 
 
 @router.post("/{profile_id}/chat/refine", response_model=TaskStartResponse)

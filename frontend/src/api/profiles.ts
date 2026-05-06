@@ -1,5 +1,6 @@
 import client from './client'
 import { getLocale } from '@/i18n'
+import { useAuthStore } from '@/stores/auth'
 import type { ChatMessage, Profile, ProfileCreate, ProfileChatResponse } from '@/types'
 import type { TaskStartResponse } from '@/api/tasks'
 
@@ -81,5 +82,70 @@ export const profilesApi = {
   async refineFromChat(profileId: number, history: ChatMessage[]): Promise<TaskStartResponse> {
     const response = await client.post<TaskStartResponse>(`/profiles/${profileId}/chat/refine`, { history })
     return response.data
+  },
+
+  async chatStream(
+    profileId: number,
+    message: string,
+    history: ChatMessage[],
+    onToken: (token: string) => void,
+    onDone: () => void,
+    onError: (error: string) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const authStore = useAuthStore()
+    const token = authStore.accessToken ?? ''
+    const url = `/api/profiles/${profileId}/chat/stream?token=${encodeURIComponent(token)}`
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history, locale: getLocale() }),
+      signal,
+    })
+
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => ({} as Record<string, unknown>))
+      onError((errBody as Record<string, string>).detail || 'Chat request failed')
+      return
+    }
+
+    const reader = response.body!.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let currentEvent = 'message'
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+
+        for (const rawLine of lines) {
+          const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim()
+          } else if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (currentEvent === 'token') {
+              onToken(data)
+            } else if (currentEvent === 'done') {
+              onDone()
+            } else if (currentEvent === 'error') {
+              onError(data)
+            }
+          }
+          if (line === '') {
+            currentEvent = 'message'
+          }
+        }
+      }
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      throw err
+    }
   },
 }

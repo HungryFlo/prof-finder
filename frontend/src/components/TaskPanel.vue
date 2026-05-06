@@ -50,8 +50,12 @@ function progressLabel(task: TaskEntry): string {
 function statusLabel(task: TaskEntry): string {
   if (task.status === 'failed') return t('task.failed')
   if (task.status === 'completed') return t('task.completed')
-  if (task.status === 'pending') return ''
+  if (task.status === 'pending') return t('task.pending')
   return t('task.running')
+}
+
+function isCancellable(task: TaskEntry): boolean {
+  return task.status === 'running' || task.status === 'pending'
 }
 
 async function handleCancel(taskId: string) {
@@ -154,7 +158,7 @@ function handleDismiss(taskId: string) {
                   <template #icon><n-icon size="14"><CloseOutline /></n-icon></template>
                 </n-button>
                 <n-button
-                  v-else-if="task.status === 'running'"
+                  v-else-if="isCancellable(task)"
                   quaternary
                   size="tiny"
                   style="font-size: 11px; color: #999;"

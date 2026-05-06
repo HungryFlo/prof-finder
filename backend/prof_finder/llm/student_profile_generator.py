@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Optional
+from typing import Generator, Optional
 
 from ..ai_workflows.provider import LLMProvider
 from ..prompts import get_prompt
@@ -111,6 +111,52 @@ class StudentProfileGenerator:
         )
 
         return self.provider.chat_completion(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.5,
+        )
+
+    def interview_stream(
+        self,
+        profile_analysis: dict,
+        academic_profile: str,
+        history: list[dict],
+        message: str,
+        locale: str = "zh",
+    ) -> Generator[str, None, None]:
+        """Streaming variant of interview(): yields content tokens.
+
+        Same prompt logic as interview() but streams tokens as they arrive.
+        """
+        if not self.provider.enabled:
+            raise ValueError("请先配置 DeepSeek API Key")
+
+        lang = "en" if locale == "en" else "zh"
+        lang_instr = _language_instruction(lang)
+        optimize_hint = '"Optimize Profile"' if lang == "en" else "「优化画像」"
+        empty_profile = "(Not generated yet)" if lang == "en" else "（尚未生成）"
+
+        system_prompt = get_prompt(
+            "student_profile",
+            "profile_interviewer",
+            "system",
+            language_instruction=lang_instr,
+            optimize_button_hint=optimize_hint,
+        )
+        history_text = self._format_chat_history(history, message, locale=lang)
+
+        user_prompt = get_prompt(
+            "student_profile",
+            "profile_interviewer",
+            "user",
+            profile_analysis=json.dumps(profile_analysis, ensure_ascii=False, indent=2),
+            academic_profile=academic_profile or empty_profile,
+            history_text=history_text,
+        )
+
+        yield from self.provider.chat_completion_stream(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},

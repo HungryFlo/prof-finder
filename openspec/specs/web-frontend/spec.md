@@ -1,7 +1,9 @@
 # web-frontend Specification
 
 ## Purpose
-TBD - created by archiving change add-vue-web-frontend. Update Purpose after archive.
+
+Prof-Finder 的 Web 前端为用户提供登录后的简历、教授、匹配、邮件与设置等能力，并通过 SSE 等机制展示后台任务进度。实现上采用 Vue 3 + Vite + TypeScript，在 Naive UI 的基础上叠加 Tailwind CSS 与 shadcn-vue（Reka UI）组件以支持 AI 聊天等模块，并使用 vue-i18n 提供界面级多语言。
+
 ## Requirements
 ### Requirement: Technology Stack
 
@@ -13,7 +15,10 @@ TBD - created by archiving change add-vue-web-frontend. Update Purpose after arc
   - Vue 3（Composition API + `<script setup>`）
   - TypeScript
   - Vite
-  - Naive UI
+  - Naive UI（主界面）
+  - Tailwind CSS 4
+  - shadcn-vue / Reka UI（部分现代化与 AI 相关 UI）
+  - vue-i18n
   - Pinia
   - Vue Router
   - Axios

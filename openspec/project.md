@@ -12,8 +12,7 @@
 
 项目定位：
 - 开源工具，供个人部署使用
-- 第一版采用命令行界面，降低使用门槛
-- 后续可扩展为Web应用
+- **CLI 与 Web 双入口**：命令行适合脚本与自动化；Web 界面（Vue 3 + FastAPI）提供完整交互与任务面板
 
 ## Tech Stack
 
@@ -44,9 +43,11 @@
 
 ### Frontend (已实现)
 - **Framework**: Vue 3 + TypeScript + Vite
-- **UI Library**: Naive UI
+- **UI**: Naive UI（主界面组件）；**Tailwind CSS 4** + **shadcn-vue**（基于 Reka UI）用于部分 AI 聊天与现代化组件
+- **i18n**: vue-i18n（界面中英文等）
 - **State**: Pinia
 - **Router**: Vue Router
+- **HTTP**: Axios
 
 ### Future Considerations
 - **Advanced Scraping**: Playwright/Selenium (处理JS渲染页面)
@@ -77,10 +78,12 @@ prof-finder/
 │   ├── prof_finder/
 │   │   ├── api/          # FastAPI REST API
 │   │   ├── cli/          # 命令行界面
-│   │   ├── crawler/      # 网页爬虫模块
+│   │   ├── crawler/      # 网页爬虫模块（含 universities 学校适配）
 │   │   ├── parser/       # 简历解析模块
 │   │   ├── matcher/      # 匹配算法模块
 │   │   ├── llm/          # LLM集成模块
+│   │   ├── ai_workflows/ # AI 工作流编排
+│   │   ├── prompts/      # LLM 提示词与 YAML 配置
 │   │   ├── db/           # 数据库操作
 │   │   └── models/       # 数据模型
 │   └── tests/            # 后端测试
@@ -94,7 +97,6 @@ prof-finder/
 │   │   ├── types/        # TypeScript 类型
 │   │   └── views/        # 页面组件
 │   └── package.json
-├── scholarly/            # Google Scholar 爬虫（可选 vendored 副本）
 ├── openspec/             # OpenSpec 规格文档
 ├── data/                 # 数据存储目录
 ├── .env.example          # 环境变量模板
@@ -234,7 +236,7 @@ docs: update README with installation steps
 
 **Google Scholar (Scholarly)**
 - 用途: 获取教授论文、引用数据
-- 集成方式: scholarly库（已clone）
+- 集成方式: PyPI `scholarly` 包（见 `pyproject.toml`）
 - 注意事项: 可能需要代理或延时避免被限制
 
 ### External Data Sources
@@ -276,6 +278,7 @@ ADMIN_PASSWORD=root123
 - ✅ Web 前端界面（Vue 3 + FastAPI REST API）
 - ✅ 多用户认证（JWT）
 - ✅ 后台任务面板（SSE 进度推送）
+- ✅ 前端界面多语言（vue-i18n，如中英切换）
 
 ### 后续扩展方向
 - 🔄 大学官网爬虫适配器（插件化设计）
@@ -283,7 +286,7 @@ ADMIN_PASSWORD=root123
 - 🔄 支持PDF/DOCX简历格式
 - 🔄 批量导出联络邮件（Markdown/PDF）
 - 🔄 教授数据定期更新机制
-- 🔄 多语言支持（中文/英文邮件）
+- 🔄 邮件内容多语言模板（与界面语言策略对齐）
 
 ## Success Metrics
 

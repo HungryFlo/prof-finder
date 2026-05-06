@@ -421,7 +421,13 @@
     "refineStartFailed": "Could not start refinement task",
     "refiningProfile": "Refining profile...",
     "refineSuccess": "Profile refined",
-    "refineFailed": "Profile refinement failed"
+    "refineFailed": "Profile refinement failed",
+    "suggestProfileStrengths": "What are my strengths?",
+    "suggestImproveDescription": "How to improve descriptions?",
+    "suggestAddProjects": "What projects to add?",
+    "suggestTailorForPhD": "How to tailor for PhD?",
+    "streamingHint": "AI is generating...",
+    "aiThinking": "AI is thinking..."
   },
   "source": {
     "title": "Source Input (PDF / ArXiv)",

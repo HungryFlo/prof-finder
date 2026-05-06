@@ -421,7 +421,13 @@
     "refineStartFailed": "启动优化任务失败",
     "refiningProfile": "正在优化画像...",
     "refineSuccess": "画像优化成功",
-    "refineFailed": "画像优化失败"
+    "refineFailed": "画像优化失败",
+    "suggestProfileStrengths": "我的优势有哪些？",
+    "suggestImproveDescription": "如何改进描述？",
+    "suggestAddProjects": "补充哪些项目？",
+    "suggestTailorForPhD": "如何针对PhD定制？",
+    "streamingHint": "AI 正在生成…",
+    "aiThinking": "AI 正在思考…"
   },
   "source": {
     "title": "来源输入（PDF / ArXiv）",

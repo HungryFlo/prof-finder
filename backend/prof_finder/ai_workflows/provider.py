@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
+from typing import Generator, Optional
 
 from openai import OpenAI
 
@@ -80,3 +80,27 @@ class LLMProvider:
                     )
                     time.sleep(wait)
         raise last_exc  # type: ignore[misc]
+
+    def chat_completion_stream(
+        self,
+        messages: list[dict],
+        *,
+        temperature: float = 0.3,
+        model: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+    ) -> Generator[str, None, None]:
+        """Streaming variant: yields content tokens as they arrive from the API.
+
+        No retry — retrying mid-stream would produce duplicate tokens.
+        """
+        response = self.client.chat.completions.create(
+            model=model or self.model,
+            messages=messages,
+            temperature=temperature,
+            stream=True,
+            **({"max_tokens": max_tokens} if max_tokens is not None else {}),
+        )
+        for chunk in response:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta and delta.content:
+                yield delta.content
