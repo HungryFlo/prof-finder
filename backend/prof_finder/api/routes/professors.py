@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from ...models.schema import User, Professor, SourceInput
+from ...models.schema import User, Professor, SourceInput, UserSettings
 from ...crawler.scholar import ScholarCrawler
 from ...llm import PaperSummarizer
 from ..deps import get_db_session, get_current_user
@@ -37,6 +37,10 @@ from ..task_manager import (
     enqueue_task,
 )
 from ..source_input_service import build_paper_summary_from_source, keep_non_scholar_paper_summaries
+from ..enrichment_prefs import (
+    flags_from_user_settings_row,
+    planned_enrichment_step_count_for_professor,
+)
 
 router = APIRouter(prefix="/professors", tags=["教授管理"])
 
@@ -141,16 +145,28 @@ async def create_professor(
     session.flush()
     session.refresh(professor)
 
-    enrich_task = create_task(
-        "professor-enrichment",
-        "教授信息增强",
-        current_user.id,
-        total=3,
+    settings_row = (
+        session.query(UserSettings)
+        .filter(UserSettings.user_id == current_user.id)
+        .first()
     )
-    enqueue_task("professor-enrichment", enrich_task.task_id, professor_id=professor.id)
+    flags = flags_from_user_settings_row(settings_row)
+    enrich_planned = planned_enrichment_step_count_for_professor(professor, flags)
+
+    extra: dict = {}
+    if enrich_planned > 0:
+        enrich_task = create_task(
+            "professor-enrichment",
+            "教授信息增强",
+            current_user.id,
+            total=enrich_planned,
+        )
+        enqueue_task("professor-enrichment", enrich_task.task_id, professor_id=professor.id)
+        extra["enrichment_task_id"] = enrich_task.task_id
+        extra["enrichment_task_total"] = enrich_planned
 
     base = ProfessorResponse.model_validate(professor)
-    return base.model_copy(update={"enrichment_task_id": enrich_task.task_id})
+    return base.model_copy(update=extra)
 
 
 @router.post("/scholar", response_model=TaskStartResponse)
@@ -943,16 +959,28 @@ async def refresh_professor(
     session.flush()
     session.refresh(professor)
 
-    enrich_task = create_task(
-        "professor-enrichment",
-        "教授信息增强",
-        current_user.id,
-        total=3,
+    settings_row = (
+        session.query(UserSettings)
+        .filter(UserSettings.user_id == current_user.id)
+        .first()
     )
-    enqueue_task("professor-enrichment", enrich_task.task_id, professor_id=professor.id)
-    
+    flags = flags_from_user_settings_row(settings_row)
+    enrich_planned = planned_enrichment_step_count_for_professor(professor, flags)
+
+    extra: dict = {}
+    if enrich_planned > 0:
+        enrich_task = create_task(
+            "professor-enrichment",
+            "教授信息增强",
+            current_user.id,
+            total=enrich_planned,
+        )
+        enqueue_task("professor-enrichment", enrich_task.task_id, professor_id=professor.id)
+        extra["enrichment_task_id"] = enrich_task.task_id
+        extra["enrichment_task_total"] = enrich_planned
+
     base = ProfessorResponse.model_validate(professor)
-    return base.model_copy(update={"enrichment_task_id": enrich_task.task_id})
+    return base.model_copy(update=extra)
 
 
 @router.post("/batch-delete", response_model=MessageResponse)

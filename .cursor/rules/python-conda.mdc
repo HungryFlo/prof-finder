@@ -1,0 +1,16 @@
+---
+description: Run Python tooling in the prof-finder conda environment
+alwaysApply: true
+---
+
+# Python / backend commands
+
+When running **Python**, **pytest**, **`python -m`**, or installing backend deps for this repo:
+
+1. Activate conda env **`prof-finder`** first (see [README.md](../../README.md) for setup).
+2. Typical shell prelude:
+   - `source "$(conda info --base)/etc/profile.d/conda.sh"` (if needed)
+   - `conda activate prof-finder`
+3. From `backend/`, run tests e.g. `python -m pytest tests/ ...`.
+
+Do not assume `poetry` or system `python` without this env unless the user explicitly opts out.

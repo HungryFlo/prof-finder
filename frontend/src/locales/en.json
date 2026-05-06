@@ -327,6 +327,10 @@
   "settings": {
     "title": "Settings",
     "apiConfig": "API Configuration",
+    "professorAutoEnrich": "Professor enrichment (after add or Scholar sync)",
+    "autoEnrichFetchPublications": "Fetch publication details (Scholar crawl; uses request delay)",
+    "autoEnrichPaperSummaries": "Generate English paper summaries (LLM)",
+    "autoEnrichResearchProfile": "Generate research profile (LLM)",
     "changePassword": "Change Password",
     "currentApiKey": "Current API Key",
     "newApiKey": "New API Key",

@@ -298,13 +298,20 @@ def _parse_materials_as_resume(materials: list[dict], use_llm: bool) -> dict:
 # ---------------------------------------------------------------------------
 
 from .task_queue import register_task, enqueue_task  # noqa: E402
+from .enrichment_prefs import (  # noqa: E402
+    AutoEnrichFlags,
+    any_auto_enrich_substep_enabled,
+    flags_from_user_settings_row,
+    planned_enrichment_step_count,
+    planned_enrichment_step_count_for_professor,
+)
 
 
 @register_task("batch-crawl")
 def execute_batch_crawl(task_id: str, scholar_urls: List[str]) -> None:
     """Crawl a list of Google Scholar URLs and persist each author."""
     from ..db.database import get_db
-    from ..models.schema import Professor
+    from ..models.schema import Professor, UserSettings
     from ..crawler.scholar import ScholarCrawler
 
     task = get_task(task_id)
@@ -369,17 +376,25 @@ def execute_batch_crawl(task_id: str, scholar_urls: List[str]) -> None:
     persist_task(task)
 
     if new_professor_ids and task.status == TaskStatus.COMPLETED:
-        batch_enrich = create_task(
-            "batch-professor-enrichment",
-            f"教授信息增强 ({len(new_professor_ids)} 位)",
-            task.user_id,
-            total=len(new_professor_ids),
-        )
-        enqueue_task(
-            "batch-professor-enrichment",
-            batch_enrich.task_id,
-            professor_ids=new_professor_ids,
-        )
+        with db.session() as session:
+            row = (
+                session.query(UserSettings)
+                .filter(UserSettings.user_id == task.user_id)
+                .first()
+            )
+            enrich_flags = flags_from_user_settings_row(row)
+        if any_auto_enrich_substep_enabled(enrich_flags):
+            batch_enrich = create_task(
+                "batch-professor-enrichment",
+                f"教授信息增强 ({len(new_professor_ids)} 位)",
+                task.user_id,
+                total=len(new_professor_ids),
+            )
+            enqueue_task(
+                "batch-professor-enrichment",
+                batch_enrich.task_id,
+                professor_ids=new_professor_ids,
+            )
 
 
 @register_task("batch-letters")
@@ -721,7 +736,7 @@ def execute_single_crawl(task_id: str, scholar_url: str) -> None:
     persist_task(task)
 
     from ..db.database import get_db
-    from ..models.schema import Professor
+    from ..models.schema import Professor, UserSettings
     from ..crawler.scholar import ScholarCrawler
 
     db = get_db()
@@ -768,6 +783,15 @@ def execute_single_crawl(task_id: str, scholar_url: str) -> None:
             session.add(professor)
             session.flush()
             enrichment_professor_id = professor.id
+            settings_row = (
+                session.query(UserSettings)
+                .filter(UserSettings.user_id == task.user_id)
+                .first()
+            )
+            enrich_flags = flags_from_user_settings_row(settings_row)
+            enrich_planned = planned_enrichment_step_count_for_professor(
+                professor, enrich_flags
+            )
 
         task.success_count = 1
         task.current = 1
@@ -776,13 +800,18 @@ def execute_single_crawl(task_id: str, scholar_url: str) -> None:
         task.status = TaskStatus.COMPLETED
         persist_task(task)
 
-        enrich_task = create_task(
-            "professor-enrichment",
-            "教授信息增强",
-            task.user_id,
-            total=3,
-        )
-        enqueue_task("professor-enrichment", enrich_task.task_id, professor_id=enrichment_professor_id)
+        if enrich_planned > 0:
+            enrich_task = create_task(
+                "professor-enrichment",
+                "教授信息增强",
+                task.user_id,
+                total=enrich_planned,
+            )
+            enqueue_task(
+                "professor-enrichment",
+                enrich_task.task_id,
+                professor_id=enrichment_professor_id,
+            )
 
     except ValueError as e:
         task.status = TaskStatus.FAILED
@@ -1050,7 +1079,7 @@ def execute_university_crawl(task_id: str, university_id: str) -> None:
     then persists each professor to the database, skipping duplicates.
     """
     from ..db.database import get_db
-    from ..models.schema import Professor
+    from ..models.schema import Professor, UserSettings
     from ..crawler.universities.registry import get_crawler
 
     task = get_task(task_id)
@@ -1135,17 +1164,25 @@ def execute_university_crawl(task_id: str, university_id: str) -> None:
         skipped = sum(1 for r in task.results if r.get("skipped"))
         task.message = f"完成！新增 {task.success_count} 位，跳过重复 {skipped} 位，失败 {task.failed_count} 位"
         if new_professor_ids:
-            batch_enrich = create_task(
-                "batch-professor-enrichment",
-                f"教授信息增强 ({len(new_professor_ids)} 位)",
-                task.user_id,
-                total=len(new_professor_ids),
-            )
-            enqueue_task(
-                "batch-professor-enrichment",
-                batch_enrich.task_id,
-                professor_ids=new_professor_ids,
-            )
+            with db.session() as session:
+                row = (
+                    session.query(UserSettings)
+                    .filter(UserSettings.user_id == task.user_id)
+                    .first()
+                )
+                enrich_flags = flags_from_user_settings_row(row)
+            if any_auto_enrich_substep_enabled(enrich_flags):
+                batch_enrich = create_task(
+                    "batch-professor-enrichment",
+                    f"教授信息增强 ({len(new_professor_ids)} 位)",
+                    task.user_id,
+                    total=len(new_professor_ids),
+                )
+                enqueue_task(
+                    "batch-professor-enrichment",
+                    batch_enrich.task_id,
+                    professor_ids=new_professor_ids,
+                )
     persist_task(task)
 
 
@@ -1153,8 +1190,10 @@ def _enrich_professor_core(
     user_id: int,
     professor_id: int,
     *,
+    flags: AutoEnrichFlags,
     progress: Optional[Callable[[str], None]] = None,
     cancel_checker: Optional[Callable[[], bool]] = None,
+    on_substep_done: Optional[Callable[[], None]] = None,
 ) -> str:
     """Fill top-N publication abstracts, English summaries, research profile. Returns professor name."""
     from sqlalchemy.orm.attributes import flag_modified
@@ -1175,6 +1214,10 @@ def _enrich_professor_core(
     def _cancelled() -> bool:
         return bool(cancel_checker and cancel_checker())
 
+    def _bump() -> None:
+        if on_substep_done:
+            on_substep_done()
+
     db = get_db()
     max_pub = app_settings.professor_enrichment_max_publications
 
@@ -1190,10 +1233,30 @@ def _enrich_professor_core(
         publications = list(professor.publications or [])
         prof_name = professor.name
 
+    provider: Optional[LLMProvider] = None
+
+    def _ensure_provider() -> LLMProvider:
+        nonlocal provider
+        if provider is None:
+            with db.session() as session:
+                user_settings = (
+                    session.query(UserSettings)
+                    .filter(UserSettings.user_id == user_id)
+                    .first()
+                )
+                api_key = (
+                    user_settings.deepseek_api_key if user_settings else None
+                ) or app_settings.deepseek_api_key
+                base_url = (
+                    user_settings.deepseek_base_url if user_settings else None
+                ) or app_settings.deepseek_base_url
+            provider = LLMProvider(api_key=api_key, base_url=base_url)
+        return provider
+
     if _cancelled():
         raise TaskCancelled()
 
-    if has_scholar and publications:
+    if flags.fetch_publication_details and has_scholar and publications:
         _prog("正在获取论文详情...")
         crawler = ScholarCrawler()
         for i in range(min(len(publications), max_pub)):
@@ -1218,88 +1281,82 @@ def _enrich_professor_core(
                 professor.publications = publications
                 flag_modified(professor, "publications")
                 professor.embedding = None
+        _bump()
 
     if _cancelled():
         raise TaskCancelled()
 
-    _prog("正在生成论文摘要...")
-    with db.session() as session:
-        user_settings = (
-            session.query(UserSettings).filter(UserSettings.user_id == user_id).first()
-        )
-        api_key = (
-            user_settings.deepseek_api_key if user_settings else None
-        ) or app_settings.deepseek_api_key
-        base_url = (
-            user_settings.deepseek_base_url if user_settings else None
-        ) or app_settings.deepseek_base_url
-
-    provider = LLMProvider(api_key=api_key, base_url=base_url)
-
-    with db.session() as session:
-        professor = (
-            session.query(Professor)
-            .filter(Professor.id == professor_id, Professor.user_id == user_id)
-            .first()
-        )
-        if not professor:
-            raise ValueError("教授不存在或无权限")
-        publications = list(professor.publications or [])
-        merged = keep_non_scholar_paper_summaries(professor.paper_summaries or [])
-        new_items: list = []
-        for pub in publications[:max_pub]:
-            if _cancelled():
-                raise TaskCancelled()
-            new_items.append(
-                build_paper_summary_from_scholar_publication(
-                    pub, provider=provider, language="en"
-                )
+    if flags.paper_summaries:
+        _prog("正在生成论文摘要...")
+        prov = _ensure_provider()
+        with db.session() as session:
+            professor = (
+                session.query(Professor)
+                .filter(Professor.id == professor_id, Professor.user_id == user_id)
+                .first()
             )
-        professor.paper_summaries = merged + new_items
-        flag_modified(professor, "paper_summaries")
-        professor.embedding = None
+            if not professor:
+                raise ValueError("教授不存在或无权限")
+            publications = list(professor.publications or [])
+            merged = keep_non_scholar_paper_summaries(professor.paper_summaries or [])
+            new_items: list = []
+            for pub in publications[:max_pub]:
+                if _cancelled():
+                    raise TaskCancelled()
+                new_items.append(
+                    build_paper_summary_from_scholar_publication(
+                        pub, provider=prov, language="en"
+                    )
+                )
+            professor.paper_summaries = merged + new_items
+            flag_modified(professor, "paper_summaries")
+            professor.embedding = None
+        _bump()
 
     if _cancelled():
         raise TaskCancelled()
 
-    _prog("正在生成科研画像...")
-    with db.session() as session:
-        professor = (
-            session.query(Professor)
-            .filter(Professor.id == professor_id, Professor.user_id == user_id)
-            .first()
-        )
-        if not professor:
-            raise ValueError("教授不存在或无权限")
-        prof_data = {
-            "name": professor.name,
-            "affiliation": professor.affiliation,
-            "research_interests": professor.research_interests or [],
-            "publications": professor.publications or [],
-            "paper_summaries": professor.paper_summaries or [],
-            "manual_notes": professor.manual_notes,
-            "homepage": professor.homepage,
-            "google_scholar_url": professor.google_scholar_url,
-        }
-        prof_name = professor.name
+    if flags.research_profile:
+        _prog("正在生成科研画像...")
+        prov = _ensure_provider()
+        with db.session() as session:
+            professor = (
+                session.query(Professor)
+                .filter(Professor.id == professor_id, Professor.user_id == user_id)
+                .first()
+            )
+            if not professor:
+                raise ValueError("教授不存在或无权限")
+            prof_data = {
+                "name": professor.name,
+                "affiliation": professor.affiliation,
+                "research_interests": professor.research_interests or [],
+                "publications": professor.publications or [],
+                "paper_summaries": professor.paper_summaries or [],
+                "manual_notes": professor.manual_notes,
+                "homepage": professor.homepage,
+                "google_scholar_url": professor.google_scholar_url,
+            }
+            prof_name = professor.name
 
-    result = generate_professor_profile(prof_data, language="en", provider=provider)
+        result = generate_professor_profile(prof_data, language="en", provider=prov)
 
-    with db.session() as session:
-        professor = (
-            session.query(Professor)
-            .filter(Professor.id == professor_id, Professor.user_id == user_id)
-            .first()
-        )
-        if not professor:
-            raise ValueError("教授不存在或无权限")
-        professor.research_profile = result.research_profile
-        professor.research_profile_analysis = result.research_profile_analysis
-        professor.research_profile_sources = result.research_profile_sources
-        professor.research_profile_evidence = result.research_profile_evidence
-        professor.research_profile_conflicts = result.research_profile_conflicts
-        professor.research_profile_generated_at = datetime.now(timezone.utc)
-        professor.embedding = None
+        with db.session() as session:
+            professor = (
+                session.query(Professor)
+                .filter(Professor.id == professor_id, Professor.user_id == user_id)
+                .first()
+            )
+            if not professor:
+                raise ValueError("教授不存在或无权限")
+            professor.research_profile = result.research_profile
+            professor.research_profile_analysis = result.research_profile_analysis
+            professor.research_profile_sources = result.research_profile_sources
+            professor.research_profile_evidence = result.research_profile_evidence
+            professor.research_profile_conflicts = result.research_profile_conflicts
+            professor.research_profile_generated_at = datetime.now(timezone.utc)
+            professor.embedding = None
+        _bump()
 
     return prof_name
 
@@ -1307,23 +1364,77 @@ def _enrich_professor_core(
 @register_task("professor-enrichment")
 def execute_professor_enrichment(task_id: str, professor_id: int) -> None:
     """Background task: publication fill, paper summaries, research profile."""
+    from ..db.database import get_db
+    from ..models.schema import Professor, UserSettings
+
     task = get_task(task_id)
     if not task:
         return
     task.status = TaskStatus.RUNNING
-    task.total = 3
+    persist_task(task)
+
+    db = get_db()
+    with db.session() as session:
+        settings_row = (
+            session.query(UserSettings)
+            .filter(UserSettings.user_id == task.user_id)
+            .first()
+        )
+        flags = flags_from_user_settings_row(settings_row)
+        professor = (
+            session.query(Professor)
+            .filter(Professor.id == professor_id, Professor.user_id == task.user_id)
+            .first()
+        )
+        if not professor:
+            task.status = TaskStatus.FAILED
+            task.error_message = "教授不存在或无权限"
+            task.message = "教授信息增强失败"
+            persist_task(task)
+            return
+
+        planned = planned_enrichment_step_count(
+            has_scholar=bool(professor.google_scholar_id),
+            publications=list(professor.publications or []),
+            flags=flags,
+        )
+        prof_name = professor.name
+
+    task.total = planned
     task.current = 0
     persist_task(task)
+
+    if planned == 0:
+        task.success_count = 1
+        task.current = 0
+        task.message = "教授信息增强已跳过（未启用子步或当前数据无可执行步骤）"
+        task.results.append(
+            {
+                "success": True,
+                "professor_id": professor_id,
+                "name": prof_name,
+                "skipped": True,
+            }
+        )
+        task.status = TaskStatus.COMPLETED
+        persist_task(task)
+        return
+
+    def _bump_current() -> None:
+        task.current += 1
+        persist_task(task)
 
     try:
         name = _enrich_professor_core(
             task.user_id,
             professor_id,
+            flags=flags,
             progress=lambda m: setattr(task, "message", m),
             cancel_checker=lambda: task.cancel_requested,
+            on_substep_done=_bump_current,
         )
         task.success_count = 1
-        task.current = 3
+        task.current = planned
         task.results.append(
             {"success": True, "professor_id": professor_id, "name": name}
         )
@@ -1343,6 +1454,9 @@ def execute_professor_enrichment(task_id: str, professor_id: int) -> None:
 @register_task("batch-professor-enrichment")
 def execute_batch_professor_enrichment(task_id: str, professor_ids: List[int]) -> None:
     """Sequential enrichment for many professors (one DB user)."""
+    from ..db.database import get_db
+    from ..models.schema import UserSettings
+
     task = get_task(task_id)
     if not task:
         return
@@ -1356,6 +1470,7 @@ def execute_batch_professor_enrichment(task_id: str, professor_ids: List[int]) -
         persist_task(task)
         return
 
+    db = get_db()
     for i, pid in enumerate(professor_ids):
         if task.cancel_requested:
             task.status = TaskStatus.CANCELLED
@@ -1364,9 +1479,17 @@ def execute_batch_professor_enrichment(task_id: str, professor_ids: List[int]) -
         task.current = i + 1
         task.message = f"正在增强第 {i + 1}/{len(professor_ids)} 位教授..."
         try:
+            with db.session() as session:
+                row = (
+                    session.query(UserSettings)
+                    .filter(UserSettings.user_id == task.user_id)
+                    .first()
+                )
+                flags = flags_from_user_settings_row(row)
             _enrich_professor_core(
                 task.user_id,
                 pid,
+                flags=flags,
                 progress=lambda m: setattr(task, "message", m),
                 cancel_checker=lambda: task.cancel_requested,
             )
@@ -1880,7 +2003,7 @@ def execute_batch_refresh(
 ) -> None:
     """Refresh multiple professors from Google Scholar in a background task."""
     from ..db.database import get_db
-    from ..models.schema import Professor
+    from ..models.schema import Professor, UserSettings
     from ..crawler.scholar import ScholarCrawler
 
     task = get_task(task_id)
@@ -1992,17 +2115,25 @@ def execute_batch_refresh(
     task.message = f"批量更新完成：成功 {task.success_count}，失败 {task.failed_count}"
     persist_task(task)
     if enrichment_ids:
-        batch_enrich = create_task(
-            "batch-professor-enrichment",
-            f"教授信息增强 ({len(enrichment_ids)} 位)",
-            task.user_id,
-            total=len(enrichment_ids),
-        )
-        enqueue_task(
-            "batch-professor-enrichment",
-            batch_enrich.task_id,
-            professor_ids=enrichment_ids,
-        )
+        with get_db().session() as session:
+            row = (
+                session.query(UserSettings)
+                .filter(UserSettings.user_id == task.user_id)
+                .first()
+            )
+            enrich_flags = flags_from_user_settings_row(row)
+        if any_auto_enrich_substep_enabled(enrich_flags):
+            batch_enrich = create_task(
+                "batch-professor-enrichment",
+                f"教授信息增强 ({len(enrichment_ids)} 位)",
+                task.user_id,
+                total=len(enrichment_ids),
+            )
+            enqueue_task(
+                "batch-professor-enrichment",
+                batch_enrich.task_id,
+                professor_ids=enrichment_ids,
+            )
 
 
 @register_task("profile-refine")

@@ -315,6 +315,7 @@ class ProfessorResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     enrichment_task_id: Optional[str] = None
+    enrichment_task_total: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -486,6 +487,9 @@ class UserSettingsUpdate(BaseModel):
     deepseek_api_key: Optional[str] = None
     deepseek_base_url: Optional[str] = None
     request_delay: Optional[int] = Field(None, ge=1, le=60)
+    auto_enrich_on_save_fetch_publication_details: Optional[bool] = None
+    auto_enrich_on_save_paper_summaries: Optional[bool] = None
+    auto_enrich_on_save_research_profile: Optional[bool] = None
 
 
 class UserSettingsResponse(BaseModel):
@@ -494,6 +498,9 @@ class UserSettingsResponse(BaseModel):
     deepseek_api_key_masked: Optional[str]  # Only show first/last 4 chars
     deepseek_base_url: str
     request_delay: int
+    auto_enrich_on_save_fetch_publication_details: bool = True
+    auto_enrich_on_save_paper_summaries: bool = True
+    auto_enrich_on_save_research_profile: bool = True
 
     class Config:
         from_attributes = True

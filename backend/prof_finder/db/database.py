@@ -146,6 +146,27 @@ class Database:
                     )
                     conn.commit()
 
+                enrich_cols = [
+                    (
+                        "auto_enrich_on_save_fetch_publication_details",
+                        "BOOLEAN DEFAULT 1",
+                    ),
+                    ("auto_enrich_on_save_paper_summaries", "BOOLEAN DEFAULT 1"),
+                    ("auto_enrich_on_save_research_profile", "BOOLEAN DEFAULT 1"),
+                ]
+                for col_name, col_def in enrich_cols:
+                    settings_cols = {
+                        row[1]
+                        for row in conn.execute(text("PRAGMA table_info(user_settings)"))
+                    }
+                    if col_name not in settings_cols:
+                        conn.execute(
+                            text(
+                                f"ALTER TABLE user_settings ADD COLUMN {col_name} {col_def}"
+                            )
+                        )
+                        conn.commit()
+
             # Add background_tasks.enqueue_args / enqueue_kwargs columns
             # (huey-task-queue migration)
             bg_tasks_exists = conn.execute(

@@ -327,6 +327,10 @@
   "settings": {
     "title": "设置",
     "apiConfig": "API 配置",
+    "professorAutoEnrich": "教授自动增强（添加或 Scholar 同步后）",
+    "autoEnrichFetchPublications": "拉取论文详情（Scholar 爬取，受请求延时影响）",
+    "autoEnrichPaperSummaries": "生成英文论文摘要（LLM）",
+    "autoEnrichResearchProfile": "生成科研画像（LLM）",
     "changePassword": "修改密码",
     "currentApiKey": "当前 API Key",
     "newApiKey": "新 API Key",

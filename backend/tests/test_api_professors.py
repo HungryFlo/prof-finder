@@ -111,6 +111,37 @@ class TestProfessorCreate:
         assert data["name"] == "Dr. Smith"
         assert data["affiliation"] == "Stanford CS"
         assert "NLP" in data["research_interests"]
+        assert data.get("enrichment_task_id")
+        assert data.get("enrichment_task_total") == 2
+
+    def test_create_professor_skips_enrichment_when_all_auto_steps_off(
+        self, test_client: TestClient, auth_headers: dict
+    ):
+        """No background task when all auto-enrichment toggles are disabled."""
+        r0 = test_client.put(
+            "/api/settings",
+            headers=auth_headers,
+            json={
+                "auto_enrich_on_save_fetch_publication_details": False,
+                "auto_enrich_on_save_paper_summaries": False,
+                "auto_enrich_on_save_research_profile": False,
+            },
+        )
+        assert r0.status_code == 200
+
+        response = test_client.post(
+            "/api/professors",
+            headers=auth_headers,
+            json={
+                "name": "Dr. No Enrich",
+                "affiliation": "Test Univ",
+                "research_interests": ["AI"],
+            },
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data.get("enrichment_task_id") in (None, "")
+        assert data.get("enrichment_task_total") in (None, 0)
 
 
 class TestProfessorGet:

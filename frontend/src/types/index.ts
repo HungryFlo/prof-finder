@@ -119,6 +119,7 @@ export interface Professor {
   created_at: string
   updated_at: string
   enrichment_task_id?: string
+  enrichment_task_total?: number
 }
 
 export interface ProfessorListItem {
@@ -210,6 +211,9 @@ export interface UserSettings {
   deepseek_api_key_masked?: string | null
   deepseek_base_url: string
   request_delay: number
+  auto_enrich_on_save_fetch_publication_details?: boolean
+  auto_enrich_on_save_paper_summaries?: boolean
+  auto_enrich_on_save_research_profile?: boolean
 }
 
 // Task panel types

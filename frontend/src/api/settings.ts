@@ -5,6 +5,9 @@ export interface SettingsUpdate {
   deepseek_api_key?: string
   deepseek_base_url?: string
   request_delay?: number
+  auto_enrich_on_save_fetch_publication_details?: boolean
+  auto_enrich_on_save_paper_summaries?: boolean
+  auto_enrich_on_save_research_profile?: boolean
 }
 
 export const settingsApi = {

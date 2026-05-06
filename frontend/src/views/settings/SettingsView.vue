@@ -8,6 +8,7 @@ import {
   NInputNumber,
   NButton,
   NSpace,
+  NSwitch,
   useMessage,
 } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
@@ -25,11 +26,17 @@ const settings = ref<UserSettings>({
   deepseek_api_key_masked: null,
   deepseek_base_url: 'https://api.deepseek.com/v1',
   request_delay: 3,
+  auto_enrich_on_save_fetch_publication_details: true,
+  auto_enrich_on_save_paper_summaries: true,
+  auto_enrich_on_save_research_profile: true,
 })
 
 const apiKeyInput = ref('')
 const baseUrlInput = ref('')
 const delayInput = ref(3)
+const enrichFetch = ref(true)
+const enrichSummaries = ref(true)
+const enrichProfile = ref(true)
 
 const passwordLoading = ref(false)
 const passwordForm = ref({
@@ -44,6 +51,9 @@ async function fetchSettings() {
     settings.value = await settingsApi.get()
     baseUrlInput.value = settings.value.deepseek_base_url
     delayInput.value = settings.value.request_delay
+    enrichFetch.value = settings.value.auto_enrich_on_save_fetch_publication_details !== false
+    enrichSummaries.value = settings.value.auto_enrich_on_save_paper_summaries !== false
+    enrichProfile.value = settings.value.auto_enrich_on_save_research_profile !== false
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
     message.error(err.response?.data?.detail || t('settings.saveFailed'))
@@ -55,7 +65,7 @@ async function fetchSettings() {
 async function handleSaveSettings() {
   saving.value = true
   try {
-    const updateData: Record<string, string | number> = {}
+    const updateData: Record<string, string | number | boolean> = {}
 
     if (apiKeyInput.value) {
       updateData.deepseek_api_key = apiKeyInput.value
@@ -66,9 +76,21 @@ async function handleSaveSettings() {
     if (delayInput.value !== settings.value.request_delay) {
       updateData.request_delay = delayInput.value
     }
+    if (enrichFetch.value !== (settings.value.auto_enrich_on_save_fetch_publication_details !== false)) {
+      updateData.auto_enrich_on_save_fetch_publication_details = enrichFetch.value
+    }
+    if (enrichSummaries.value !== (settings.value.auto_enrich_on_save_paper_summaries !== false)) {
+      updateData.auto_enrich_on_save_paper_summaries = enrichSummaries.value
+    }
+    if (enrichProfile.value !== (settings.value.auto_enrich_on_save_research_profile !== false)) {
+      updateData.auto_enrich_on_save_research_profile = enrichProfile.value
+    }
 
     settings.value = await settingsApi.update(updateData)
     apiKeyInput.value = ''
+    enrichFetch.value = settings.value.auto_enrich_on_save_fetch_publication_details !== false
+    enrichSummaries.value = settings.value.auto_enrich_on_save_paper_summaries !== false
+    enrichProfile.value = settings.value.auto_enrich_on_save_research_profile !== false
     message.success(t('settings.saveSuccess'))
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
@@ -137,6 +159,25 @@ onMounted(() => {
           </n-form-item>
           <n-form-item :label="t('settings.requestDelay')">
             <n-input-number v-model:value="delayInput" :min="1" :max="60" />
+          </n-form-item>
+          <n-form-item>
+            <n-button type="primary" :loading="saving" @click="handleSaveSettings">
+              {{ t('settings.saveSettings') }}
+            </n-button>
+          </n-form-item>
+        </n-form>
+      </n-card>
+
+      <n-card :title="t('settings.professorAutoEnrich')">
+        <n-form label-placement="left" label-width="260">
+          <n-form-item :label="t('settings.autoEnrichFetchPublications')">
+            <n-switch v-model:value="enrichFetch" />
+          </n-form-item>
+          <n-form-item :label="t('settings.autoEnrichPaperSummaries')">
+            <n-switch v-model:value="enrichSummaries" />
+          </n-form-item>
+          <n-form-item :label="t('settings.autoEnrichResearchProfile')">
+            <n-switch v-model:value="enrichProfile" />
           </n-form-item>
           <n-form-item>
             <n-button type="primary" :loading="saving" @click="handleSaveSettings">

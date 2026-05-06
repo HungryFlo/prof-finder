@@ -56,6 +56,11 @@ class UserSettings(Base):
     # Crawler settings
     request_delay = Column(Integer, default=3)
 
+    # Auto professor-enrichment after manual save or Scholar sync (default all on)
+    auto_enrich_on_save_fetch_publication_details = Column(Boolean, default=True)
+    auto_enrich_on_save_paper_summaries = Column(Boolean, default=True)
+    auto_enrich_on_save_research_profile = Column(Boolean, default=True)
+
     # Language preference for LLM-generated content
     profile_language = Column(String(10), default="zh")
 

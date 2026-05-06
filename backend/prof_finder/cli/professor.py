@@ -11,6 +11,10 @@ from ..db import get_db
 from ..models import Professor
 from ..crawler import ScholarCrawler
 from ..api.task_manager import TaskStatus, create_task, execute_professor_enrichment
+from ..api.enrichment_prefs import (
+    flags_from_user_settings_row,
+    planned_enrichment_step_count_for_professor,
+)
 from ..api.source_input_service import keep_non_scholar_paper_summaries
 from .utils import get_current_user, display_professor, display_professors_table
 
@@ -31,9 +35,31 @@ def extract_scholar_id(url_or_id: str) -> Optional[str]:
 
 
 def _cli_run_professor_enrichment(user_id: int, professor_id: int) -> None:
-    """Run paper summaries + research profile pipeline (blocks until done)."""
-    t = create_task("professor-enrichment", "教授信息增强", user_id, total=3)
-    console.print("[cyan]正在生成论文摘要与科研画像（可能需要数分钟）...[/cyan]")
+    """Run enrichment pipeline per UserSettings (blocks until done)."""
+    from ..models.schema import Professor, UserSettings
+
+    db = get_db()
+    with db.session() as session:
+        row = session.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+        flags = flags_from_user_settings_row(row)
+        professor = (
+            session.query(Professor)
+            .filter(Professor.id == professor_id, Professor.user_id == user_id)
+            .first()
+        )
+        if not professor:
+            console.print(f"[red]错误: 未找到教授 ID {professor_id}[/red]")
+            return
+        planned = planned_enrichment_step_count_for_professor(professor, flags)
+
+    if planned == 0:
+        console.print(
+            "[yellow]已跳过信息增强（设置中未启用子步或当前数据无可执行步骤）[/yellow]"
+        )
+        return
+
+    t = create_task("professor-enrichment", "教授信息增强", user_id, total=planned)
+    console.print("[cyan]正在执行教授信息增强（可能需要数分钟）...[/cyan]")
     execute_professor_enrichment(t.task_id, professor_id=professor_id)
     state = t
     if state.status == TaskStatus.FAILED:
@@ -42,7 +68,7 @@ def _cli_run_professor_enrichment(user_id: int, professor_id: int) -> None:
     if state.status == TaskStatus.CANCELLED:
         console.print("[yellow]增强已取消[/yellow]")
         return
-    console.print("[green]✓ 论文摘要与科研画像已完成[/green]")
+    console.print("[green]✓ 教授信息增强已完成[/green]")
 
 
 @app.command("add")

@@ -17,6 +17,9 @@ class TestSettingsGet:
         assert "deepseek_api_key_masked" in data
         assert "deepseek_base_url" in data
         assert "request_delay" in data
+        assert data.get("auto_enrich_on_save_fetch_publication_details") is True
+        assert data.get("auto_enrich_on_save_paper_summaries") is True
+        assert data.get("auto_enrich_on_save_research_profile") is True
 
     def test_get_settings_creates_default(self, test_client: TestClient, auth_headers: dict, test_db):
         """Test that getting settings creates default if not exists."""
@@ -109,3 +112,20 @@ class TestSettingsUpdate:
             ).first()
             assert settings is not None
             assert settings.request_delay == 10
+
+    def test_update_auto_enrich_flags(self, test_client: TestClient, auth_headers: dict):
+        """Test updating professor auto-enrichment toggles."""
+        response = test_client.put(
+            "/api/settings",
+            headers=auth_headers,
+            json={
+                "auto_enrich_on_save_fetch_publication_details": False,
+                "auto_enrich_on_save_paper_summaries": False,
+                "auto_enrich_on_save_research_profile": True,
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["auto_enrich_on_save_fetch_publication_details"] is False
+        assert data["auto_enrich_on_save_paper_summaries"] is False
+        assert data["auto_enrich_on_save_research_profile"] is True

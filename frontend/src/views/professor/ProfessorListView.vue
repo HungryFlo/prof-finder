@@ -308,7 +308,7 @@ async function handleAddManually() {
         created.enrichment_task_id,
         'professor-enrichment',
         t('professor.enrichmentTask'),
-        3,
+        created.enrichment_task_total ?? 0,
         () => fetchProfessors()
       )
     }
@@ -330,7 +330,7 @@ async function handleRefresh(id: number) {
         p.enrichment_task_id,
         'professor-enrichment',
         t('professor.enrichmentTask'),
-        3,
+        p.enrichment_task_total ?? 0,
         () => fetchProfessors()
       )
     }

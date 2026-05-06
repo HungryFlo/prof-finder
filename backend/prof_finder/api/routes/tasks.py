@@ -286,7 +286,7 @@ async def cancel_task(
 
     # Also revoke from Huey queue if not yet started
     if task.huey_result_id:
-        huey.revoke(task.huey_result_id)
+        huey.revoke_by_id(task.huey_result_id)
 
     return TaskCancelResponse(
         message="取消请求已发送",

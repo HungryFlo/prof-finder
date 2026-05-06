@@ -66,6 +66,15 @@ def get_settings(
         deepseek_api_key_masked=mask_api_key(user_settings.deepseek_api_key),
         deepseek_base_url=user_settings.deepseek_base_url or app_settings.deepseek_base_url,
         request_delay=user_settings.request_delay or app_settings.request_delay,
+        auto_enrich_on_save_fetch_publication_details=bool(
+            user_settings.auto_enrich_on_save_fetch_publication_details
+        ),
+        auto_enrich_on_save_paper_summaries=bool(
+            user_settings.auto_enrich_on_save_paper_summaries
+        ),
+        auto_enrich_on_save_research_profile=bool(
+            user_settings.auto_enrich_on_save_research_profile
+        ),
     )
 
 
@@ -108,6 +117,18 @@ def update_settings(
         user_settings.deepseek_base_url = data.deepseek_base_url
     if data.request_delay is not None:
         user_settings.request_delay = data.request_delay
+    if data.auto_enrich_on_save_fetch_publication_details is not None:
+        user_settings.auto_enrich_on_save_fetch_publication_details = (
+            data.auto_enrich_on_save_fetch_publication_details
+        )
+    if data.auto_enrich_on_save_paper_summaries is not None:
+        user_settings.auto_enrich_on_save_paper_summaries = (
+            data.auto_enrich_on_save_paper_summaries
+        )
+    if data.auto_enrich_on_save_research_profile is not None:
+        user_settings.auto_enrich_on_save_research_profile = (
+            data.auto_enrich_on_save_research_profile
+        )
 
     session.flush()
     session.refresh(user_settings)
@@ -116,4 +137,13 @@ def update_settings(
         deepseek_api_key_masked=mask_api_key(user_settings.deepseek_api_key),
         deepseek_base_url=user_settings.deepseek_base_url or app_settings.deepseek_base_url,
         request_delay=user_settings.request_delay or app_settings.request_delay,
+        auto_enrich_on_save_fetch_publication_details=bool(
+            user_settings.auto_enrich_on_save_fetch_publication_details
+        ),
+        auto_enrich_on_save_paper_summaries=bool(
+            user_settings.auto_enrich_on_save_paper_summaries
+        ),
+        auto_enrich_on_save_research_profile=bool(
+            user_settings.auto_enrich_on_save_research_profile
+        ),
     )
