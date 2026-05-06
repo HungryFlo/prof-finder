@@ -22,6 +22,12 @@ def run(command: list[str], cwd: Path = REPO_ROOT) -> None:
     subprocess.run(command, cwd=cwd, check=True)
 
 
+def npm_command(*args: str) -> list[str]:
+    """Return an npm command that works with Windows GitHub runners."""
+    executable = "npm.cmd" if sys.platform == "win32" else "npm"
+    return [executable, *args]
+
+
 def normalize_platform_tag() -> str:
     system = platform.system().lower()
     machine = platform.machine().lower()
@@ -44,8 +50,8 @@ def normalize_platform_tag() -> str:
 
 def build_frontend(skip_install: bool) -> None:
     if not skip_install:
-        run(["npm", "ci"], cwd=FRONTEND_DIR)
-    run(["npm", "run", "build"], cwd=FRONTEND_DIR)
+        run(npm_command("ci"), cwd=FRONTEND_DIR)
+    run(npm_command("run", "build"), cwd=FRONTEND_DIR)
 
 
 def build_executable() -> Path:
