@@ -77,6 +77,12 @@ def build_executable() -> Path:
 
     executable = PYINSTALLER_DIST / ("Prof-Finder.exe" if sys.platform == "win32" else "Prof-Finder")
     if not executable.exists():
+        executable = (
+            PYINSTALLER_DIST
+            / "Prof-Finder"
+            / ("Prof-Finder.exe" if sys.platform == "win32" else "Prof-Finder")
+        )
+    if not executable.exists():
         raise FileNotFoundError(f"Expected PyInstaller output not found: {executable}")
     return executable
 
@@ -240,7 +246,16 @@ def create_archive(executable: Path, platform_tag: str) -> Path:
         shutil.rmtree(staging_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
 
-    shutil.copy2(executable, staging_dir / executable.name)
+    bundle_dir = executable.parent if executable.parent.parent == PYINSTALLER_DIST else None
+    if bundle_dir:
+        for item in bundle_dir.iterdir():
+            target = staging_dir / item.name
+            if item.is_dir():
+                shutil.copytree(item, target)
+            else:
+                shutil.copy2(item, target)
+    else:
+        shutil.copy2(executable, staging_dir / executable.name)
     write_portable_readme(staging_dir)
     write_uninstall_script(staging_dir, platform_tag)
 
