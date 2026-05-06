@@ -13,6 +13,34 @@
 
 ## 快速开始
 
+### 方式一：下载便携版（推荐给普通用户）
+
+在 GitHub Releases 下载与你系统匹配的便携包：
+
+- Windows: `Prof-Finder-windows-x64.zip`
+- macOS Apple Silicon: `Prof-Finder-macos-arm64.zip`
+- Linux: `Prof-Finder-linux-x64.tar.gz`
+
+解压后双击或运行 `Prof-Finder` / `Prof-Finder.exe`。应用会在本机启动服务，并自动打开系统浏览器。
+
+便携版不要求用户安装 Python、Node.js、Poetry 或 npm。首次登录后请先修改默认管理员密码，并在「设置」中填写 DeepSeek API Key。
+
+默认管理员账号：
+
+- 用户名：`root`
+- 密码：`root123`（首次登录需修改）
+
+便携版会把数据库、任务队列、日志和运行时配置保存到系统用户数据目录，而不是解压目录。
+
+如需卸载并彻底清理数据，请先关闭正在运行的 Prof-Finder，再运行便携包内的卸载脚本：
+
+- Windows: `uninstall-prof-finder.bat`
+- macOS / Linux: `./uninstall-prof-finder.sh`
+
+卸载脚本会要求输入 `DELETE` 确认，然后删除 Prof-Finder 用户数据目录，并尽可能删除当前解压出来的便携包目录。该操作不可恢复。
+
+### 方式二：开发环境运行
+
 ### 前置要求
 
 - Python 3.10+（与 `pyproject.toml` 中 `>=3.10,<4.0` 一致）
@@ -202,6 +230,23 @@ npm run dev
 # 前端构建
 npm run build
 ```
+
+### 构建便携发行包
+
+开发者可以在当前平台构建本平台便携包：
+
+```bash
+# 在项目根目录下，先激活 conda 环境
+conda activate prof-finder
+
+# 安装打包工具（首次）
+python -m pip install pyinstaller
+
+# 构建前端、PyInstaller 可执行文件和便携压缩包
+python scripts/build_portable.py
+```
+
+产物输出到 `dist/portable/`。构建脚本只生成当前操作系统/架构的包；三平台自动构建由 `.github/workflows/portable-release.yml` 在 tag 发布时完成。
 
 ### 本地联调
 

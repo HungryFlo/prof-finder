@@ -1,13 +1,17 @@
 """FastAPI application entry point."""
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from ..config import settings
 from ..db.database import get_db
 from ..models.schema import User, UserSettings
+from ..runtime import frontend_dist_dir
 from .auth import hash_password
 from .routes.auth import router as auth_router, admin_router
 from .routes.profiles import router as profiles_router
@@ -54,13 +58,20 @@ def _rehydrate_tasks():
                 message=row.message,
                 error_message=row.error_message,
                 results=row.results or [],
-                cancel_requested=False,
+                cancel_requested=row.cancel_requested,
                 created_at=row.created_at,
                 enqueue_args=row.enqueue_args or [],
                 enqueue_kwargs=row.enqueue_kwargs or {},
             )
             with _tasks_lock:
                 _tasks[task.task_id] = task
+
+            if task.cancel_requested:
+                row.status = "cancelled"
+                task.status = TaskStatus.CANCELLED
+                task.message = task.message or "任务已取消"
+                persist_task(task)
+                continue
 
             # Only re-enqueue tasks that have stored arguments from the
             # Huey-powered system.  Tasks created before the migration have
@@ -178,8 +189,42 @@ def create_app() -> FastAPI:
     def health_check():
         """Health check endpoint."""
         return {"status": "ok", "message": "Prof-Finder API is running"}
+
+    _configure_frontend_static(app)
     
     return app
+
+
+def _configure_frontend_static(app: FastAPI) -> None:
+    """Serve the built Vue app when frontend assets are available."""
+    dist_dir = frontend_dist_dir()
+    if dist_dir is None:
+        return
+
+    assets_dir = dist_dir / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="frontend-assets")
+
+    dist_root = dist_dir.resolve()
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_frontend(full_path: str):
+        """Return static files or the SPA entry point for browser routes."""
+        if full_path == "api" or full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+
+        requested = (dist_root / full_path).resolve()
+        if requested.is_file() and _is_relative_to(requested, dist_root):
+            return FileResponse(requested)
+        return FileResponse(dist_root / "index.html")
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
 
 
 # Create the app instance

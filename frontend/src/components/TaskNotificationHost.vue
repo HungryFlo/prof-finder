@@ -19,12 +19,19 @@ watch(
           meta: event.taskName,
           duration: 5000,
         })
-      } else {
+      } else if (event.status === 'failed') {
         notification.error({
           title: t('task.taskFailed'),
           content: event.message,
           meta: event.taskName,
           duration: 8000,
+        })
+      } else {
+        notification.warning({
+          title: t('task.taskCancelled'),
+          content: event.message,
+          meta: event.taskName,
+          duration: 5000,
         })
       }
     }

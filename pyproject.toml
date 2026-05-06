@@ -39,6 +39,7 @@ mypy = "^1.5.0"
 
 [tool.poetry.scripts]
 prof-finder = "prof_finder.cli.main:app"
+prof-finder-launcher = "prof_finder.launcher:main"
 
 [build-system]
 requires = ["poetry-core"]

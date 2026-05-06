@@ -1,0 +1,76 @@
+name: Portable Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform-tag }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform-tag: windows-x64
+            artifact-glob: dist/portable/*.zip
+          - os: macos-14
+            platform-tag: macos-arm64
+            artifact-glob: dist/portable/*.zip
+          - os: ubuntu-latest
+            platform-tag: linux-x64
+            artifact-glob: dist/portable/*.tar.gz
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install system libraries on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libglib2.0-0
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install poetry pyinstaller
+          poetry config virtualenvs.create false
+          poetry install --without dev --no-interaction --no-root
+
+      - name: Install project package
+        run: python -m pip install .
+
+      - name: Build portable archive
+        run: python scripts/build_portable.py --platform-tag ${{ matrix.platform-tag }}
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Prof-Finder-${{ matrix.platform-tag }}
+          path: ${{ matrix.artifact-glob }}
+          if-no-files-found: error
+
+      - name: Upload release asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact-glob }}

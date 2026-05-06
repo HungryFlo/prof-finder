@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, computed, onMounted } from 'vue'
+import { h, computed, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   NLayout,
@@ -12,6 +12,7 @@ import {
   NSpace,
   NIcon,
   NButton,
+  NAlert,
   useMessage,
 } from 'naive-ui'
 import {
@@ -29,6 +30,7 @@ import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useTaskStore } from '@/stores/tasks'
 import { setLocale } from '@/i18n'
+import { settingsApi } from '@/api/settings'
 import TaskPanel from '@/components/TaskPanel.vue'
 import TaskNotificationHost from '@/components/TaskNotificationHost.vue'
 
@@ -38,9 +40,11 @@ const authStore = useAuthStore()
 const taskStore = useTaskStore()
 const message = useMessage()
 const { t, locale } = useI18n()
+const needsApiConfig = ref(false)
 
 onMounted(() => {
   taskStore.restoreFromServer()
+  checkApiConfiguration()
 })
 
 // Menu options
@@ -94,6 +98,17 @@ const activeKey = computed(() => {
   if (path.startsWith('/admin')) return 'admin/users'
   return ''
 })
+
+const showApiConfigBanner = computed(() => needsApiConfig.value && route.path !== '/settings')
+
+async function checkApiConfiguration() {
+  try {
+    const settings = await settingsApi.get()
+    needsApiConfig.value = !settings.deepseek_api_key_masked
+  } catch {
+    // Settings errors are handled by pages that need them; avoid blocking layout startup.
+  }
+}
 
 function handleMenuClick(key: string) {
   router.push(`/${key}`)
@@ -182,6 +197,19 @@ function toggleLang() {
         content-style="padding: 24px;"
         style="height: calc(100vh - 60px); overflow: auto;"
       >
+        <n-alert
+          v-if="showApiConfigBanner"
+          type="warning"
+          :title="t('settings.firstRunApiKeyTitle')"
+          style="margin-bottom: 16px"
+        >
+          <n-space vertical align="start">
+            <span>{{ t('settings.firstRunApiKeyDescription') }}</span>
+            <n-button size="small" type="primary" @click="router.push('/settings')">
+              {{ t('settings.configureApiKey') }}
+            </n-button>
+          </n-space>
+        </n-alert>
         <router-view />
       </n-layout-content>
     </n-layout>

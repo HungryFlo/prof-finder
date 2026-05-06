@@ -2,12 +2,11 @@
 
 import os
 import secrets
-from pathlib import Path
 from dataclasses import dataclass
-from dotenv import load_dotenv
 
-# Load .env file from project root
-load_dotenv()
+from .runtime import is_packaged, load_runtime_environment, runtime_file
+
+load_runtime_environment()
 
 
 @dataclass
@@ -48,16 +47,23 @@ class Settings:
     @classmethod
     def load(cls) -> "Settings":
         """Load settings from environment variables."""
+        default_database_path = (
+            str(runtime_file("prof_finder.db")) if is_packaged() else "./data/prof_finder.db"
+        )
+        default_huey_db_path = (
+            str(runtime_file("huey_tasks.db")) if is_packaged() else "./data/huey_tasks.db"
+        )
+
         return cls(
             deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", ""),
             deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
-            database_path=os.getenv("DATABASE_PATH", "./data/prof_finder.db"),
+            database_path=os.getenv("DATABASE_PATH", default_database_path),
             request_delay=int(os.getenv("REQUEST_DELAY", "3")),
             scholarly_proxy=os.getenv("SCHOLARLY_PROXY") or None,
             professor_enrichment_max_publications=int(
                 os.getenv("PROFESSOR_ENRICHMENT_MAX_PUBLICATIONS", "15")
             ),
-            huey_db_path=os.getenv("HUEY_DB_PATH", "./data/huey_tasks.db"),
+            huey_db_path=os.getenv("HUEY_DB_PATH", default_huey_db_path),
             huey_consumer_workers=int(os.getenv("HUEY_CONSUMER_WORKERS", "2")),
             default_user=os.getenv("DEFAULT_USER", "default"),
             # Admin account

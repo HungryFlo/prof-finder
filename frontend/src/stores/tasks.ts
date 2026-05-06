@@ -26,7 +26,7 @@ export interface TaskLifecycleEvent {
   taskId: string
   taskType: TaskType
   taskName: string
-  status: 'completed' | 'failed'
+  status: 'completed' | 'failed' | 'cancelled'
   message: string
 }
 
@@ -42,7 +42,10 @@ export const useTaskStore = defineStore('tasks', () => {
   const taskList = computed(() => Array.from(activeTasks.value.values()))
 
   const runningCount = computed(
-    () => taskList.value.filter((t) => t.status === 'running' || t.status === 'pending').length
+    () =>
+      taskList.value.filter(
+        (t) => t.status === 'running' || t.status === 'pending' || t.status === 'cancelling'
+      ).length
   )
 
   const failedCount = computed(() => taskList.value.filter((t) => t.status === 'failed').length)
@@ -130,9 +133,16 @@ export const useTaskStore = defineStore('tasks', () => {
     return entry.message || t('task.taskCompleted')
   }
 
+  function _cancelledMessage(current: number, total: number, message?: string): string {
+    if (total > 1) {
+      return t('task.cancelledProgress', { current, total })
+    }
+    return message || t('task.cancelledMessage')
+  }
+
   function _pushTaskEvent(
     entry: TaskEntry,
-    status: 'completed' | 'failed',
+    status: 'completed' | 'failed' | 'cancelled',
     message: string
   ): void {
     taskEvents.value.push({
@@ -159,8 +169,13 @@ export const useTaskStore = defineStore('tasks', () => {
         const data = JSON.parse(e.data)
         entry.current = data.current ?? entry.current
         entry.total = data.total ?? entry.total
-        entry.status = data.status ?? entry.status
-        entry.message = data.message ?? entry.message
+        if (data.cancel_requested) {
+          entry.status = 'cancelling'
+          entry.message = data.message ?? entry.message
+        } else if (entry.status !== 'cancelling') {
+          entry.status = data.status ?? entry.status
+          entry.message = data.message ?? entry.message
+        }
       } catch {
         // malformed event — ignore
       }
@@ -186,9 +201,22 @@ export const useTaskStore = defineStore('tasks', () => {
       onComplete?.()
     })
 
-    es.addEventListener('cancelled', () => {
+    es.addEventListener('cancelled', (e: MessageEvent) => {
+      const entry = activeTasks.value.get(taskId)
+      if (entry) {
+        let data: { current?: number; total?: number; message?: string; completed_count?: number } = {}
+        try {
+          data = JSON.parse(e.data)
+        } catch {
+          data = {}
+        }
+        entry.current = data.current ?? data.completed_count ?? entry.current
+        entry.total = data.total ?? entry.total
+        entry.status = 'cancelled'
+        entry.message = _cancelledMessage(entry.current, entry.total, data.message)
+        _pushTaskEvent(entry, 'cancelled', entry.message)
+      }
       es.close()
-      activeTasks.value.delete(taskId)
     })
 
     es.addEventListener('failed', (e: MessageEvent) => {
@@ -257,12 +285,32 @@ export const useTaskStore = defineStore('tasks', () => {
     activeTasks.value.delete(taskId)
   }
 
+  async function requestCancel(taskId: string): Promise<void> {
+    const entry = activeTasks.value.get(taskId)
+    if (!entry || !['pending', 'running'].includes(entry.status)) return
+
+    const previousStatus = entry.status
+    const previousMessage = entry.message
+    entry.status = 'cancelling'
+    entry.message = t('task.cancellingMessage')
+
+    try {
+      const result = await tasksApi.cancel(taskId)
+      entry.current = result.completed_count ?? entry.current
+      entry.message = t('task.cancellingMessage')
+    } catch (error) {
+      entry.status = previousStatus
+      entry.message = previousMessage
+      throw error
+    }
+  }
+
   /**
-   * Remove all tasks that have reached the `completed` status.
+   * Remove all tasks that have reached a dismissible terminal status.
    */
   function clearCompleted(): void {
     for (const [id, entry] of activeTasks.value) {
-      if (entry.status === 'completed') {
+      if (entry.status === 'completed' || entry.status === 'cancelled') {
         entry.eventSource?.close()
         activeTasks.value.delete(id)
       }
@@ -286,7 +334,9 @@ export const useTaskStore = defineStore('tasks', () => {
       activeTasks.value.clear()
       for (const t of tasks) {
         const entry = _buildEntry(t.task_id, t.task_type, t.task_name, t.total)
-        entry.status = t.status
+        entry.status = t.cancel_requested && (t.status === 'running' || t.status === 'pending')
+          ? 'cancelling'
+          : t.status
         entry.current = t.current
         entry.message = t.message
         entry.errorMessage = t.error_message
@@ -322,6 +372,7 @@ export const useTaskStore = defineStore('tasks', () => {
     failedCount,
     addTask,
     removeTask,
+    requestCancel,
     clearCompleted,
     consumeTaskEvents,
     restoreFromServer,

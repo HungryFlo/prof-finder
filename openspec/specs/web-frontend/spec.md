@@ -119,6 +119,7 @@ Prof-Finder 的 Web 前端为用户提供登录后的简历、教授、匹配、
 - **WHEN** 用户访问 `/professor`
 - **THEN** 显示教授列表表格
 - **AND** 表格列：姓名（可点击链接）、机构、研究方向（标签）、H-Index、操作
+- **AND** 表格行内不得提供「更新」或「画像」按钮
 - **AND** 支持分页
 - **AND** 支持批量选择、批量删除、批量更新、批量生成画像
 
@@ -148,13 +149,14 @@ Prof-Finder 的 Web 前端为用户提供登录后的简历、教授、匹配、
 - **THEN** 打开表单 Modal
 - **AND** 填写姓名、机构、研究方向等后提交
 
-#### Scenario: Refresh professor
-- **WHEN** 用户点击「更新」
-- **THEN** 同步重新爬取 Google Scholar 数据
+#### Scenario: Batch refresh professors from list
+- **WHEN** 用户勾选至少一名教授后点击「批量更新」
+- **THEN** 创建批量数据刷新异步任务，覆盖所选教授
+- **AND** 任务在任务面板中可跟踪；相关链式任务（若有）完成后列表数据得到更新
 
-#### Scenario: Generate profile from list
-- **WHEN** 用户点击「画像」
-- **THEN** 为该教授创建异步科研画像生成任务
+#### Scenario: Batch generate profiles from list
+- **WHEN** 用户勾选至少一名教授后点击「批量生成画像」
+- **THEN** 为所选教授创建异步科研画像生成任务
 - **AND** 任务完成后刷新列表
 
 #### Scenario: University crawl

@@ -120,23 +120,13 @@ const columns = computed<DataTableColumns<ProfessorListItem>>(() => [
   {
     title: t('professor.actions'),
     key: 'actions',
-    width: 420,
+    width: 240,
     render(row) {
       return h(NSpace, { size: 'small', wrap: true }, () => [
         h(
           NButton,
           { size: 'small', type: 'primary', onClick: () => router.push(`/professor/${row.id}`) },
           { default: () => t('professor.tableDetail') }
-        ),
-        h(
-          NButton,
-          { size: 'small', type: 'info', onClick: () => handleRefresh(row.id) },
-          { default: () => t('professor.tableUpdate') }
-        ),
-        h(
-          NButton,
-          { size: 'small', type: 'warning', onClick: () => handleGenerateProfile(row.id, row.name) },
-          { default: () => t('professor.quickProfile') }
         ),
         h(
           NPopconfirm,
@@ -320,26 +310,6 @@ async function handleAddManually() {
   }
 }
 
-async function handleRefresh(id: number) {
-  try {
-    const p = await professorsApi.refresh(id)
-    message.success(t('professor.updateOk'))
-    await fetchProfessors()
-    if (p.enrichment_task_id) {
-      taskStore.addTask(
-        p.enrichment_task_id,
-        'professor-enrichment',
-        t('professor.enrichmentTask'),
-        p.enrichment_task_total ?? 0,
-        () => fetchProfessors()
-      )
-    }
-  } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('professor.updateFail'))
-  }
-}
-
 async function handleBatchRefresh() {
   if (selectedRowKeys.value.length === 0) {
     message.warning(t('professor.pleaseSelectProfessorToRefresh'))
@@ -359,19 +329,6 @@ async function handleBatchRefresh() {
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string } } }
     message.error(err.response?.data?.detail || t('professor.batchRefreshFail'))
-  }
-}
-
-async function handleGenerateProfile(id: number, name: string) {
-  try {
-    const { task_id, message: msg } = await professorsApi.generateProfile(id)
-    taskStore.addTask(task_id, 'professor-profile', t('professor.researchProfileGenTask', { name }), 3, () => {
-      fetchProfessors()
-    })
-    message.success(msg || t('professor.generateProfileStarting'))
-  } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('professor.generateProfileStartFailed'))
   }
 }
 
@@ -484,7 +441,7 @@ onMounted(() => {
         :loading="loading"
         :row-key="(row: ProfessorListItem) => row.id"
         v-model:checked-row-keys="selectedRowKeys"
-        :scroll-x="1360"
+        :scroll-x="1180"
       />
 
       <n-space justify="end" style="margin-top: 16px">

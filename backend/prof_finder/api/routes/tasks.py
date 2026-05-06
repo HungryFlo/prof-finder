@@ -27,6 +27,7 @@ from ..task_manager import (
     get_user_tasks,
     cleanup_old_tasks,
     enqueue_task,
+    persist_task,
 )
 from ..task_queue import huey
 
@@ -202,6 +203,7 @@ async def get_task_progress(
                     "total": task.total,
                     "status": task.status.value,
                     "message": task.message,
+                    "cancel_requested": task.cancel_requested,
                 }),
             }
             await asyncio.sleep(0.5)
@@ -287,6 +289,12 @@ async def cancel_task(
     # Also revoke from Huey queue if not yet started
     if task.huey_result_id:
         huey.revoke_by_id(task.huey_result_id)
+    if task.status == TaskStatus.PENDING:
+        task.status = TaskStatus.CANCELLED
+        task.message = "任务已取消"
+    else:
+        task.message = task.message or "取消请求已发送，当前步骤完成后停止"
+    persist_task(task)
 
     return TaskCancelResponse(
         message="取消请求已发送",
@@ -319,6 +327,7 @@ async def list_tasks(
             total=t.total,
             message=t.message,
             error_message=t.error_message,
+            cancel_requested=t.cancel_requested,
         )
         for t in tasks
     ]

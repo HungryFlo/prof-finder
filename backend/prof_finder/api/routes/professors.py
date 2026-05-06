@@ -1,7 +1,5 @@
 """Professor management API routes."""
 
-import json
-import time
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -183,26 +181,6 @@ async def add_professor_by_scholar(
     Returns:
         Task ID for SSE progress tracking.
     """
-    # region agent log
-    _t0 = time.monotonic()
-    try:
-        with open("/Users/floh/Documents/prof-finder/.cursor/debug-a6cce7.log", "a") as _df:
-            _df.write(
-                json.dumps(
-                    {
-                        "sessionId": "a6cce7",
-                        "hypothesisId": "H5",
-                        "location": "professors.py:add_professor_by_scholar:entry",
-                        "message": "server_add_scholar_enter",
-                        "data": {"user_id": current_user.id},
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except OSError:
-        pass
-    # endregion
     try:
         extract_scholar_id_from_url(data.url)
     except ValueError as e:
@@ -219,28 +197,6 @@ async def add_professor_by_scholar(
         total=1,
     )
     enqueue_task("single-crawl", task.task_id, data.url)
-    # region agent log
-    try:
-        with open("/Users/floh/Documents/prof-finder/.cursor/debug-a6cce7.log", "a") as _df:
-            _df.write(
-                json.dumps(
-                    {
-                        "sessionId": "a6cce7",
-                        "hypothesisId": "H5",
-                        "location": "professors.py:add_professor_by_scholar:return",
-                        "message": "server_add_scholar_return",
-                        "data": {
-                            "task_id": task.task_id,
-                            "handler_elapsed_ms": int((time.monotonic() - _t0) * 1000),
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except OSError:
-        pass
-    # endregion
 
     return TaskStartResponse(task_id=task.task_id, message="爬取任务已启动")
 

@@ -234,7 +234,13 @@ export type TaskType =
   | 'profile-refine'
   | 'match'
   | 'single-letter'
-export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+export type TaskStatus =
+  | 'pending'
+  | 'running'
+  | 'cancelling'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
 
 export interface TaskListItem {
   task_id: string
@@ -245,14 +251,16 @@ export interface TaskListItem {
   total: number
   message: string
   error_message: string
+  cancel_requested?: boolean
 }
 
 // Task types
 export interface TaskProgress {
   current: number
   total: number
-  status: 'pending' | 'running' | 'completed' | 'cancelled' | 'failed'
+  status: TaskStatus
   message: string
+  cancel_requested?: boolean
   item?: {
     success: boolean
     name?: string

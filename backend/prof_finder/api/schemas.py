@@ -535,6 +535,7 @@ class TaskListItemResponse(BaseModel):
     total: int
     message: str
     error_message: str
+    cancel_requested: bool = False
 
 
 class BatchCrawlRequest(BaseModel):
