@@ -75,15 +75,19 @@ def build_executable() -> Path:
         ]
     )
 
-    executable = PYINSTALLER_DIST / ("Prof-Finder.exe" if sys.platform == "win32" else "Prof-Finder")
-    if not executable.exists():
-        executable = (
-            PYINSTALLER_DIST
-            / "Prof-Finder"
-            / ("Prof-Finder.exe" if sys.platform == "win32" else "Prof-Finder")
+    executable_name = "Prof-Finder.exe" if sys.platform == "win32" else "Prof-Finder"
+    onefile_executable = PYINSTALLER_DIST / executable_name
+    onedir_executable = PYINSTALLER_DIST / "Prof-Finder" / executable_name
+
+    if onefile_executable.is_file():
+        executable = onefile_executable
+    elif onedir_executable.is_file():
+        executable = onedir_executable
+    else:
+        raise FileNotFoundError(
+            "Expected PyInstaller output not found. Checked "
+            f"{onefile_executable} and {onedir_executable}"
         )
-    if not executable.exists():
-        raise FileNotFoundError(f"Expected PyInstaller output not found: {executable}")
     return executable
 
 
