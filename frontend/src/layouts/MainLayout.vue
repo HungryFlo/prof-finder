@@ -148,15 +148,16 @@ function toggleLang() {
 </script>
 
 <template>
-  <n-layout has-sider style="height: 100vh">
+  <n-layout has-sider class="app-root-layout">
     <TaskNotificationHost />
+    <a class="skip-link" href="#main-content">{{ t('nav.skipToContent') }}</a>
     <n-layout-sider
       bordered
       collapse-mode="width"
       :collapsed-width="64"
       :width="220"
       show-trigger
-      style="height: 100vh"
+      class="app-sider"
     >
       <div class="logo">
         <span class="logo-text">Prof-Finder</span>
@@ -194,29 +195,81 @@ function toggleLang() {
       </n-layout-header>
 
       <n-layout-content
-        content-style="padding: 24px;"
-        style="height: calc(100vh - 60px); overflow: auto;"
+        class="app-layout-scroll"
+        content-style="padding: 28px 28px 36px;"
       >
-        <n-alert
-          v-if="showApiConfigBanner"
-          type="warning"
-          :title="t('settings.firstRunApiKeyTitle')"
-          style="margin-bottom: 16px"
-        >
-          <n-space vertical align="start">
-            <span>{{ t('settings.firstRunApiKeyDescription') }}</span>
-            <n-button size="small" type="primary" @click="router.push('/settings')">
-              {{ t('settings.configureApiKey') }}
-            </n-button>
-          </n-space>
-        </n-alert>
-        <router-view />
+        <main id="main-content" class="main-content-shell" tabindex="-1">
+          <n-alert
+            v-if="showApiConfigBanner"
+            type="warning"
+            :title="t('settings.firstRunApiKeyTitle')"
+            style="margin-bottom: 20px"
+          >
+            <n-space vertical align="start">
+              <span>{{ t('settings.firstRunApiKeyDescription') }}</span>
+              <n-button size="small" type="primary" @click="router.push('/settings')">
+                {{ t('settings.configureApiKey') }}
+              </n-button>
+            </n-space>
+          </n-alert>
+          <router-view />
+        </main>
       </n-layout-content>
     </n-layout>
   </n-layout>
 </template>
 
 <style scoped>
+.app-root-layout {
+  position: relative;
+  min-height: 100dvh;
+}
+
+.app-sider {
+  min-height: 100dvh;
+}
+
+.app-layout-scroll {
+  min-height: calc(100dvh - 60px);
+  overflow: auto;
+}
+
+.skip-link {
+  position: fixed;
+  left: 0.75rem;
+  top: 0.75rem;
+  z-index: 2000;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #fff;
+  background: #2f6f8f;
+  border-radius: 8px;
+  text-decoration: none;
+  transform: translateY(-120%);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 0.22s ease,
+    opacity 0.22s ease;
+}
+
+.skip-link:focus {
+  outline: none;
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+  box-shadow: 0 0 0 3px oklch(0.72 0.09 235 / 0.45);
+}
+
+.main-content-shell {
+  max-width: 1440px;
+  margin-inline: auto;
+}
+
 .logo {
   height: 60px;
   display: flex;
@@ -226,8 +279,37 @@ function toggleLang() {
 }
 
 .logo-text {
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  text-wrap: balance;
   color: var(--n-text-color);
+}
+
+:deep(.n-menu .n-menu-item-content) {
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.15s ease;
+}
+
+:deep(.n-menu .n-menu-item-content:hover) {
+  transform: translateX(1px);
+}
+
+:deep(.n-menu .n-menu-item-content--selected) {
+  font-weight: 600;
+}
+
+:deep(.n-button.n-button--text-type) {
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease,
+    transform 0.15s ease;
+}
+
+:deep(.n-button.n-button--text-type:active) {
+  transform: translateY(1px);
 }
 </style>

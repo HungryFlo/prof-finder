@@ -222,3 +222,5 @@ backend/allenai-specter/
 reference/
 
 *.DS_Store
+
+.claude/skills/
