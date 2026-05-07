@@ -220,3 +220,5 @@ scholarly/
 backend/allenai-specter/
 
 reference/
+
+.DS_Store
