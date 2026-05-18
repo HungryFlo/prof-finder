@@ -1,4 +1,15 @@
 {
+  "breadcrumb": {
+    "home": "首页",
+    "profiles": "简历管理",
+    "profileDetail": "简历详情",
+    "professors": "教授管理",
+    "professorDetail": "教授详情",
+    "match": "匹配结果",
+    "letters": "联络邮件",
+    "settings": "设置",
+    "adminUsers": "用户管理"
+  },
   "nav": {
     "skipToContent": "跳到主内容",
     "profiles": "学生画像",

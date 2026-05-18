@@ -1,4 +1,15 @@
 {
+  "breadcrumb": {
+    "home": "Home",
+    "profiles": "Student Profiles",
+    "profileDetail": "Profile Detail",
+    "professors": "Professors",
+    "professorDetail": "Professor Detail",
+    "match": "Match Results",
+    "letters": "Contact Letters",
+    "settings": "Settings",
+    "adminUsers": "User Management"
+  },
   "nav": {
     "skipToContent": "Skip to main content",
     "profiles": "Student Profiles",

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { inject, ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -28,6 +28,8 @@ const route = useRoute()
 const message = useMessage()
 const { t } = useI18n()
 const { handleApiError } = useApiError()
+
+const setBreadcrumbTitle = inject<(title: string) => void>('setBreadcrumbTitle', () => {})
 
 const dateLocale = useDateLocale()
 
@@ -69,6 +71,7 @@ async function fetchProfile() {
   try {
     profile.value = await profilesApi.get(id)
     profileId.value = id
+    setBreadcrumbTitle(profile.value.title)
     formData.value = {
       title: profile.value.title,
       name: profile.value.name || '',

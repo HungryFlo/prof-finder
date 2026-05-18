@@ -36,6 +36,7 @@ import { settingsApi } from '@/api/settings'
 import TaskPanel from '@/components/TaskPanel.vue'
 import TaskNotificationHost from '@/components/TaskNotificationHost.vue'
 import { useTheme } from '@/composables/useTheme'
+import BreadcrumbNav from '@/components/BreadcrumbNav.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -214,6 +215,7 @@ function toggleLang() {
         content-style="padding: 28px 28px 36px;"
       >
         <main id="main-content" class="main-content-shell" tabindex="-1">
+          <BreadcrumbNav />
           <n-alert
             v-if="showApiConfigBanner"
             type="warning"

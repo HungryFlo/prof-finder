@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, inject, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -35,6 +35,8 @@ const message = useMessage()
 const taskStore = useTaskStore()
 const { handleApiError } = useApiError()
 const { t, locale } = useI18n()
+
+const setBreadcrumbTitle = inject<(title: string) => void>('setBreadcrumbTitle', () => {})
 
 const dateLocale = useDateLocale()
 
@@ -149,6 +151,7 @@ async function fetchData() {
   try {
     const data = await professorsApi.get(professorId)
     professor.value = data
+    setBreadcrumbTitle(data.name)
     form.value = {
       name: data.name,
       name_locales: {
