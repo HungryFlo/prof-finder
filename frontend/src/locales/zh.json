@@ -68,7 +68,6 @@
     "back": "返回",
     "save": "保存",
     "aiOptimize": "AI 优化",
-    "collapseAi": "收起 AI",
     "manualInput": "手动输入",
     "academicProfile": "学生学术画像",
     "profileTitleLabel": "画像标题",
@@ -261,7 +260,8 @@
     "summarizeTask": "论文总结 · {name}",
     "runMatching": "运行匹配算法",
     "genLetterTask": "生成邮件 · {name}",
-    "addByScholarPos": "添加"
+    "addByScholarPos": "添加",
+    "searchPlaceholder": "搜索教授姓名或机构..."
   },
   "match": {
     "title": "匹配结果",
@@ -297,7 +297,8 @@
     "downloadModel": "下载模型",
     "downloadingModel": "正在下载模型...",
     "downloadModelFailed": "模型下载失败",
-    "modelNotReady": "请先下载语义匹配模型"
+    "modelNotReady": "请先下载语义匹配模型",
+    "searchPlaceholder": "搜索教授姓名..."
   },
   "letter": {
     "title": "联络邮件",

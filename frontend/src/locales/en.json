@@ -68,7 +68,6 @@
     "back": "Back",
     "save": "Save",
     "aiOptimize": "AI Optimize",
-    "collapseAi": "Hide AI",
     "manualInput": "Manual Input",
     "academicProfile": "Student academic profile",
     "profileTitleLabel": "Profile title",
@@ -261,7 +260,8 @@
     "summarizeTask": "Summarize papers · {name}",
     "runMatching": "Run matching",
     "genLetterTask": "Generate letter · {name}",
-    "addByScholarPos": "Add"
+    "addByScholarPos": "Add",
+    "searchPlaceholder": "Search by name or affiliation..."
   },
   "match": {
     "title": "Match Results",
@@ -297,7 +297,8 @@
     "downloadModel": "Download Model",
     "downloadingModel": "Downloading model...",
     "downloadModelFailed": "Failed to download model",
-    "modelNotReady": "Please download the embedding model first"
+    "modelNotReady": "Please download the embedding model first",
+    "searchPlaceholder": "Search by professor name..."
   },
   "letter": {
     "title": "Contact Letters",

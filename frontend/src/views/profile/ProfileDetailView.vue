@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -19,14 +19,17 @@ import {
 } from 'naive-ui'
 import { profilesApi } from '@/api/profiles'
 import ProfileChatPanel from '@/components/ProfileChatPanel.vue'
+import { useDateLocale } from '@/composables/useDateLocale'
+import { useApiError } from '@/composables/useApiError'
 import type { Profile, EducationItem, ResearchItem, ProjectItem } from '@/types'
 
 const router = useRouter()
 const route = useRoute()
 const message = useMessage()
-const { t, locale } = useI18n()
+const { t } = useI18n()
+const { handleApiError } = useApiError()
 
-const dateLocale = computed(() => (locale.value === 'en' ? 'en-US' : 'zh-CN'))
+const dateLocale = useDateLocale()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -79,8 +82,7 @@ async function fetchProfile() {
       projects: [...(profile.value.projects || [])],
     }
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('profile.fetchDetailFailed'))
+    handleApiError(error, t('profile.fetchDetailFailed'))
     router.push('/profile')
   } finally {
     loading.value = false
@@ -119,8 +121,7 @@ async function handleSave() {
     })
     message.success(t('profile.saveSuccess'))
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('profile.saveFailed'))
+    handleApiError(error, t('profile.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -157,10 +158,10 @@ onMounted(() => {
           <n-button @click="goBack">{{ $t('profile.back') }}</n-button>
           <n-button
             v-if="profile.academic_profile"
-            :type="showChat ? 'default' : 'info'"
-            @click="showChat = !showChat"
+            type="info"
+            @click="showChat = true"
           >
-            {{ showChat ? $t('profile.collapseAi') : $t('profile.aiOptimize') }}
+            {{ $t('profile.aiOptimize') }}
           </n-button>
           <n-button type="primary" :loading="saving" @click="handleSave">{{ $t('profile.save') }}</n-button>
         </n-space>
@@ -213,14 +214,6 @@ onMounted(() => {
           </div>
         </n-space>
       </template>
-
-      <ProfileChatPanel
-        v-if="profileId"
-        :profile-id="profileId"
-        :visible="showChat"
-        @profile-refreshed="refreshProfileSilent"
-        style="margin-bottom: 16px"
-      />
 
       <n-form label-placement="top">
         <n-form-item :label="$t('profile.profileTitleLabel')">
@@ -324,6 +317,13 @@ onMounted(() => {
         </n-button>
       </n-form>
     </n-card>
+
+    <ProfileChatPanel
+      v-if="profileId"
+      :profile-id="profileId"
+      v-model:show="showChat"
+      @profile-refreshed="refreshProfileSilent"
+    />
   </n-spin>
 </template>
 
