@@ -4,6 +4,8 @@ import {
   NCard,
   NForm,
   NFormItem,
+  NGrid,
+  NGi,
   NInput,
   NInputNumber,
   NButton,
@@ -138,53 +140,59 @@ onMounted(() => {
 <template>
   <div>
     <n-space vertical :size="24">
-      <n-card :title="t('settings.apiConfig')">
-        <n-form label-placement="left" label-width="120">
-          <n-form-item :label="t('settings.currentApiKey')">
-            <span style="color: #999">
-              {{ settings.deepseek_api_key_masked || t('common.noData') }}
-            </span>
-          </n-form-item>
-          <n-form-item :label="t('settings.newApiKey')">
-            <n-input
-              v-model:value="apiKeyInput"
-              placeholder="sk-..."
-              type="password"
-              show-password-on="click"
-            />
-          </n-form-item>
-          <n-form-item :label="t('settings.apiBaseUrl')">
-            <n-input v-model:value="baseUrlInput" placeholder="API Base URL" />
-          </n-form-item>
-          <n-form-item :label="t('settings.requestDelay')">
-            <n-input-number v-model:value="delayInput" :min="1" :max="60" />
-          </n-form-item>
-          <n-form-item>
-            <n-button type="primary" :loading="saving" @click="handleSaveSettings">
-              {{ t('settings.saveSettings') }}
-            </n-button>
-          </n-form-item>
-        </n-form>
-      </n-card>
+      <n-grid cols="2" :x-gap="16" :y-gap="16" responsive="screen" :item-responsive="true">
+        <n-gi span="2 m:1">
+          <n-card :title="t('settings.apiConfig')">
+            <n-form label-placement="left" label-width="100">
+              <n-form-item :label="t('settings.currentApiKey')">
+                <span style="color: #999">
+                  {{ settings.deepseek_api_key_masked || t('common.noData') }}
+                </span>
+              </n-form-item>
+              <n-form-item :label="t('settings.newApiKey')">
+                <n-input
+                  v-model:value="apiKeyInput"
+                  placeholder="sk-..."
+                  type="password"
+                  show-password-on="click"
+                />
+              </n-form-item>
+              <n-form-item :label="t('settings.apiBaseUrl')">
+                <n-input v-model:value="baseUrlInput" placeholder="API Base URL" />
+              </n-form-item>
+              <n-form-item :label="t('settings.requestDelay')">
+                <n-input-number v-model:value="delayInput" :min="1" :max="60" />
+              </n-form-item>
+              <n-form-item>
+                <n-button type="primary" :loading="saving" @click="handleSaveSettings">
+                  {{ t('settings.saveSettings') }}
+                </n-button>
+              </n-form-item>
+            </n-form>
+          </n-card>
+        </n-gi>
 
-      <n-card :title="t('settings.professorAutoEnrich')">
-        <n-form label-placement="left" label-width="260">
-          <n-form-item :label="t('settings.autoEnrichFetchPublications')">
-            <n-switch v-model:value="enrichFetch" />
-          </n-form-item>
-          <n-form-item :label="t('settings.autoEnrichPaperSummaries')">
-            <n-switch v-model:value="enrichSummaries" />
-          </n-form-item>
-          <n-form-item :label="t('settings.autoEnrichResearchProfile')">
-            <n-switch v-model:value="enrichProfile" />
-          </n-form-item>
-          <n-form-item>
-            <n-button type="primary" :loading="saving" @click="handleSaveSettings">
-              {{ t('settings.saveSettings') }}
-            </n-button>
-          </n-form-item>
-        </n-form>
-      </n-card>
+        <n-gi span="2 m:1">
+          <n-card :title="t('settings.professorAutoEnrich')">
+            <n-form label-placement="left" label-width="180">
+              <n-form-item :label="t('settings.autoEnrichFetchPublications')">
+                <n-switch v-model:value="enrichFetch" />
+              </n-form-item>
+              <n-form-item :label="t('settings.autoEnrichPaperSummaries')">
+                <n-switch v-model:value="enrichSummaries" />
+              </n-form-item>
+              <n-form-item :label="t('settings.autoEnrichResearchProfile')">
+                <n-switch v-model:value="enrichProfile" />
+              </n-form-item>
+              <n-form-item>
+                <n-button type="primary" :loading="saving" @click="handleSaveSettings">
+                  {{ t('settings.saveSettings') }}
+                </n-button>
+              </n-form-item>
+            </n-form>
+          </n-card>
+        </n-gi>
+      </n-grid>
 
       <n-card :title="t('settings.changePassword')">
         <n-form label-placement="left" label-width="120">
