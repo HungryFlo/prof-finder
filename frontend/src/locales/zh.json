@@ -12,6 +12,7 @@
   },
   "nav": {
     "skipToContent": "跳到主内容",
+    "dashboard": "首页",
     "profiles": "学生画像",
     "professors": "教授管理",
     "match": "匹配结果",
@@ -383,6 +384,37 @@
     "confirmResetPwd": "确认重置",
     "resetPwdIntro": "为用户 {username} 设置新密码：",
     "idColumn": "ID"
+  },
+  "dashboard": {
+    "welcome": "欢迎回来，{username}",
+    "subtitle": "这里是你的研究匹配工作台",
+    "statsTitle": "数据概览",
+    "profileCount": "学生画像",
+    "professorCount": "教授数量",
+    "matchCount": "匹配结果",
+    "letterCount": "联络邮件",
+    "quickActions": "快速操作",
+    "createProfile": "创建画像",
+    "addProfessor": "添加教授",
+    "runMatch": "运行匹配",
+    "recentActivity": "最近活动",
+    "recentProfiles": "最近画像",
+    "recentProfessors": "最近教授",
+    "noRecentProfiles": "暂无画像",
+    "noRecentProfessors": "暂无教授",
+    "viewAll": "查看全部",
+    "quotes": [
+      "每一位伟大的研究者都始于一个问题。",
+      "你的下一个突破可能就在一次联系之中。",
+      "学术之路，始于足下；每一次探索都是进步。",
+      "好的导师是学术旅程中最宝贵的财富。",
+      "敢于提问，才能发现未知。",
+      "每一次失败的实验，都是通往成功的铺路石。",
+      "研究的价值不仅在于结果，更在于过程中的思考。",
+      "连接合适的人，成就非凡的研究。",
+      "保持好奇心，它会带你走得更远。",
+      "今天的努力，是明天学术成就的基石。"
+    ]
   },
   "common": {
     "save": "保存",

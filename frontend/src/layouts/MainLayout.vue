@@ -16,6 +16,7 @@ import {
   useMessage,
 } from 'naive-ui'
 import {
+  HomeOutline,
   DocumentTextOutline,
   PeopleOutline,
   GitCompareOutline,
@@ -56,6 +57,11 @@ onMounted(() => {
 const menuOptions = computed<MenuOption[]>(() => {
   const options: MenuOption[] = [
     {
+      label: t('nav.dashboard'),
+      key: '',
+      icon: () => h(NIcon, null, { default: () => h(HomeOutline) }),
+    },
+    {
       label: t('nav.profiles'),
       key: 'profile',
       icon: () => h(NIcon, null, { default: () => h(DocumentTextOutline) }),
@@ -95,6 +101,7 @@ const menuOptions = computed<MenuOption[]>(() => {
 
 const activeKey = computed(() => {
   const path = route.path
+  if (path === '/') return ''
   if (path.startsWith('/profile')) return 'profile'
   if (path.startsWith('/professor')) return 'professor'
   if (path.startsWith('/match')) return 'match'
