@@ -222,6 +222,22 @@ backend/qwen3-embedding-0.6b/
 
 reference/
 
+# LaTeX intermediate files
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg
+*.nav
+*.snm
+*.vrb
+
 *.DS_Store
 
 .claude/skills/
