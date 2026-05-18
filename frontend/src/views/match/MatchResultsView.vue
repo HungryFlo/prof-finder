@@ -15,8 +15,11 @@ import {
   NSpin,
   NSelect,
   NInput,
+  NDivider,
+  NIcon,
   useMessage,
 } from 'naive-ui'
+import { CopyOutline } from '@vicons/ionicons5'
 import type { DataTableColumns } from 'naive-ui'
 import { matchApi } from '@/api/match'
 import { lettersApi } from '@/api/letters'
@@ -43,6 +46,10 @@ const currentPage = ref(1)
 const showDetailModal = ref(false)
 const detailLoading = ref(false)
 const matchDetail = ref<MatchDetail | null>(null)
+
+const letterContent = ref('')
+const letterSaving = ref(false)
+const letterLoading = ref(false)
 
 const letterLanguage = ref<'zh' | 'en'>('zh')
 const letterLangOptions = computed(() => [
@@ -230,13 +237,63 @@ async function handleRunMatch() {
 async function showMatchDetail(professorId: number) {
   showDetailModal.value = true
   detailLoading.value = true
+  letterContent.value = ''
   try {
     matchDetail.value = await matchApi.getDetail(professorId)
+    await loadLetterContent(professorId)
   } catch (error: unknown) {
     handleApiError(error, t('match.detailFetchFailed'))
     showDetailModal.value = false
   } finally {
     detailLoading.value = false
+  }
+}
+
+async function loadLetterContent(professorId: number) {
+  letterLoading.value = true
+  try {
+    const letter = await lettersApi.get(professorId)
+    letterContent.value = letter.content || ''
+  } catch {
+    letterContent.value = ''
+  } finally {
+    letterLoading.value = false
+  }
+}
+
+async function handleSaveLetter(professorId: number) {
+  letterSaving.value = true
+  try {
+    await lettersApi.update(professorId, letterContent.value)
+    message.success(t('letter.saveSuccess'))
+    fetchResults()
+  } catch (error: unknown) {
+    handleApiError(error, t('letter.saveFailed'))
+  } finally {
+    letterSaving.value = false
+  }
+}
+
+async function handleCopyLetter() {
+  try {
+    await navigator.clipboard.writeText(letterContent.value)
+    message.success(t('letter.copySuccess'))
+  } catch {
+    message.error(t('letter.copyFailed'))
+  }
+}
+
+async function handleGenerateFromModal(professorId: number) {
+  try {
+    const { task_id } = await lettersApi.generate(professorId, letterLanguage.value)
+    const row = data.value.items.find((r) => r.professor_id === professorId)
+    const name = row?.professor_name ?? professorFallbackName(professorId)
+    taskStore.addTask(task_id, 'single-letter', t('professor.genLetterTask', { name }), 1, () => {
+      fetchResults()
+      loadLetterContent(professorId)
+    })
+  } catch (error: unknown) {
+    handleApiError(error, t('match.generateLetterFail'))
   }
 }
 
@@ -350,7 +407,7 @@ onMounted(() => {
       v-model:show="showDetailModal"
       preset="card"
       :title="matchDetail?.professor_name || $t('match.detailTitleFallback')"
-      style="width: 620px"
+      style="width: 900px"
     >
       <n-spin :show="detailLoading">
         <template v-if="matchDetail">
@@ -384,12 +441,51 @@ onMounted(() => {
             </n-descriptions-item>
           </n-descriptions>
 
-          <div v-if="matchDetail.letter_content" style="margin-top: 16px">
-            <h4>{{ $t('match.generatedLetterHeading') }}</h4>
-            <pre style="white-space: pre-wrap; background: #f5f5f5; padding: 12px; border-radius: 4px">{{ matchDetail.letter_content }}</pre>
-          </div>
+          <n-divider />
+
+          <h4 style="margin: 0 0 12px">{{ $t('match.letterContent') }}</h4>
+
+          <n-spin :show="letterLoading">
+            <template v-if="letterContent">
+              <n-input
+                v-model:value="letterContent"
+                type="textarea"
+                :rows="15"
+                :placeholder="$t('letter.placeholderBody')"
+              />
+            </template>
+            <template v-else-if="!letterLoading">
+              <div style="text-align: center; padding: 24px 0; color: #999">
+                {{ $t('match.noLetterYet') }}
+              </div>
+            </template>
+          </n-spin>
         </template>
       </n-spin>
+
+      <template #footer>
+        <n-space justify="end">
+          <template v-if="matchDetail">
+            <template v-if="letterContent">
+              <n-button @click="handleCopyLetter">
+                <template #icon><n-icon><CopyOutline /></n-icon></template>
+                {{ $t('match.copyLetter') }}
+              </n-button>
+              <n-button type="primary" :loading="letterSaving" @click="handleSaveLetter(matchDetail.professor_id)">
+                {{ $t('match.saveLetter') }}
+              </n-button>
+              <n-button @click="handleGenerateFromModal(matchDetail.professor_id)">
+                {{ $t('match.regenerateLetter') }}
+              </n-button>
+            </template>
+            <template v-else>
+              <n-button type="primary" @click="handleGenerateFromModal(matchDetail.professor_id)">
+                {{ $t('match.generateLetter') }}
+              </n-button>
+            </template>
+          </template>
+        </n-space>
+      </template>
     </n-modal>
   </div>
 </template>

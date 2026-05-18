@@ -20,7 +20,6 @@ import {
   DocumentTextOutline,
   PeopleOutline,
   GitCompareOutline,
-  MailOutline,
   SettingsOutline,
   PeopleCircleOutline,
   LogOutOutline,
@@ -77,11 +76,6 @@ const menuOptions = computed<MenuOption[]>(() => {
       icon: () => h(NIcon, null, { default: () => h(GitCompareOutline) }),
     },
     {
-      label: t('nav.letters'),
-      key: 'letter',
-      icon: () => h(NIcon, null, { default: () => h(MailOutline) }),
-    },
-    {
       label: t('nav.settings'),
       key: 'settings',
       icon: () => h(NIcon, null, { default: () => h(SettingsOutline) }),
@@ -105,7 +99,6 @@ const activeKey = computed(() => {
   if (path.startsWith('/profile')) return 'profile'
   if (path.startsWith('/professor')) return 'professor'
   if (path.startsWith('/match')) return 'match'
-  if (path.startsWith('/letter')) return 'letter'
   if (path.startsWith('/settings')) return 'settings'
   if (path.startsWith('/admin')) return 'admin/users'
   return ''

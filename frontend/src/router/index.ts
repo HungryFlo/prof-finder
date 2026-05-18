@@ -68,9 +68,7 @@ const router = createRouter({
         },
         {
           path: 'letter',
-          name: 'LetterList',
-          component: () => import('@/views/letter/LetterListView.vue'),
-          meta: { breadcrumb: { labelKey: 'breadcrumb.letters' } },
+          redirect: '/match',
         },
         {
           path: 'settings',
