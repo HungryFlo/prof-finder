@@ -36,6 +36,9 @@
     "newPasswordPlaceholder": "Enter new password",
     "changeSuccess": "Password changed, please login again",
     "changeFailed": "Password change failed",
+    "passwordRequirements": "Password requirements",
+    "passwordMinLength": "At least 6 characters",
+    "passwordMaxLength": "No more than 100 characters",
     "passwordMismatch": "Passwords do not match",
     "changePasswordRequired": "Password change required",
     "returnToLogin": "Return to login",
@@ -290,7 +293,11 @@
     "csvScore": "Score",
     "csvReasons": "Match reasons",
     "csvLetterStatus": "Letter status",
-    "regenerateLetter": "Regenerate"
+    "regenerateLetter": "Regenerate",
+    "downloadModel": "Download Model",
+    "downloadingModel": "Downloading model...",
+    "downloadModelFailed": "Failed to download model",
+    "modelNotReady": "Please download the embedding model first"
   },
   "letter": {
     "title": "Contact Letters",
@@ -413,7 +420,8 @@
     "batchProfilesFinished": "Batch profile generation finished ({ok} ok, {fail} failed)",
     "professorEnrichmentFinished": "Professor enrichment finished (summaries + profile)",
     "batchProfessorEnrichmentFinished": "Batch professor enrichment finished ({ok} ok, {fail} failed)",
-    "profileGeneratingTask": "Generating student profile · {title}"
+    "profileGeneratingTask": "Generating student profile · {title}",
+    "modelDownloadCompleted": "Model downloaded — you can now run matching"
   },
   "chat": {
     "title": "AI Profile Refinement",

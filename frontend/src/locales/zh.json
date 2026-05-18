@@ -36,6 +36,9 @@
     "newPasswordPlaceholder": "请输入新密码",
     "changeSuccess": "密码修改成功，请重新登录",
     "changeFailed": "密码修改失败",
+    "passwordRequirements": "密码要求",
+    "passwordMinLength": "至少 6 个字符",
+    "passwordMaxLength": "不超过 100 个字符",
     "passwordMismatch": "两次输入的密码不一致",
     "changePasswordRequired": "需要修改密码",
     "returnToLogin": "返回登录",
@@ -290,7 +293,11 @@
     "csvScore": "匹配度",
     "csvReasons": "匹配原因",
     "csvLetterStatus": "邮件状态",
-    "regenerateLetter": "重新生成"
+    "regenerateLetter": "重新生成",
+    "downloadModel": "下载模型",
+    "downloadingModel": "正在下载模型...",
+    "downloadModelFailed": "模型下载失败",
+    "modelNotReady": "请先下载语义匹配模型"
   },
   "letter": {
     "title": "联络邮件",
@@ -413,7 +420,8 @@
     "batchProfilesFinished": "批量画像生成完成（成功 {ok}，失败 {fail}）",
     "professorEnrichmentFinished": "教授信息增强完成（论文摘要与科研画像）",
     "batchProfessorEnrichmentFinished": "批量教授信息增强完成（成功 {ok}，失败 {fail}）",
-    "profileGeneratingTask": "生成学生画像 · {title}"
+    "profileGeneratingTask": "生成学生画像 · {title}",
+    "modelDownloadCompleted": "模型下载完成，现在可以运行匹配"
   },
   "chat": {
     "title": "AI 画像优化",

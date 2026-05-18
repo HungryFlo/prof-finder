@@ -1,6 +1,7 @@
 """Match API routes."""
 
 from typing import List, Optional
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
@@ -16,7 +17,41 @@ from ..schemas import (
 )
 from ..task_manager import create_task, cleanup_old_tasks, enqueue_task
 
+_MODEL_LOCAL_PATH = Path(__file__).resolve().parents[3] / "qwen3-embedding-0.6b"
+
 router = APIRouter(prefix="/match", tags=["匹配"])
+
+
+@router.get("/model-status")
+def get_model_status():
+    """Check if the embedding model is available locally."""
+    return {"ready": _MODEL_LOCAL_PATH.exists()}
+
+
+@router.post("/download-model", response_model=TaskStartResponse)
+async def download_model(
+    current_user: User = Depends(get_current_user),
+):
+    """Start a background task to download the embedding model from ModelScope."""
+    if _MODEL_LOCAL_PATH.exists():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="模型已存在，无需重复下载",
+        )
+
+    cleanup_old_tasks()
+    task = create_task(
+        task_type="download-model",
+        task_name="下载语义匹配模型",
+        user_id=current_user.id,
+        total=1,
+    )
+    enqueue_task("download-model", task.task_id)
+
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message="模型下载任务已启动",
+    )
 
 
 @router.post("/run", response_model=TaskStartResponse)

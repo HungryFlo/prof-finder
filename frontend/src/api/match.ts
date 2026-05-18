@@ -14,6 +14,16 @@ export const matchApi = {
     return response.data
   },
 
+  async getModelStatus(): Promise<{ ready: boolean }> {
+    const response = await client.get<{ ready: boolean }>('/match/model-status')
+    return response.data
+  },
+
+  async downloadModel(): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>('/match/download-model')
+    return response.data
+  },
+
   async getResults(params: MatchResultsParams = {}): Promise<PaginatedResponse<MatchResult>> {
     const response = await client.get<PaginatedResponse<MatchResult>>('/match/results', {
       params: {

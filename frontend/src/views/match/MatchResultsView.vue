@@ -27,6 +27,7 @@ const taskStore = useTaskStore()
 const { t } = useI18n()
 
 const loading = ref(false)
+const modelReady = ref(false)
 const data = ref<PaginatedResponse<MatchResult>>({
   items: [],
   total: 0,
@@ -158,7 +159,32 @@ async function fetchResults() {
   }
 }
 
+async function checkModelStatus() {
+  try {
+    const { ready } = await matchApi.getModelStatus()
+    modelReady.value = ready
+  } catch {
+    modelReady.value = false
+  }
+}
+
+async function handleDownloadModel() {
+  try {
+    const { task_id } = await matchApi.downloadModel()
+    taskStore.addTask(task_id, 'download-model', t('match.downloadingModel'), 1, () => {
+      modelReady.value = true
+    })
+  } catch (error: unknown) {
+    const err = error as { response?: { data?: { detail?: string } } }
+    message.error(err.response?.data?.detail || t('match.downloadModelFailed'))
+  }
+}
+
 async function handleRunMatch() {
+  if (!modelReady.value) {
+    message.warning(t('match.modelNotReady'))
+    return
+  }
   try {
     const { task_id } = await matchApi.run()
     taskStore.addTask(task_id, 'match', t('professor.runMatching'), 0, () => {
@@ -235,6 +261,7 @@ function handleExport() {
 }
 
 onMounted(() => {
+  checkModelStatus()
   fetchResults()
 })
 </script>
@@ -253,7 +280,10 @@ onMounted(() => {
           <n-button @click="handleExport" :disabled="data.items.length === 0">
             {{ $t('match.exportCsv') }}
           </n-button>
-          <n-button type="primary" @click="handleRunMatch">
+          <n-button v-if="!modelReady" type="warning" @click="handleDownloadModel">
+            {{ $t('match.downloadModel') }}
+          </n-button>
+          <n-button type="primary" :disabled="!modelReady" @click="handleRunMatch">
             {{ $t('match.runMatch') }}
           </n-button>
         </n-space>

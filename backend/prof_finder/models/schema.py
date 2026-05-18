@@ -147,7 +147,7 @@ class Professor(Base):
     total_citations = Column(Integer)
     manual_notes = Column(Text)
 
-    # Semantic embedding (list[float], allenai-specter 768-dim, nullable)
+    # Semantic embedding (list[float], Qwen3-Embedding-0.6B 1024-dim, nullable)
     embedding = Column(JSON, nullable=True)
 
     # Generated professor research profile

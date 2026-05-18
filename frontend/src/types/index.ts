@@ -234,6 +234,7 @@ export type TaskType =
   | 'profile-refine'
   | 'match'
   | 'single-letter'
+  | 'download-model'
 export type TaskStatus =
   | 'pending'
   | 'running'

@@ -829,21 +829,22 @@ def _run_encoding_in_thread(
 ) -> tuple[list[list[float]], list[float]]:
     """Run model load + encode in a worker thread to avoid blocking the event loop.
 
+    Uses asymmetric encoding: professors are encoded as documents, profile as a query.
     Returns (professor_embeddings, profile_embedding).
     """
-    from ..matcher.semantic_matcher import encode_texts
+    from ..matcher.semantic_matcher import encode_texts, encode_query_texts
 
     prof_vecs = []
     if professor_texts:
         vecs = encode_texts(professor_texts)
         prof_vecs = [v.tolist() for v in vecs]
-    profile_vec = encode_texts([profile_text])[0].tolist()
+    profile_vec = encode_query_texts([profile_text])[0].tolist()
     return prof_vecs, profile_vec
 
 
 @register_task("match")
 def execute_match(task_id: str, profile_id: int) -> None:
-    """Run semantic matching against all professors using allenai-specter embeddings.
+    """Run semantic matching against all professors using Qwen3-Embedding-0.6B embeddings.
 
     Model loading and encoding run synchronously in the consumer thread.
     """
@@ -898,6 +899,11 @@ def execute_match(task_id: str, profile_id: int) -> None:
 
             match_reason_lang = "en"
 
+            # Invalidate stale embeddings with wrong dimension (e.g. from old SPECTER model).
+            for p in professors:
+                if p.embedding and len(p.embedding) != 1024:
+                    p.embedding = None
+
             missing = [p for p in professors if not p.embedding]
             professor_texts = [
                 build_professor_text(
@@ -914,7 +920,8 @@ def execute_match(task_id: str, profile_id: int) -> None:
             ]
             profile_text = build_profile_text(profile_data)
 
-            task.message = "正在计算语义向量（首次可能需下载模型）..."
+            task.message = "正在计算语义向量（首次需从 ModelScope 下载模型）..."
+            persist_task(task)
             prof_vecs, profile_vec = _run_encoding_in_thread(professor_texts, profile_text)
 
             for prof, vec in zip(missing, prof_vecs):
@@ -2258,4 +2265,27 @@ def execute_profile_chat_refinement(
         task.status = TaskStatus.FAILED
         task.error_message = str(exc)
         task.message = "画像优化过程中发生未知错误"
+        persist_task(task)
+
+
+@register_task("download-model")
+def execute_download_model(task_id: str) -> None:
+    """Download the Qwen3-Embedding-0.6B model from ModelScope."""
+    from ..matcher.semantic_matcher import _get_model
+
+    task = get_task(task_id)
+    if not task:
+        return
+    task.status = TaskStatus.RUNNING
+    task.message = "正在从 ModelScope 下载模型..."
+    persist_task(task)
+
+    try:
+        _get_model()
+        task.status = TaskStatus.COMPLETED
+        task.message = "模型下载完成"
+        persist_task(task)
+    except Exception as exc:
+        task.status = TaskStatus.FAILED
+        task.error_message = f"模型下载失败: {exc}"
         persist_task(task)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, computed, onMounted, ref } from 'vue'
+import { h, computed, onMounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   NLayout,
@@ -100,6 +100,12 @@ const activeKey = computed(() => {
 })
 
 const showApiConfigBanner = computed(() => needsApiConfig.value && route.path !== '/settings')
+
+watch(() => route.path, (newPath, oldPath) => {
+  if (oldPath === '/settings' && newPath !== '/settings') {
+    checkApiConfiguration()
+  }
+})
 
 async function checkApiConfiguration() {
   try {

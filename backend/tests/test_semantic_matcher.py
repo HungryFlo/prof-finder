@@ -1,7 +1,7 @@
 """Unit tests for SemanticMatcher and its text-building helpers.
 
-These tests use a lightweight mock to avoid loading the full allenai-specter
-model (400 MB) during CI.  The mock returns deterministic L2-normalised vectors
+These tests use a lightweight mock to avoid loading the full Qwen3-Embedding-0.6B
+model during CI.  The mock returns deterministic L2-normalised vectors
 that encode semantic similarity via simple dot-product arithmetic.
 """
 
@@ -54,12 +54,10 @@ class TestBuildProfessorText:
         assert "Machine Learning" in text
         assert "Attention Is All You Need" in text
         assert "MIT" in text
-        assert "[SEP]" in text
 
     def test_empty_fields(self):
         text = build_professor_text({})
         assert isinstance(text, str)
-        assert "[SEP]" in text
 
     def test_none_fields(self):
         prof = {"research_interests": None, "publications": None, "affiliation": None}
@@ -101,7 +99,6 @@ class TestBuildProfileText:
         assert "Python" in text
         assert "NLP Intern" in text
         assert "Chatbot" in text
-        assert "[SEP]" in text
 
     def test_empty_profile(self):
         text = build_profile_text({})

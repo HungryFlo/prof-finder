@@ -91,6 +91,8 @@ export const useTaskStore = defineStore('tasks', () => {
       }
       case 'match':
         return t('task.matchCompleted')
+      case 'download-model':
+        return t('task.modelDownloadCompleted')
       case 'fill-publications':
         return t('task.abstractsFetched')
       case 'paper-summary':

@@ -1,4 +1,4 @@
-"""Semantic matching using allenai-specter sentence-transformer embeddings."""
+"""Semantic matching using Qwen3-Embedding-0.6B sentence-transformer embeddings."""
 
 from __future__ import annotations
 
@@ -9,20 +9,55 @@ import numpy as np
 
 # Singleton — loaded once, reused across all match tasks in the process lifetime.
 _model = None
-_LOCAL_MODEL_PATH = Path(__file__).resolve().parents[2] / "allenai-specter"
+_LOCAL_MODEL_PATH = Path(__file__).resolve().parents[2] / "qwen3-embedding-0.6b"
+
+
+_MODELSCOPE_ID = "Qwen/Qwen3-Embedding-0.6B"
+
+
+def _download_from_modelscope() -> None:
+    """Download model from ModelScope to _LOCAL_MODEL_PATH.
+
+    Raises RuntimeError if download fails (network error, model not found, etc.).
+    """
+    try:
+        from modelscope import snapshot_download
+
+        snapshot_download(_MODELSCOPE_ID, local_dir=str(_LOCAL_MODEL_PATH))
+    except Exception as e:
+        raise RuntimeError(
+            f"无法从 ModelScope 下载模型 {_MODELSCOPE_ID}，请检查网络连接后重试: {e}"
+        ) from e
+
+
+def _detect_device() -> str:
+    """Pick the best available compute device."""
+    import torch
+
+    if torch.cuda.is_available():
+        return "cuda"
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
 
 
 def _get_model():
-    """Lazily load the allenai-specter model, preferring local disk cache."""
-    global _model
-    if _model is None:
-        from sentence_transformers import SentenceTransformer
+    """Lazily load the Qwen3-Embedding-0.6B model, preferring local disk cache.
 
-        if _LOCAL_MODEL_PATH.exists():
-            # Force local load to avoid runtime download/network flakiness.
-            _model = SentenceTransformer(str(_LOCAL_MODEL_PATH), local_files_only=True)
-        else:
-            _model = SentenceTransformer("allenai-specter")
+    Raises RuntimeError if the model cannot be loaded or downloaded.
+    """
+    global _model
+    if _model is not None:
+        return _model
+
+    from sentence_transformers import SentenceTransformer
+
+    device = _detect_device()
+    if _LOCAL_MODEL_PATH.exists():
+        _model = SentenceTransformer(str(_LOCAL_MODEL_PATH), local_files_only=True, device=device)
+    else:
+        _download_from_modelscope()
+        _model = SentenceTransformer(str(_LOCAL_MODEL_PATH), local_files_only=True, device=device)
     return _model
 
 
@@ -33,16 +68,12 @@ def _get_model():
 def build_professor_text(professor: dict) -> str:
     """Serialise professor data to a string for encoding.
 
-    Uses allenai-specter's training convention: title [SEP] body.
-    Title = research interests (or generated profile); body = publication titles + affiliation.
-
-    When a generated research profile is available, it becomes the primary text with
-    research interests, publication titles, paper summaries, and affiliation as supporting signals.
+    Prioritises high-signal fields (research profile, paper summaries) and drops
+    redundant ones (raw publication titles are already covered by summaries).
     """
     research_profile = (professor.get("research_profile") or "").strip()
     research_profile_analysis = professor.get("research_profile_analysis") or {}
 
-    # Build title from generated profile when available, otherwise from research interests.
     if research_profile:
         analysis_parts: list[str] = []
         if isinstance(research_profile_analysis, dict):
@@ -56,30 +87,24 @@ def build_professor_text(professor: dict) -> str:
                         theme = item.get("theme")
                         if theme:
                             analysis_parts.append(str(theme))
-        title = ". ".join(p for p in
-                          ([research_profile[:800]] + analysis_parts)
-                          if p)
+        heading = ". ".join(p for p in
+                            ([research_profile[:1500]] + analysis_parts)
+                            if p)
     else:
-        interests = "; ".join(professor.get("research_interests") or [])
-        title = interests
+        heading = "; ".join(professor.get("research_interests") or [])
 
-    pubs = professor.get("publications") or []
-    pub_titles = ". ".join(
-        p.get("title", "") for p in pubs[:15] if p.get("title")
-    )
-    affiliation = professor.get("affiliation") or ""
     paper_summaries = professor.get("paper_summaries") or []
     summary_text = ". ".join(
-        f"{item.get('title', '')} {item.get('summary', '')}".strip()
-        for item in paper_summaries[:20]
+        f"{item.get('title', '')}: {item.get('summary', '')[:200]}".strip()
+        for item in paper_summaries[:5]
     )
-    body_parts = [p for p in [pub_titles, summary_text, affiliation] if p]
-    body = ". ".join(body_parts)
-    return f"{title} [SEP] {body}"
+
+    parts = [p for p in [heading, summary_text] if p]
+    return ". ".join(parts)
 
 
 def build_profile_text(profile: dict) -> str:
-    """Serialise user profile data to a string for encoding."""
+    """Serialise user profile to a focused query string for encoding."""
     academic_profile = (profile.get("academic_profile") or "").strip()
     analysis = profile.get("profile_analysis") or {}
     analysis_parts: list[str] = []
@@ -102,14 +127,14 @@ def build_profile_text(profile: dict) -> str:
 
     experiences = profile.get("research_experience") or []
     exp_parts = [
-        f"{e.get('title', '')} {e.get('description', '')}".strip()
+        f"{e.get('title', '')} {e.get('description', '')[:200]}".strip()
         for e in experiences
     ]
     exp_text = ". ".join(p for p in exp_parts if p)
 
     projects = profile.get("projects") or []
     proj_parts = [
-        f"{p.get('name', '')} {p.get('description', '')}".strip()
+        f"{p.get('name', '')} {p.get('description', '')[:200]}".strip()
         for p in projects
     ]
     proj_text = ". ".join(p for p in proj_parts if p)
@@ -117,26 +142,56 @@ def build_profile_text(profile: dict) -> str:
     generated_text = ". ".join(p for p in [academic_profile, *analysis_parts] if p)
     body_parts = [p for p in [generated_text, exp_text, proj_text] if p]
     body = ". ".join(body_parts)
-    return f"{skills} [SEP] {body}"
+    return f"{skills}. {body}" if body else skills
 
 
 # ---------------------------------------------------------------------------
 # Batch encoding helpers (used by task_manager)
 # ---------------------------------------------------------------------------
 
+_MAX_ENCODE_CHARS = 4000
+_ENCODE_BATCH_SIZE = 2
+
+
+def _truncate_texts(texts: list[str]) -> list[str]:
+    """Truncate texts to avoid OOM on MPS/GPU with long sequences."""
+    return [t[:_MAX_ENCODE_CHARS] for t in texts]
+
+
 def encode_texts(texts: list[str]) -> np.ndarray:
-    """Encode a list of texts into L2-normalised embedding vectors.
+    """Encode documents into L2-normalised embedding vectors.
 
     Returns:
-        ndarray of shape (N, 768), float32, L2-normalised.
+        ndarray of shape (N, 1024), float32, L2-normalised.
     """
     model = _get_model()
-    return model.encode(texts, batch_size=32, normalize_embeddings=True, show_progress_bar=False)
+    return model.encode(
+        _truncate_texts(texts), batch_size=_ENCODE_BATCH_SIZE,
+        normalize_embeddings=True, show_progress_bar=False,
+    )
+
+
+def encode_query_texts(texts: list[str]) -> np.ndarray:
+    """Encode queries (e.g. user profiles) with the query prompt for asymmetric retrieval.
+
+    Returns:
+        ndarray of shape (N, 1024), float32, L2-normalised.
+    """
+    model = _get_model()
+    return model.encode(
+        _truncate_texts(texts), prompt_name="query", batch_size=_ENCODE_BATCH_SIZE,
+        normalize_embeddings=True, show_progress_bar=False,
+    )
 
 
 def encode_text(text: str) -> list[float]:
-    """Encode a single text, returning a plain Python list for JSON storage."""
+    """Encode a single document, returning a plain Python list for JSON storage."""
     return encode_texts([text])[0].tolist()
+
+
+def encode_query_text(text: str) -> list[float]:
+    """Encode a single query with the query prompt, returning a plain Python list."""
+    return encode_query_texts([text])[0].tolist()
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +227,7 @@ class SemanticMatcher:
         if profile_embedding is not None:
             profile_vec = np.array(profile_embedding, dtype=np.float32)
         else:
-            profile_vec = np.array(encode_text(build_profile_text(profile)), dtype=np.float32)
+            profile_vec = np.array(encode_query_text(build_profile_text(profile)), dtype=np.float32)
 
         if professor_embedding is not None:
             prof_vec = np.array(professor_embedding, dtype=np.float32)

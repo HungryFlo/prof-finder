@@ -1,0 +1,579 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper, tmargin=2.5cm, lmargin=2.8cm, rmargin=2.8cm, bmargin=2.5cm]{geometry}
+\usepackage{hyperref}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    filecolor=magenta,
+    urlcolor=blue,
+    citecolor=black,
+}
+
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{array}
+\usepackage[fontset=fandol]{ctex}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{caption}
+\usepackage{xcolor}
+\pagestyle{empty}
+
+\begin{document}
+
+\begin{center}
+{\LARGE\bfseries Prof-Finder：基于LLM与语义匹配的智能导师推荐系统} \\[6pt]
+{\large 技术选型与产品体系结构设计报告}
+\end{center}
+
+\vspace{5mm}
+
+\newpage
+\pagestyle{plain}
+\setcounter{page}{1}
+
+%==========================================================
+\section{引言}
+%==========================================================
+
+本报告记录 Prof-Finder 项目在启动阶段的技术选型决策与产品体系结构设计方案。
+项目目前处于技术选型和体系结构整体设计阶段，后续开发工作将基于本文档确立的技术路线展开。
+
+\subsection{项目定位}
+
+Prof-Finder 是一个面向科研申请者的智能辅助系统，旨在通过自动化的信息爬取、语义匹配与个性化邮件生成，帮助学生高效地锁定潜在导师并完成首轮接触。
+系统采用前后端分离架构，后端提供 REST API 与 SSE 实时推送，前端构建单页应用（SPA）。
+
+\subsection{选型原则}
+
+技术选型遵循以下原则：
+
+\begin{enumerate}
+    \item \textbf{轻量化优先}：优先选择轻量级框架与嵌入式数据库，降低部署与运维复杂度。
+    \item \textbf{Python 生态优先}：核心业务逻辑（爬虫、NLP、LLM 调用）集中在 Python 生态，保证 AI/ML 库的兼容性。
+    \item \textbf{现代前端工程化}：前端采用 TypeScript + 组合式 API + 原子化 CSS，保证类型安全与开发效率。
+    \item \textbf{异步优先}：后端全链路支持 async/await，避免 I/O 密集型操作阻塞请求。
+    \item \textbf{跨平台兼容}：开发工具链同时支持 macOS 与 Windows，保证团队协作的灵活性。
+\end{enumerate}
+
+%==========================================================
+\section{技术选型}
+%==========================================================
+
+\subsection{macOS 26 Tahoe 开发环境}
+
+表~\ref{tab:dev_env_macos} 列出了在 macOS 26 Tahoe 下的开发环境配置。
+
+\begin{table}[htbp]
+  \centering
+  \caption{系统开发环境（macOS 26 Tahoe）}
+  \begin{tabular}{ll}
+    \toprule
+    开发环境 & 环境参数 \\
+    \midrule
+    开发操作系统 & macOS 26 Tahoe \\
+    内存 & \\
+    CPU & Apple Silicon (ARM64) \\
+    Python 环境管理 & Conda（prof-finder 环境） \\
+    Python 版本 & 3.11.15 \\
+    Python 包管理器 & Poetry 2.3.4 \\
+    后端框架 & FastAPI 0.109.2 \\
+    ASGI 服务器 & Uvicorn 0.27.1 \\
+    ORM 框架 & SQLAlchemy 2.0.46 \\
+    数据库 & SQLite \\
+    任务队列 & Huey 3.0.0 \\
+    语义嵌入框架 & sentence-transformers 5.2.3 \\
+    语义嵌入模型 & allenai-specter（768维） \\
+    LLM SDK & OpenAI SDK 1.109.1（兼容 DeepSeek API） \\
+    爬虫库 & scholarly 1.7.11 / requests 2.32.5 / BeautifulSoup4 4.14.3 \\
+    PDF 解析 & pymupdf4llm 0.3.4 \\
+    前端框架 & Vue 3.5.24 \\
+    TypeScript 版本 & 5.9.3 \\
+    构建工具 & Vite 7.3.1 \\
+    UI 组件库 & Naive UI 2.43.2 \\
+    CSS 框架 & Tailwind CSS 4.2.4 \\
+    状态管理 & Pinia 3.0.4 \\
+    HTTP 客户端 & Axios 1.13.3 \\
+    实时通信 & EventSource（SSE）/ sse-starlette 2.4.1 \\
+    Node.js 版本 & v24.15.0 \\
+    npm 版本 & 11.12.1 \\
+    IDE & Cursor \\
+    版本控制 & Git 2.46.1 \\
+    代码格式化 & Black 23.12.1 \\
+    代码检查 & Flake8 6.1.0 / MyPy 1.19.1 \\
+    测试框架 & pytest 7.4.4 \\
+    \bottomrule
+  \end{tabular}
+  \label{tab:dev_env_macos}
+\end{table}
+
+\subsection{Windows 11 开发环境}
+
+表~\ref{tab:dev_env_windows} 列出了在 Windows 11 下的开发环境配置。
+工具链选型与 macOS 环境保持对齐，保证跨平台协作的一致性。
+
+\begin{table}[htbp]
+  \centering
+  \caption{系统开发环境（Windows 11）}
+  \begin{tabular}{ll}
+    \toprule
+    开发环境 & 环境参数 \\
+    \midrule
+    开发操作系统 & Windows 11 \\
+    内存 & \\
+    CPU & \\
+    Python 环境管理 & Conda（prof-finder 环境） \\
+    Python 版本 & 3.11.15 \\
+    Python 包管理器 & Poetry 2.3.4 \\
+    后端框架 & FastAPI 0.109.2 \\
+    ASGI 服务器 & Uvicorn 0.27.1 \\
+    ORM 框架 & SQLAlchemy 2.0.46 \\
+    数据库 & SQLite \\
+    任务队列 & Huey 3.0.0 \\
+    语义嵌入框架 & sentence-transformers 5.2.3 \\
+    语义嵌入模型 & allenai-specter（768维） \\
+    LLM SDK & OpenAI SDK 1.109.1（兼容 DeepSeek API） \\
+    爬虫库 & scholarly 1.7.11 / requests 2.32.5 / BeautifulSoup4 4.14.3 \\
+    PDF 解析 & pymupdf4llm 0.3.4 \\
+    前端框架 & Vue 3.5.24 \\
+    TypeScript 版本 & 5.9.3 \\
+    构建工具 & Vite 7.3.1 \\
+    UI 组件库 & Naive UI 2.43.2 \\
+    CSS 框架 & Tailwind CSS 4.2.4 \\
+    状态管理 & Pinia 3.0.4 \\
+    HTTP 客户端 & Axios 1.13.3 \\
+    实时通信 & EventSource（SSE）/ sse-starlette 2.4.1 \\
+    Node.js 版本 & v24.15.0 \\
+    npm 版本 & 11.12.1 \\
+    IDE & Cursor / VS Code \\
+    版本控制 & Git 2.46.1 \\
+    代码格式化 & Black 23.12.1 \\
+    代码检查 & Flake8 6.1.0 / MyPy 1.19.1 \\
+    测试框架 & pytest 7.4.4 \\
+    \bottomrule
+  \end{tabular}
+  \label{tab:dev_env_windows}
+\end{table}
+
+\subsection{技术选型说明}
+
+\subsubsection{后端技术选型}
+
+\textbf{FastAPI} 作为 Web 框架，天然支持 async/await，适合处理 I/O 密集型操作（LLM 调用、爬虫请求、文件解析）；内置 Pydantic 数据验证与自动 OpenAPI 文档生成，减少样板代码。
+
+\textbf{SQLAlchemy 2.0 + SQLite} 作为持久层方案。SQLAlchemy 提供成熟的 ORM 与连接管理；SQLite 作为嵌入式数据库，免去独立数据库服务的运维开销，适合个人工具类应用。后期如需迁移至 PostgreSQL，SQLAlchemy 的抽象层可大幅降低迁移成本。
+
+\textbf{sentence-transformers} 作为语义嵌入框架，加载 allenai-specter 模型（基于 SciBERT 在学术论文引用关系上微调），将教授研究方向与学生简历映射至同一 768 维语义空间，计算余弦相似度。
+
+\textbf{OpenAI SDK} 用于调用 DeepSeek API（OpenAI 兼容接口），完成简历解析、论文摘要与邮件生成等 LLM 任务。
+
+\textbf{Huey} 作为轻量级任务队列，支持异步任务调度与结果存储，配合 SQLite 实现后台任务的可靠执行。
+
+\textbf{scholarly + BeautifulSoup4 + requests} 构成爬虫工具链：scholarly 负责 Google Scholar 数据获取，BeautifulSoup4 + requests 负责大学院系网页的内容提取。
+
+\textbf{pymupdf4llm} 将 PDF 论文转换为 Markdown 文本，供 LLM 进行摘要提取与关键词分析。
+
+\subsubsection{前端技术选型}
+
+\textbf{Vue 3 + Composition API + TypeScript} 作为前端核心框架。Composition API 提供比 Options API 更灵活的逻辑复用能力；TypeScript 提供静态类型检查，减少运行时错误。
+
+\textbf{Vite} 作为构建工具，利用原生 ES 模块实现极速冷启动与热更新（HMR），替代传统的 Webpack。
+
+\textbf{Naive UI} 作为 UI 组件库，提供 90+ 组件，天然支持 Tree Shaking 与 TypeScript，适合数据密集型后台管理界面。
+
+\textbf{Tailwind CSS} 作为原子化 CSS 框架，通过组合工具类快速构建一致的视觉风格，减少手写 CSS。
+
+\textbf{Pinia} 作为状态管理库，是 Vuex 的官方继任者，提供更简洁的 API 与更好的 TypeScript 推导。
+
+\textbf{Axios} 作为 HTTP 客户端，封装请求拦截器实现统一的 JWT 令牌注入与错误处理。
+
+\textbf{EventSource（SSE）} 用于接收后端推送的异步任务进度，相比 WebSocket 更轻量，且符合系统单向推送的通信模式。
+
+%==========================================================
+\section{产品体系结构设计}
+%==========================================================
+
+\subsection{整体架构}
+
+系统采用\textbf{前后端分离}的经典分层架构，共分为四层：
+
+\begin{center}
+\small
+\begin{tabular}{|l|p{4.5cm}|p{5cm}|}
+\hline
+\textbf{层次} & \textbf{职责} & \textbf{关键技术} \\
+\hline
+表示层（Presentation） & 用户界面、交互逻辑、路由 & Vue 3 + Naive UI + Tailwind \\
+\hline
+服务层（Application） & API 网关、认证、业务编排 & FastAPI + JWT + SSE \\
+\hline
+领域层（Domain） & 爬虫、简历解析、语义匹配、LLM 调用 & scholarly + sentence-transformers + OpenAI SDK \\
+\hline
+持久层（Persistence） & 数据存储、缓存、迁移 & SQLAlchemy + SQLite \\
+\hline
+\end{tabular}
+\end{center}
+
+前后端通过 HTTP/HTTPS 协议通信，API 统一以 \texttt{/api} 为前缀。
+前端构建产物为纯静态文件（HTML/CSS/JS），可由任意 Web 服务器（Nginx、Caddy）或 CDN 托管。
+后端作为独立进程运行，通过 ASGI 服务器（Uvicorn）对外暴露接口。
+
+\begin{center}
+\begin{tabular}{ccccc}
+\textbf{浏览器} & $\rightarrow$ & \textbf{Nginx} & $\rightarrow$ & \textbf{静态资源（dist/）} \\
+& & & $\rightarrow$ & \textbf{API 服务（Uvicorn:8000）} \\
+\end{tabular}
+\end{center}
+
+\subsection{前端体系结构}
+
+\subsubsection{组件层级}
+
+前端采用\textbf{页面—组件}两级结构，遵循单一职责原则：
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{层级} & \textbf{构成} \\
+\hline
+页面视图（Views） & LoginView, RegisterView, ProfileView, ProfessorView, \\
+& MatchView, LetterView, SettingsView, AdminView \\
+\hline
+通用组件（Components） & TaskPanel, SourceInputPanel, DocumentInputPanel, \\
+& AppHeader, AppSidebar \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsubsection{路由设计}
+
+采用 Vue Router 的 history 模式，路由映射如下：
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{路由路径} & \textbf{页面} & \textbf{权限} \\
+\hline
+\texttt{/login} & 登录 & 公开 \\
+\texttt{/register} & 注册 & 公开 \\
+\texttt{/change-password} & 修改密码 & 已登录（首登强制跳转） \\
+\texttt{/profile} & 简历管理 & 已登录 \\
+\texttt{/professor} & 教授管理 & 已登录 \\
+\texttt{/professor/:id/edit} & 教授信息编辑 & 已登录 \\
+\texttt{/match} & 匹配结果 & 已登录 \\
+\texttt{/letter} & 邮件管理 & 已登录 \\
+\texttt{/settings} & 用户设置 & 已登录 \\
+\texttt{/admin/users} & 用户管理 & 仅管理员 \\
+\hline
+\end{tabular}
+\end{center}
+
+路由守卫在全局前置守卫（\texttt{router.beforeEach}）中实现，每次路由跳转前依次检查：认证状态 $\rightarrow$ 强制修改密码标志 $\rightarrow$ 管理员权限。
+
+\subsubsection{状态管理}
+
+Pinia 管理三类全局状态：
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Store} & \textbf{职责} \\
+\hline
+\texttt{useAuthStore} & 用户信息、JWT 令牌、登录状态、权限标志 \\
+\texttt{useTaskStore} & 活跃任务列表、SSE 连接管理、进度更新 \\
+\texttt{useSettingsStore} & 用户偏好、API Key 配置（本地缓存） \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsubsection{实时通信}
+
+异步任务（爬取、匹配、LLM 调用）通过 SSE 实现进度推送：
+
+\begin{enumerate}
+    \item 用户在前端发起操作（如"爬取教授"）
+    \item 前端调用 API 获取 \texttt{task\_id}，立即返回
+    \item 前端创建 \texttt{EventSource} 连接到 \texttt{/api/tasks/\{task\_id\}/progress}
+    \item 后端异步执行任务，通过 SSE 推送进度事件（progress / complete / failed）
+    \item 前端 TaskPanel 组件实时更新进度条与状态
+\end{enumerate}
+
+页面刷新时，TaskPanel 挂载后调用 \texttt{restoreFromServer()} 恢复仍在运行的任务并重新订阅 SSE。
+
+\subsection{后端体系结构}
+
+\subsubsection{分层设计}
+
+后端采用\textbf{四层架构}组织代码：
+
+\begin{center}
+\small
+\begin{tabular}{|l|p{4.5cm}|p{4cm}|}
+\hline
+\textbf{层次} & \textbf{目录} & \textbf{职责} \\
+\hline
+API 层 & \texttt{api/} & 路由定义、请求验证、依赖注入、SSE 端点 \\
+\hline
+业务层 & \texttt{crawler/, matcher/, llm/, parser/} & 爬虫调度、语义匹配、LLM 调用、简历解析 \\
+\hline
+数据层 & \texttt{db/, models/} & 数据库连接、ORM 模型、CRUD 操作 \\
+\hline
+配置层 & \texttt{prompts/} & YAML Prompt 模板、配置常量 \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsubsection{API 路由规划}
+
+所有路由统一以 \texttt{/api} 为前缀，按资源类型划分：
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{路由前缀} & \textbf{资源} & \textbf{核心端点} \\
+\hline
+\texttt{/api/auth/} & 认证 & login, register, refresh, me \\
+\texttt{/api/profiles/} & 简历 & 上传、解析预览、CRUD、激活 \\
+\texttt{/api/professors/} & 教授 & Scholar 爬取、大学批量爬取、CRUD、信息编辑 \\
+\texttt{/api/match/} & 匹配 & 运行匹配、获取结果 \\
+\texttt{/api/letters/} & 邮件 & 生成、查看、编辑 \\
+\texttt{/api/tasks/} & 异步任务 & SSE 进度、取消、批量清理 \\
+\texttt{/api/source-inputs/} & 文档输入 & PDF 上传、ArXiv 提交、重试 \\
+\texttt{/api/settings/} & 用户设置 & 读取、更新 API Key 等 \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsubsection{认证与安全}
+
+采用 JWT 双令牌机制：
+
+\begin{itemize}
+    \item \textbf{Access Token}：短期有效（15 分钟），携带于 \texttt{Authorization: Bearer} 请求头
+    \item \textbf{Refresh Token}：长期有效（7 天），用于刷新 Access Token
+    \item 密码使用 Bcrypt 哈希存储
+    \item FastAPI 依赖注入实现声明式权限校验：\\
+    路由函数声明 \texttt{current\_user = Depends(get\_current\_user)} 即可自动完成 JWT 验证
+\end{itemize}
+
+\subsubsection{异步任务系统}
+
+系统中爬取、LLM 调用、匹配计算均为耗时操作，设计异步任务系统如下：
+
+\begin{itemize}
+    \item \textbf{任务管理器}：维护全局任务状态字典，每个任务包含唯一 ID、类型、进度、状态与事件队列
+    \item \textbf{任务创建}：API 端点接收请求后，立即创建 \texttt{TaskState} 并返回 \texttt{task\_id}
+    \item \textbf{后台执行}：通过 \texttt{asyncio.create\_task} 启动协程，阻塞 I/O（如 scholarly 请求）通过 \texttt{asyncio.to\_thread} 卸载到线程池
+    \item \textbf{进度推送}：每个任务维护一个 \texttt{asyncio.Queue}，SSE 端点从中读取事件并推送到前端
+    \item \textbf{取消支持}：任务循环中检查 \texttt{cancel\_requested} 标志，支持用户主动取消
+\end{itemize}
+
+支持的任务类型包括：单教授爬取、批量爬取、大学院系爬取、语义匹配、单封邮件生成、批量邮件生成、论文摘要。
+
+\subsection{数据体系结构}
+
+\subsubsection{核心数据模型}
+
+系统设计六类核心实体，其关系如图~\ref{fig:er} 所示。
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{|p{2.2cm}|p{5cm}|p{5.3cm}|}
+\hline
+\textbf{实体} & \textbf{核心字段} & \textbf{关联} \\
+\hline
+User & id, username, password\_hash, is\_admin & $\rightarrow$ UserSettings, UserProfile, Professor \\
+\hline
+UserSettings & user\_id, deepseek\_api\_key, request\_delay & $\rightarrow$ User（一对一） \\
+\hline
+UserProfile & user\_id, title, name, education, skills, is\_active & $\rightarrow$ User（多对一） \\
+& & $\rightarrow$ MatchRecord \\
+\hline
+Professor & user\_id, name, affiliation, research\_interests, & $\rightarrow$ User（多对一） \\
+& publications, embedding, h\_index & $\rightarrow$ MatchRecord, SourceInput \\
+\hline
+MatchRecord & user\_profile\_id, professor\_id, score, letter\_content & $\rightarrow$ UserProfile, Professor \\
+\hline
+SourceInput & source\_type, canonical\_id, extracted\_markdown, status & $\rightarrow$ Professor（可选） \\
+\hline
+\end{tabular}
+\caption{核心数据模型及其关联}
+\label{fig:er}
+\end{table}
+
+\subsubsection{数据隔离策略}
+
+所有业务实体（Professor、UserProfile、MatchRecord、SourceInput）均包含 \texttt{user\_id} 字段。
+数据访问层在所有查询中强制过滤当前用户 ID，实现\textbf{行级多用户数据隔离}。
+
+\subsubsection{数据库迁移策略}
+
+采用轻量级增量迁移方案：应用启动时检查各表已有列（\texttt{PRAGMA table\_info}），自动补全缺失列。
+该方案的取舍如下：
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{方案} & \textbf{优势} & \textbf{代价} \\
+\hline
+轻量级 PRAGMA 迁移 & 零配置文件、启动时自动执行 & 不支持列删除/重命名 \\
+Alembic & 完整迁移历史、支持回滚 & 新增依赖、迁移文件维护成本 \\
+\hline
+\end{tabular}
+\end{center}
+
+考虑到项目处于设计验证阶段，选择轻量级方案，后续可在需要时迁移至 Alembic。
+
+\subsection{核心模块设计}
+
+\subsubsection{爬虫模块}
+
+爬虫模块采用\textbf{注册表模式}设计，支持可扩展的多数据源接入：
+
+\begin{center}
+\small
+\begin{tabular}{|l|p{4.5cm}|p{3.5cm}|}
+\hline
+\textbf{数据源} & \textbf{技术方案} & \textbf{输出} \\
+\hline
+Google Scholar & scholarly 库，按 ID 搜索并填充基本信息、论文列表与引用指标 & Professor 结构化字典 \\
+\hline
+大学院系网站 & BeautifulSoup4 + requests，继承 UniversityCrawlerBase 基类 & Professor 列表字典 \\
+\hline
+\end{tabular}
+\end{center}
+
+新增大学爬虫只需：实现 \texttt{UniversityCrawlerBase} 子类 $\rightarrow$ 在注册表中添加一行映射。
+前端通过 \texttt{GET /api/professors/university-crawlers} 动态获取可用爬虫列表，实现\textbf{开闭原则}（对扩展开放，对修改关闭）。
+
+\subsubsection{简历解析模块}
+
+设计三级解析策略，体现\textbf{优雅降级}原则：
+
+\begin{enumerate}
+    \item \textbf{LLM 解析}（首选）：调用 DeepSeek API，输出结构化 JSON（教育经历、科研经历、项目、技能）
+    \item \textbf{Markdown 解析}（备选）：使用 markdown-it-py 按标题层级提取章节内容
+    \item \textbf{LaTeX 解析}（备选）：使用 pylatexenc 提取纯文本后正则匹配
+\end{enumerate}
+
+采用\textbf{两阶段提交}设计：上传接口仅返回解析预览，用户确认后正式创建简历记录。
+
+\subsubsection{语义匹配模块}
+
+匹配流程如下：
+
+\begin{enumerate}
+    \item \textbf{文本构建}：分别将教授信息（研究方向 + 论文标题 + 摘要 + 所属机构）和学生简历（技能 + 科研经历 + 项目经历）拼接为规范文本，使用 \texttt{[SEP]} 分隔符
+    \item \textbf{向量编码}：使用 allenai-specter（768 维）分别编码教授文本与学生文本，经 L2 归一化处理
+    \item \textbf{相似度计算}：计算两向量的点积（等价于余弦相似度），线性映射至 [0, 100] 得分区间
+    \item \textbf{排名输出}：按得分降序排列，返回 Top-N 结果及可读的匹配原因
+\end{enumerate}
+
+\textbf{向量缓存策略}：教授向量首次计算后持久化至数据库，后续匹配复用；教授信息（研究方向、论文、机构）更新时自动将缓存置为无效。
+
+\subsubsection{LLM 集成模块}
+
+LLM 模块承担三类任务：
+
+\begin{center}
+\small
+\begin{tabular}{|l|l|p{3cm}|p{3.5cm}|}
+\hline
+\textbf{任务} & \textbf{模型} & \textbf{输入} & \textbf{输出} \\
+\hline
+简历解析 & DeepSeek-Chat & 原始简历文本 & 结构化 JSON \\
+论文摘要 & DeepSeek-Chat & 论文全文/摘要 & 200 字中文摘要 + 关键词 \\
+邮件生成 & DeepSeek-Chat & 学生简历 + 教授信息 + 匹配原因 & 300--500 字学术联络邮件 \\
+\hline
+\end{tabular}
+\end{center}
+
+\textbf{降级策略}：LLM 不可用（未配置 API Key 或调用失败）时，自动降级为基于规则的启发式方法——论文摘要取前 500 字，关键词用正则提取。
+
+\textbf{API Key 两级配置}：用户级 Key（个人设置页面）优先于全局级 Key（\texttt{.env} 文件），同时支持共享部署与个人部署两种场景。
+
+\subsection{部署体系结构}
+
+\subsubsection{目标部署架构}
+
+系统设计目标为单机部署，部署架构如下：
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{组件} & \textbf{部署方式} \\
+\hline
+前端静态资源 & Nginx 托管 \texttt{dist/} 目录 \\
+后端 API 服务 & Uvicorn 进程（\texttt{--host 0.0.0.0 --port 8000}） \\
+数据库 & SQLite 文件（\texttt{DATABASE\_PATH} 指定路径） \\
+反向代理 & Nginx 将 \texttt{/api/*} 转发至 Uvicorn，其余请求指向静态文件 \\
+进程守护 & systemd（Linux）/ launchd（macOS） \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsubsection{部署流程}
+
+\begin{enumerate}
+    \item \textbf{环境准备}：安装 Python 3.10+、Node.js 20+、Poetry；创建 Conda 环境
+    \item \textbf{后端部署}：克隆仓库 $\rightarrow$ \texttt{poetry install} $\rightarrow$ 配置 \texttt{.env} $\rightarrow$ 启动 Uvicorn
+    \item \textbf{前端构建}：\texttt{npm install} $\rightarrow$ \texttt{npm run build} $\rightarrow$ 将 \texttt{dist/} 复制到 Nginx 静态目录
+    \item \textbf{Nginx 配置}：配置反向代理与 SPA 路由回退（\texttt{try\_files \$uri /index.html}）
+    \item \textbf{HTTPS}：使用 Let's Encrypt 申请 SSL 证书，配置 Nginx 启用 HTTPS
+\end{enumerate}
+
+%==========================================================
+\section{关键设计决策}
+%==========================================================
+
+\subsection{为什么选择 SQLite 而非 PostgreSQL}
+
+项目处于设计验证阶段，目标用户为个人或小团队，数据量预计在数千至数万条记录量级。
+SQLite 免去独立数据库进程的运维负担，且 SQLAlchemy 的抽象层保证了后期向 PostgreSQL 迁移的可行性。
+当数据量达到十万级或需要多实例并发写入时，再引入 PostgreSQL。
+
+\subsection{为什么选择 allenai-specter 而非通用嵌入模型}
+
+allenai-specter 基于 SciBERT 在学术论文引用关系上微调，对学术文本（研究方向、论文标题、摘要）的语义理解显著优于通用 BERT 或 OpenAI Embeddings。
+其 768 维向量可直接通过 NumPy 计算点积，无需引入 Faiss 等向量数据库——数千条数据的匹配在毫秒级内完成。
+
+\subsection{为什么选择 SSE 而非 WebSocket}
+
+系统仅需服务器向客户端单向推送任务进度，不需要客户端向服务器发送消息。
+SSE 基于标准 HTTP 协议，实现更简单，浏览器原生支持自动重连，且与 FastAPI 的 \texttt{sse-starlette} 集成良好。
+WebSocket 的全双工能力在当前场景下属于过度设计。
+
+\subsection{为什么选择 Naive UI 而非 Element Plus}
+
+Naive UI 原生支持 Tree Shaking（按需加载组件），打包体积更小；提供完整的 TypeScript 类型定义；
+设计风格更现代，适合数据密集型工具类应用。Element Plus 功能同样完备，但包体积与配置复杂度略高。
+
+%==========================================================
+\section{后续计划}
+%==========================================================
+
+基于当前技术选型与体系结构设计，后续开发将按以下优先级推进：
+
+\begin{enumerate}
+    \item \textbf{项目脚手架搭建}：初始化前后端项目骨架，配置 Poetry、Vite、TypeScript 等工具链
+    \item \textbf{核心数据模型实现}：实现 SQLAlchemy ORM 模型与轻量级迁移逻辑
+    \item \textbf{认证系统}：JWT 双令牌认证与前端登录/注册页面
+    \item \textbf{爬虫模块}：实现 Google Scholar 爬虫与注册表模式的大学院系爬虫框架
+    \item \textbf{简历解析}：实现三级解析策略（LLM / Markdown / LaTeX）
+    \item \textbf{语义匹配}：集成 allenai-specter 模型，实现向量缓存
+    \item \textbf{LLM 集成}：邮件生成、论文摘要
+    \item \textbf{前端页面}：教授管理、匹配结果、邮件管理、用户设置
+    \item \textbf{异步任务系统}：SSE 进度推送、任务面板组件
+    \item \textbf{测试与部署}：pytest 测试套件、Nginx 部署配置
+\end{enumerate}
+
+\vspace{1em}
+\begin{center}
+\textit{本报告基于项目启动阶段的技术调研成果编写，旨在为后续开发提供技术决策依据。}
+\end{center}
+
+\end{document}
