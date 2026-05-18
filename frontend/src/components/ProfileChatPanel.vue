@@ -3,8 +3,9 @@ import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { NDrawer, NDrawerContent, useMessage } from 'naive-ui'
 import type { ChatStatus } from 'ai'
-import { Conversation, ConversationContent, ConversationEmptyState } from '@/components/ai-elements/conversation'
-import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message'
+import { Conversation, ConversationContent, ConversationEmptyState, ConversationScrollButton } from '@/components/ai-elements/conversation'
+import { Message, MessageContent, MessageResponse, MessageToolbar, MessageActions, MessageAction } from '@/components/ai-elements/message'
+import { Suggestions, Suggestion } from '@/components/ai-elements/suggestion'
 import { Shimmer } from '@/components/ai-elements/shimmer'
 import {
   PromptInput,
@@ -14,6 +15,7 @@ import {
   PromptInputSubmit,
   PromptInputTools,
 } from '@/components/ai-elements/prompt-input'
+import { CopyIcon, RefreshCwIcon } from 'lucide-vue-next'
 import { profilesApi } from '@/api/profiles'
 import { useApiError } from '@/composables/useApiError'
 import { useTaskStore } from '@/stores/tasks'
@@ -130,6 +132,26 @@ function handleSubmit(payload: { text: string; files: unknown[] }) {
   }
 }
 
+function handleSuggestion(suggestion: string) {
+  sendMessage(suggestion)
+}
+
+async function copyMessage(content: string) {
+  try {
+    await navigator.clipboard.writeText(content)
+    message.success(t('chat.copySuccess'))
+  } catch {
+    message.error(t('common.copyFailed'))
+  }
+}
+
+function handleRegenerate() {
+  const lastUserMsg = [...messages.value].reverse().find((m) => m.role === 'user')
+  if (lastUserMsg) {
+    sendMessage(lastUserMsg.content)
+  }
+}
+
 async function handleRefine() {
   if (messages.value.length <= 1) {
     message.warning(t('chat.needChatFirst'))
@@ -184,7 +206,26 @@ async function handleRefine() {
           <ConversationEmptyState
             v-if="messages.length === 0 && status === 'ready'"
             :title="$t('chat.emptyHint')"
-          />
+          >
+            <Suggestions class="mt-4">
+              <Suggestion
+                :suggestion="$t('chat.suggestResearchExperience')"
+                @click="handleSuggestion"
+              />
+              <Suggestion
+                :suggestion="$t('chat.suggestCoreSkills')"
+                @click="handleSuggestion"
+              />
+              <Suggestion
+                :suggestion="$t('chat.suggestAcademicGoals')"
+                @click="handleSuggestion"
+              />
+              <Suggestion
+                :suggestion="$t('chat.suggestImproveDescription')"
+                @click="handleSuggestion"
+              />
+            </Suggestions>
+          </ConversationEmptyState>
 
           <Message
             v-for="msg in messages"
@@ -195,7 +236,25 @@ async function handleRefine() {
             <MessageContent :class="msg.role === 'assistant' ? '!w-full' : ''">
               <MessageResponse :content="msg.content" />
             </MessageContent>
+            <MessageToolbar v-if="msg.role === 'assistant' && msg.content">
+              <MessageActions>
+                <MessageAction
+                  :tooltip="$t('chat.actionCopy')"
+                  @click="copyMessage(msg.content)"
+                >
+                  <CopyIcon class="size-4" />
+                </MessageAction>
+                <MessageAction
+                  :tooltip="$t('chat.actionRegenerate')"
+                  @click="handleRegenerate"
+                >
+                  <RefreshCwIcon class="size-4" />
+                </MessageAction>
+              </MessageActions>
+            </MessageToolbar>
           </Message>
+
+          <ConversationScrollButton />
 
           <Shimmer
             v-if="(status === 'submitted') && messages.length > 0 && !messages[messages.length - 1]?.content"

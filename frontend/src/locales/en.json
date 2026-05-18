@@ -448,6 +448,12 @@
     "suggestImproveDescription": "How to improve descriptions?",
     "suggestAddProjects": "What projects to add?",
     "suggestTailorForPhD": "How to tailor for PhD?",
+    "suggestResearchExperience": "Tell me about your research experience",
+    "suggestCoreSkills": "What are your core skills",
+    "suggestAcademicGoals": "What are your academic goals",
+    "actionCopy": "Copy",
+    "actionRegenerate": "Regenerate",
+    "copySuccess": "Copied to clipboard",
     "streamingHint": "AI is generating...",
     "aiThinking": "AI is thinking..."
   },

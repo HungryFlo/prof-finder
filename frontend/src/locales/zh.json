@@ -448,6 +448,12 @@
     "suggestImproveDescription": "如何改进描述？",
     "suggestAddProjects": "补充哪些项目？",
     "suggestTailorForPhD": "如何针对PhD定制？",
+    "suggestResearchExperience": "介绍一下你的研究经历",
+    "suggestCoreSkills": "你的核心技能是什么",
+    "suggestAcademicGoals": "你的学术目标是什么",
+    "actionCopy": "复制",
+    "actionRegenerate": "重新生成",
+    "copySuccess": "已复制到剪贴板",
     "streamingHint": "AI 正在生成…",
     "aiThinking": "AI 正在思考…"
   },
