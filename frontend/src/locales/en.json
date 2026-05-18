@@ -1,6 +1,7 @@
 {
   "nav": {
     "skipToContent": "Skip to main content",
+    "dashboard": "Dashboard",
     "profiles": "Student Profiles",
     "professors": "Professors",
     "match": "Match Results",
@@ -372,6 +373,37 @@
     "confirmResetPwd": "Confirm reset",
     "resetPwdIntro": "Set a new password for user {username}:",
     "idColumn": "ID"
+  },
+  "dashboard": {
+    "welcome": "Welcome back, {username}",
+    "subtitle": "Your research matching workspace",
+    "statsTitle": "Overview",
+    "profileCount": "Student Profiles",
+    "professorCount": "Professors",
+    "matchCount": "Match Results",
+    "letterCount": "Contact Letters",
+    "quickActions": "Quick Actions",
+    "createProfile": "Create Profile",
+    "addProfessor": "Add Professor",
+    "runMatch": "Run Matching",
+    "recentActivity": "Recent Activity",
+    "recentProfiles": "Recent Profiles",
+    "recentProfessors": "Recent Professors",
+    "noRecentProfiles": "No profiles yet",
+    "noRecentProfessors": "No professors yet",
+    "viewAll": "View all",
+    "quotes": [
+      "Every great researcher started with a single question.",
+      "Your next breakthrough is just one connection away.",
+      "The journey of a thousand papers begins with a single hypothesis.",
+      "A great mentor is the most valuable asset in academia.",
+      "Dare to ask, and you shall discover the unknown.",
+      "Every failed experiment is a stepping stone to success.",
+      "The value of research lies not just in results, but in the thinking along the way.",
+      "Connecting with the right people makes extraordinary research possible.",
+      "Stay curious — it will take you further than you imagine.",
+      "Today's effort is the foundation of tomorrow's academic achievement."
+    ]
   },
   "common": {
     "save": "Save",
