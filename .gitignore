@@ -240,4 +240,4 @@ reference/
 
 *.DS_Store
 
-.claude/skills/
+.claude/skills/.claude/worktrees/
