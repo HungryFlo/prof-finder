@@ -3,6 +3,7 @@
 from typing import List, Optional
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ...models.schema import User, UserProfile, Professor, MatchRecord
@@ -20,6 +21,12 @@ from ..task_manager import create_task, cleanup_old_tasks, enqueue_task
 _MODEL_LOCAL_PATH = Path(__file__).resolve().parents[3] / "qwen3-embedding-0.6b"
 
 router = APIRouter(prefix="/match", tags=["匹配"])
+
+_MATCH_SORT_COLUMNS = {
+    "score": MatchRecord.score,
+    "professor_name": Professor.name,
+    "professor_affiliation": Professor.affiliation,
+}
 
 
 @router.get("/model-status")
@@ -113,59 +120,57 @@ def get_match_results(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     min_score: Optional[float] = Query(None, ge=0, le=100),
+    search: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
 ):
-    """Get match results for current active profile.
-    
-    Args:
-        page: Page number.
-        page_size: Items per page.
-        min_score: Minimum match score filter.
-        current_user: Authenticated user.
-        session: Database session.
-        
-    Returns:
-        Paginated match results.
-    """
+    """Get match results for current active profile."""
     # Get active profile
     active_profile = (
         session.query(UserProfile)
         .filter(UserProfile.user_id == current_user.id, UserProfile.is_active == True)
         .first()
     )
-    
+
     if not active_profile:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="请先激活一份画像",
         )
-    
+
     # Build query
     query = (
         session.query(MatchRecord, Professor)
         .join(Professor, MatchRecord.professor_id == Professor.id)
         .filter(MatchRecord.user_profile_id == active_profile.id)
     )
-    
+
     if min_score is not None:
         query = query.filter(MatchRecord.score >= min_score)
-    
+    if search:
+        query = query.filter(Professor.name.ilike(f"%{search}%"))
+
     # Get total count
     total = query.count()
-    
-    # Apply pagination and sorting
+
+    # Apply sorting
+    order_col = _MATCH_SORT_COLUMNS.get(sort_by, MatchRecord.score)
+    order_func = order_col.asc if sort_order == "asc" else order_col.desc
+
+    # Apply pagination
     results = (
         query
-        .order_by(MatchRecord.score.desc())
+        .order_by(order_func())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
     )
-    
+
     # Calculate pages
     pages = (total + page_size - 1) // page_size if total > 0 else 1
-    
+
     items = [
         {
             "professor_id": professor.id,
@@ -177,7 +182,7 @@ def get_match_results(
         }
         for match_record, professor in results
     ]
-    
+
     return PaginatedResponse(
         items=items,
         total=total,

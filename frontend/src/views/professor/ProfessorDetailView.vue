@@ -24,16 +24,19 @@ import type { DataTableColumns } from 'naive-ui'
 import SourceInputPanel from '@/components/SourceInputPanel.vue'
 import { professorsApi } from '@/api/professors'
 import { sourceInputsApi } from '@/api/source-inputs'
+import { useApiError } from '@/composables/useApiError'
 import { useTaskStore } from '@/stores/tasks'
+import { useDateLocale } from '@/composables/useDateLocale'
 import type { PaperSummary, Professor, Publication, SourceInput } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 const message = useMessage()
 const taskStore = useTaskStore()
+const { handleApiError } = useApiError()
 const { t, locale } = useI18n()
 
-const dateLocale = computed(() => (locale.value === 'en' ? 'en-US' : 'zh-CN'))
+const dateLocale = useDateLocale()
 
 const professorId = Number(route.params.id)
 
@@ -164,8 +167,7 @@ async function fetchData() {
       // non-critical
     }
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('professor.loadFailed'))
+    handleApiError(error, t('professor.loadFailed'))
     router.push('/professor')
   } finally {
     loading.value = false
@@ -192,8 +194,7 @@ async function handleSave() {
     professor.value = updated
     message.success(t('profile.saveSuccess'))
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('profile.saveFailed'))
+    handleApiError(error, t('profile.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -207,8 +208,7 @@ async function handleRefreshScholar() {
     message.success(t('professor.scholarSynced'))
     await fetchData()
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('professor.scholarSyncFailed'))
+    handleApiError(error, t('professor.scholarSyncFailed'))
   } finally {
     refreshLoading.value = false
   }
@@ -231,8 +231,7 @@ async function handleFillPublications() {
       }
     )
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('professor.startTaskFailed'))
+    handleApiError(error, t('professor.startTaskFailed'))
   } finally {
     fillPublicationsLoading.value = false
   }
@@ -269,8 +268,7 @@ async function handleSummarizeSources() {
       }
     )
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('professor.paperSummaryStartFailed'))
+    handleApiError(error, t('professor.paperSummaryStartFailed'))
   } finally {
     summarizeLoading.value = false
   }
@@ -293,8 +291,7 @@ async function handleGenerateProfile() {
       }
     )
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('professor.generateProfileStartFailed'))
+    handleApiError(error, t('professor.generateProfileStartFailed'))
   } finally {
     generateProfileLoading.value = false
   }

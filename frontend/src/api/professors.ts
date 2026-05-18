@@ -33,6 +33,9 @@ export interface ProfessorListParams {
   page_size?: number
   affiliation?: string
   interest?: string
+  search?: string
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
 }
 
 export const professorsApi = {
@@ -43,8 +46,16 @@ export const professorsApi = {
         page_size: params.page_size || 20,
         affiliation: params.affiliation || undefined,
         interest: params.interest || undefined,
+        search: params.search || undefined,
+        sort_by: params.sort_by || undefined,
+        sort_order: params.sort_order || undefined,
       },
     })
+    return response.data
+  },
+
+  async getAffiliations(): Promise<string[]> {
+    const response = await client.get<string[]>('/professors/affiliations')
     return response.data
   },
 

@@ -14,11 +14,13 @@ import {
 import { useI18n } from 'vue-i18n'
 import { settingsApi } from '@/api/settings'
 import { useAuthStore } from '@/stores/auth'
+import { useApiError } from '@/composables/useApiError'
 import type { UserSettings } from '@/types'
 
 const authStore = useAuthStore()
 const message = useMessage()
 const { t } = useI18n()
+const { handleApiError } = useApiError()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -55,8 +57,7 @@ async function fetchSettings() {
     enrichSummaries.value = settings.value.auto_enrich_on_save_paper_summaries !== false
     enrichProfile.value = settings.value.auto_enrich_on_save_research_profile !== false
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('settings.saveFailed'))
+    handleApiError(error, t('settings.saveFailed'))
   } finally {
     loading.value = false
   }
@@ -93,8 +94,7 @@ async function handleSaveSettings() {
     enrichProfile.value = settings.value.auto_enrich_on_save_research_profile !== false
     message.success(t('settings.saveSuccess'))
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('settings.saveFailed'))
+    handleApiError(error, t('settings.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -124,8 +124,7 @@ async function handleChangePassword() {
       confirmPassword: '',
     }
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('auth.changeFailed'))
+    handleApiError(error, t('auth.changeFailed'))
   } finally {
     passwordLoading.value = false
   }

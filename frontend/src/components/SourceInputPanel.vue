@@ -13,6 +13,7 @@ import {
   useMessage,
 } from 'naive-ui'
 import { sourceInputsApi } from '@/api/source-inputs'
+import { useApiError } from '@/composables/useApiError'
 import type { SourceInput } from '@/types'
 
 const props = defineProps<{
@@ -25,6 +26,7 @@ const emit = defineEmits<{
 
 const message = useMessage()
 const { t } = useI18n()
+const { handleApiError } = useApiError()
 
 const arxivUrl = ref('')
 const pdfInputRef = ref<HTMLInputElement | null>(null)
@@ -49,8 +51,7 @@ async function handlePdfChange(event: Event) {
     updateItems([created, ...props.modelValue])
     message.success(t('source.pdfUploadedOk'))
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('source.pdfProcessFail'))
+    handleApiError(error, t('source.pdfProcessFail'))
   } finally {
     uploadingPdf.value = false
     target.value = ''
@@ -73,8 +74,7 @@ async function handleAddArxiv() {
     }
     arxivUrl.value = ''
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('source.arxivAddFail'))
+    handleApiError(error, t('source.arxivAddFail'))
   } finally {
     creatingArxiv.value = false
   }
@@ -91,8 +91,7 @@ async function retryParse(item: SourceInput) {
       message.success(t('source.retryParseOk'))
     }
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('source.retryParseFail'))
+    handleApiError(error, t('source.retryParseFail'))
   }
 }
 </script>

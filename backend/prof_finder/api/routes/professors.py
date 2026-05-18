@@ -2,6 +2,7 @@
 
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -42,6 +43,13 @@ from ..enrichment_prefs import (
 
 router = APIRouter(prefix="/professors", tags=["教授管理"])
 
+_PROFESSOR_SORT_COLUMNS = {
+    "name": Professor.name,
+    "affiliation": Professor.affiliation,
+    "h_index": Professor.h_index,
+    "updated_at": Professor.updated_at,
+}
+
 
 def get_professor_list_response(professor: Professor) -> dict:
     """Convert Professor to list response format."""
@@ -62,46 +70,47 @@ def list_professors(
     page_size: int = Query(20, ge=1, le=100),
     affiliation: Optional[str] = None,
     interest: Optional[str] = None,
+    search: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
 ):
-    """List professors with pagination and filtering.
-    
-    Args:
-        page: Page number (1-indexed).
-        page_size: Items per page.
-        affiliation: Filter by affiliation (partial match).
-        interest: Filter by research interest (partial match).
-        current_user: Authenticated user.
-        session: Database session.
-        
-    Returns:
-        Paginated list of professors.
-    """
+    """List professors with pagination, filtering, search, and sorting."""
     query = session.query(Professor).filter(Professor.user_id == current_user.id)
-    
+
     # Apply filters
     if affiliation:
         query = query.filter(Professor.affiliation.ilike(f"%{affiliation}%"))
     if interest:
-        # SQLite JSON query - search in research_interests array
         query = query.filter(Professor.research_interests.cast(str).ilike(f"%{interest}%"))
-    
+    if search:
+        query = query.filter(
+            or_(
+                Professor.name.ilike(f"%{search}%"),
+                Professor.affiliation.ilike(f"%{search}%"),
+            )
+        )
+
     # Get total count
     total = query.count()
-    
+
+    # Apply sorting
+    order_col = _PROFESSOR_SORT_COLUMNS.get(sort_by, Professor.updated_at)
+    order_func = order_col.asc if sort_order == "asc" else order_col.desc
+
     # Apply pagination
     professors = (
         query
-        .order_by(Professor.updated_at.desc())
+        .order_by(order_func())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
     )
-    
+
     # Calculate pages
     pages = (total + page_size - 1) // page_size if total > 0 else 1
-    
+
     return PaginatedResponse(
         items=[get_professor_list_response(p) for p in professors],
         total=total,
@@ -109,6 +118,21 @@ def list_professors(
         page_size=page_size,
         pages=pages,
     )
+
+
+@router.get("/affiliations", response_model=List[str])
+def list_affiliations(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Return distinct non-null affiliations for the current user."""
+    rows = (
+        session.query(Professor.affiliation)
+        .filter(Professor.user_id == current_user.id, Professor.affiliation.isnot(None), Professor.affiliation != "")
+        .distinct()
+        .all()
+    )
+    return sorted({r[0] for r in rows if r[0]})
 
 
 @router.post("", response_model=ProfessorResponse, status_code=status.HTTP_201_CREATED)

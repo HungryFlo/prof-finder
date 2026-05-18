@@ -13,12 +13,14 @@ import {
 import type { FormInst, FormRules } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
+import { useApiError } from '@/composables/useApiError'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const message = useMessage()
 const { t } = useI18n()
+const { handleApiError } = useApiError()
 
 const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
@@ -57,8 +59,7 @@ async function handleLogin() {
       router.push(redirect || '/')
     }
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('auth.loginFailed'))
+    handleApiError(error, t('auth.loginFailed'))
   } finally {
     loading.value = false
   }

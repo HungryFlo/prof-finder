@@ -13,12 +13,15 @@ import {
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { adminApi } from '@/api/auth'
+import { useDateLocale } from '@/composables/useDateLocale'
+import { useApiError } from '@/composables/useApiError'
 import type { User } from '@/types'
 
 const message = useMessage()
 const { t, locale } = useI18n()
+const { handleApiError } = useApiError()
 
-const dateLocale = computed(() => (locale.value === 'en' ? 'en-US' : 'zh-CN'))
+const dateLocale = useDateLocale()
 
 const loading = ref(false)
 const users = ref<User[]>([])
@@ -71,8 +74,7 @@ async function fetchUsers() {
   try {
     users.value = await adminApi.listUsers()
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('admin.fetchListFailed'))
+    handleApiError(error, t('admin.fetchListFailed'))
   } finally {
     loading.value = false
   }
@@ -98,8 +100,7 @@ async function handleResetPassword() {
     message.success(t('admin.resetSuccess'))
     showResetModal.value = false
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('admin.resetPasswordFail'))
+    handleApiError(error, t('admin.resetPasswordFail'))
   } finally {
     resetLoading.value = false
   }

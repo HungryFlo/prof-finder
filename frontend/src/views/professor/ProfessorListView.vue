@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, h, computed } from 'vue'
+import { ref, onMounted, h, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -24,6 +24,7 @@ import {
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { professorsApi } from '@/api/professors'
+import { useApiError } from '@/composables/useApiError'
 import type { UniversityCrawlerInfo } from '@/api/professors'
 import { useTaskStore } from '@/stores/tasks'
 import ProfessorSummaryDrawer from '@/components/ProfessorSummaryDrawer.vue'
@@ -31,6 +32,7 @@ import type { ProfessorListItem, PaginatedResponse } from '@/types'
 
 const message = useMessage()
 const dialog = useDialog()
+const { handleApiError } = useApiError()
 const taskStore = useTaskStore()
 const router = useRouter()
 const { t } = useI18n()
@@ -69,6 +71,22 @@ const manualForm = ref({
 const showSummaryDrawer = ref(false)
 const summaryDrawerProfId = ref(0)
 
+const searchQuery = ref('')
+const sortBy = ref<string | null>(null)
+const sortOrder = ref<'asc' | 'desc'>('desc')
+const filterAffiliations = ref<string[]>([])
+const affiliationOptions = ref<{ label: string; value: string }[]>([])
+
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(searchQuery, () => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = setTimeout(() => {
+    currentPage.value = 1
+    fetchProfessors()
+  }, 300)
+})
+
 /** After crawl/refresh tasks finish, pick up chained tasks (e.g. professor-enrichment). */
 function afterImportTasksComplete() {
   void fetchProfessors().then(() => taskStore.restoreFromServer())
@@ -85,6 +103,7 @@ const columns = computed<DataTableColumns<ProfessorListItem>>(() => [
     title: t('professor.name'),
     key: 'name',
     width: 150,
+    sorter: 'default',
     render(row) {
       return h(
         'a',
@@ -100,6 +119,9 @@ const columns = computed<DataTableColumns<ProfessorListItem>>(() => [
     title: t('professor.affiliation'),
     key: 'affiliation',
     ellipsis: { tooltip: true },
+    sorter: 'default',
+    filter: 'default',
+    filterOptions: affiliationOptions.value,
   },
   {
     title: t('professor.researchInterests'),
@@ -116,7 +138,7 @@ const columns = computed<DataTableColumns<ProfessorListItem>>(() => [
       )
     },
   },
-  { title: t('professor.hIndex'), key: 'h_index', width: 100 },
+  { title: t('professor.hIndex'), key: 'h_index', width: 100, sorter: 'default' },
   {
     title: t('professor.actions'),
     key: 'actions',
@@ -155,8 +177,7 @@ async function openUniversityModal() {
         }
       }
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { detail?: string } } }
-      message.error(err.response?.data?.detail || t('professor.fetchUniversityFailed'))
+      handleApiError(error, t('professor.fetchUniversityFailed'))
     } finally {
       crawlersLoading.value = false
     }
@@ -175,10 +196,18 @@ async function handleCrawlUniversity() {
     message.success(msg || t('professor.crawlTaskStarted'))
     taskStore.addTask(task_id, 'university-crawl', t('professor.univImportTask'), 0, afterImportTasksComplete)
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('professor.startTaskFailed'))
+    handleApiError(error, t('professor.startTaskFailed'))
   } finally {
     universityLoading.value = false
+  }
+}
+
+async function fetchAffiliations() {
+  try {
+    const affiliations = await professorsApi.getAffiliations()
+    affiliationOptions.value = affiliations.map((a) => ({ label: a, value: a }))
+  } catch {
+    // Silently fail - filter dropdown will just be empty
   }
 }
 
@@ -188,13 +217,35 @@ async function fetchProfessors() {
     data.value = await professorsApi.list({
       page: currentPage.value,
       page_size: 20,
+      search: searchQuery.value || undefined,
+      sort_by: sortBy.value || undefined,
+      sort_order: sortBy.value ? sortOrder.value : undefined,
+      affiliation: filterAffiliations.value.length > 0 ? filterAffiliations.value.join(',') : undefined,
     })
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('professor.fetchListFailed'))
+    handleApiError(error, t('professor.fetchListFailed'))
   } finally {
     loading.value = false
   }
+}
+
+function handleSorterChange(sorter: { columnKey: string | number | null; order: 'ascend' | 'descend' | false }) {
+  if (sorter.order === false) {
+    sortBy.value = null
+    sortOrder.value = 'desc'
+  } else {
+    sortBy.value = String(sorter.columnKey)
+    sortOrder.value = sorter.order === 'ascend' ? 'asc' : 'desc'
+  }
+  currentPage.value = 1
+  fetchProfessors()
+}
+
+function handleFiltersChange(filters: Record<string, (string | number)[] | null>) {
+  const aff = filters['affiliation']
+  filterAffiliations.value = (aff as string[]) || []
+  currentPage.value = 1
+  fetchProfessors()
 }
 
 function handlePageChange(page: number) {
@@ -208,67 +259,14 @@ async function handleAddByScholar() {
     return
   }
 
-  const _addScholarClientT0 = Date.now()
-  // #region agent log
-  fetch('http://127.0.0.1:7318/ingest/97692725-482b-4e9a-9a4d-aa05d366e8fd', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'a6cce7' },
-    body: JSON.stringify({
-      sessionId: 'a6cce7',
-      hypothesisId: 'H1',
-      location: 'ProfessorListView.vue:handleAddByScholar',
-      message: 'client_add_scholar_start',
-      data: {},
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {})
-  // #endregion
   scholarLoading.value = true
   try {
     const { task_id } = await professorsApi.addByScholar(scholarUrl.value)
-    // #region agent log
-    fetch('http://127.0.0.1:7318/ingest/97692725-482b-4e9a-9a4d-aa05d366e8fd', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'a6cce7' },
-      body: JSON.stringify({
-        sessionId: 'a6cce7',
-        hypothesisId: 'H4',
-        location: 'ProfessorListView.vue:handleAddByScholar',
-        message: 'client_add_scholar_ok',
-        data: { task_id, client_elapsed_ms: Date.now() - _addScholarClientT0 },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {})
-    // #endregion
     showScholarModal.value = false
     scholarUrl.value = ''
     taskStore.addTask(task_id, 'single-crawl', t('professor.importProfessorTask'), 1, afterImportTasksComplete)
   } catch (error: unknown) {
-    const err = error as {
-      code?: string
-      message?: string
-      response?: { status?: number; data?: { detail?: string } }
-    }
-    // #region agent log
-    fetch('http://127.0.0.1:7318/ingest/97692725-482b-4e9a-9a4d-aa05d366e8fd', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'a6cce7' },
-      body: JSON.stringify({
-        sessionId: 'a6cce7',
-        hypothesisId: err.code === 'ECONNABORTED' ? 'H1' : err.response ? 'H3' : 'H2',
-        location: 'ProfessorListView.vue:handleAddByScholar',
-        message: 'client_add_scholar_err',
-        data: {
-          client_elapsed_ms: Date.now() - _addScholarClientT0,
-          code: err.code,
-          axiosMessage: err.message,
-          httpStatus: err.response?.status,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {})
-    // #endregion
-    message.error(err.response?.data?.detail || t('professor.addFailed'))
+    handleApiError(error, t('professor.addFailed'))
   } finally {
     scholarLoading.value = false
   }
@@ -303,8 +301,7 @@ async function handleAddManually() {
       )
     }
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('professor.manualAddFail'))
+    handleApiError(error, t('professor.manualAddFail'))
   } finally {
     manualLoading.value = false
   }
@@ -327,8 +324,7 @@ async function handleBatchRefresh() {
     )
     message.success(msg || t('professor.batchRefreshStarting'))
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('professor.batchRefreshFail'))
+    handleApiError(error, t('professor.batchRefreshFail'))
   }
 }
 
@@ -351,8 +347,7 @@ async function handleBatchGenerateProfiles() {
     )
     message.success(msg || t('professor.batchProfilesStarted'))
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('professor.batchProfilesFail'))
+    handleApiError(error, t('professor.batchProfilesFail'))
   }
 }
 
@@ -362,8 +357,7 @@ async function handleDelete(id: number) {
     message.success(t('professor.deleteOk'))
     fetchProfessors()
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('professor.deleteFail'))
+    handleApiError(error, t('professor.deleteFail'))
   }
 }
 
@@ -387,8 +381,7 @@ async function handleBatchDelete() {
         selectedRowKeys.value = []
         fetchProfessors()
       } catch (error: unknown) {
-        const err = error as { response?: { data?: { detail?: string } } }
-        message.error(err.response?.data?.detail || t('professor.deleteFail'))
+        handleApiError(error, t('professor.deleteFail'))
       }
     },
   })
@@ -396,6 +389,7 @@ async function handleBatchDelete() {
 
 onMounted(() => {
   fetchProfessors()
+  fetchAffiliations()
 })
 </script>
 
@@ -435,13 +429,25 @@ onMounted(() => {
         </n-space>
       </template>
 
+      <n-input
+        v-model:value="searchQuery"
+        :placeholder="$t('professor.searchPlaceholder')"
+        clearable
+        style="margin-bottom: 12px"
+      />
+
       <n-data-table
+        remote
         :columns="columns"
         :data="data.items"
         :loading="loading"
         :row-key="(row: ProfessorListItem) => row.id"
         v-model:checked-row-keys="selectedRowKeys"
         :scroll-x="1180"
+        :sort-by="sortBy"
+        :sort-order="sortOrder === 'asc' ? 'ascend' : 'descend'"
+        @update:sorter="handleSorterChange"
+        @update:filters="handleFiltersChange"
       />
 
       <n-space justify="end" style="margin-top: 16px">

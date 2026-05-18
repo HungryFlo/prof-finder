@@ -6,6 +6,9 @@ export interface MatchResultsParams {
   page?: number
   page_size?: number
   min_score?: number
+  search?: string
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
 }
 
 export const matchApi = {
@@ -30,6 +33,9 @@ export const matchApi = {
         page: params.page || 1,
         page_size: params.page_size || 20,
         min_score: params.min_score || undefined,
+        search: params.search || undefined,
+        sort_by: params.sort_by || undefined,
+        sort_order: params.sort_order || undefined,
       },
     })
     return response.data

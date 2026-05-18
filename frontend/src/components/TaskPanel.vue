@@ -21,10 +21,12 @@ import {
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useTaskStore } from '@/stores/tasks'
+import { useApiError } from '@/composables/useApiError'
 import type { TaskEntry } from '@/stores/tasks'
 
 const taskStore = useTaskStore()
 const message = useMessage()
+const { handleApiError } = useApiError()
 const { t } = useI18n()
 
 const hasAny = computed(() => taskStore.taskList.length > 0)
@@ -79,8 +81,7 @@ async function handleCancel(taskId: string) {
   try {
     await taskStore.requestCancel(taskId)
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('task.cancelFailed'))
+    handleApiError(error, t('task.cancelFailed'))
   }
 }
 

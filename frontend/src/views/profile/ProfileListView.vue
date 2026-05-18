@@ -19,6 +19,8 @@ import {
   useDialog,
 } from 'naive-ui'
 import type { DataTableColumns, UploadFileInfo } from 'naive-ui'
+import { useDateLocale } from '@/composables/useDateLocale'
+import { useApiError } from '@/composables/useApiError'
 import { profilesApi } from '@/api/profiles'
 import { useTaskStore } from '@/stores/tasks'
 import type { Profile } from '@/types'
@@ -28,8 +30,9 @@ const message = useMessage()
 const dialog = useDialog()
 const taskStore = useTaskStore()
 const { t, locale } = useI18n()
+const { handleApiError } = useApiError()
 
-const dateLocale = computed(() => (locale.value === 'en' ? 'en-US' : 'zh-CN'))
+const dateLocale = useDateLocale()
 
 // State
 const loading = ref(false)
@@ -142,8 +145,7 @@ async function fetchProfiles() {
   try {
     profiles.value = await profilesApi.list()
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('profile.fetchListFailed'))
+    handleApiError(error, t('profile.fetchListFailed'))
   } finally {
     loading.value = false
   }
@@ -156,8 +158,7 @@ async function handleActivate(id: number) {
     message.success(t('profile.activateSuccess'))
     await fetchProfiles()
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('profile.activateFailed'))
+    handleApiError(error, t('profile.activateFailed'))
   }
 }
 
@@ -168,8 +169,7 @@ async function handleDelete(id: number) {
     message.success(t('profile.deleteSuccess'))
     await fetchProfiles()
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('profile.deleteFailed'))
+    handleApiError(error, t('profile.deleteFailed'))
   }
 }
 
@@ -194,8 +194,7 @@ async function handleBatchDelete() {
         selectedRowKeys.value = []
         await fetchProfiles()
       } catch (error: unknown) {
-        const err = error as { response?: { data?: { detail?: string } } }
-        message.error(err.response?.data?.detail || t('profile.batchDeleteFailed'))
+        handleApiError(error, t('profile.batchDeleteFailed'))
       }
     },
   })

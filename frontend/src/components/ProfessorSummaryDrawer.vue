@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -15,6 +15,8 @@ import {
   useMessage,
 } from 'naive-ui'
 import { professorsApi } from '@/api/professors'
+import { useDateLocale } from '@/composables/useDateLocale'
+import { useApiError } from '@/composables/useApiError'
 import type { Professor } from '@/types'
 
 const props = defineProps<{
@@ -29,9 +31,9 @@ const emit = defineEmits<{
 
 const router = useRouter()
 const message = useMessage()
-const { t, locale } = useI18n()
+const { t } = useI18n()
 
-const dateLocale = computed(() => (locale.value === 'en' ? 'en-US' : 'zh-CN'))
+const dateLocale = useDateLocale()
 
 const loading = ref(false)
 const professor = ref<Professor | null>(null)
@@ -49,8 +51,7 @@ watch(
       try {
         professor.value = await professorsApi.get(id)
       } catch (error: unknown) {
-        const err = error as { response?: { data?: { detail?: string } } }
-        message.error(err.response?.data?.detail || t('professor.drawerLoadFailed'))
+        handleApiError(error, t('professor.drawerLoadFailed'))
         emit('update:show', false)
       } finally {
         loading.value = false

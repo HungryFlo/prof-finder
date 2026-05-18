@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { usePasswordChecks } from '@/composables/usePasswordChecks'
+import { useApiError } from '@/composables/useApiError'
 import { useRouter } from 'vue-router'
 import {
   NCard,
@@ -19,6 +21,7 @@ const router = useRouter()
 const authStore = useAuthStore()
 const message = useMessage()
 const { t } = useI18n()
+const { handleApiError } = useApiError()
 
 const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
@@ -29,13 +32,7 @@ const formData = ref({
   confirmPassword: '',
 })
 
-const passwordChecks = computed(() => {
-  const pwd = formData.value.password
-  return {
-    minLength: pwd.length >= 6,
-    maxLength: pwd.length <= 100,
-  }
-})
+const { passwordChecks } = usePasswordChecks(computed(() => formData.value.password))
 
 const rules: FormRules = {
   username: [
@@ -81,8 +78,7 @@ async function handleRegister() {
     message.success(t('auth.registerSuccess'))
     router.push('/login')
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('auth.registerFailed'))
+    handleApiError(error, t('auth.registerFailed'))
   } finally {
     loading.value = false
   }

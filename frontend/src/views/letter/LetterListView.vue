@@ -16,13 +16,16 @@ import {
 import type { DataTableColumns } from 'naive-ui'
 import { lettersApi } from '@/api/letters'
 import { useTaskStore } from '@/stores/tasks'
+import { useDateLocale } from '@/composables/useDateLocale'
+import { useApiError } from '@/composables/useApiError'
 import type { Letter, PaginatedResponse } from '@/types'
 
 const message = useMessage()
 const taskStore = useTaskStore()
+const { handleApiError } = useApiError()
 const { t, locale } = useI18n()
 
-const dateLocale = computed(() => (locale.value === 'en' ? 'en-US' : 'zh-CN'))
+const dateLocale = useDateLocale()
 
 const loading = ref(false)
 const data = ref<PaginatedResponse<Letter>>({
@@ -115,8 +118,7 @@ async function fetchLetters() {
       page_size: data.value.page_size || 20,
     })
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('letter.fetchListFailed'))
+    handleApiError(error, t('letter.fetchListFailed'))
   } finally {
     loading.value = false
   }
@@ -141,8 +143,7 @@ async function handleGenerate(professorId: number) {
       fetchLetters()
     })
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('letter.generateFailed'))
+    handleApiError(error, t('letter.generateFailed'))
   }
 }
 
@@ -156,8 +157,7 @@ async function handleSave() {
     showLetterModal.value = false
     fetchLetters()
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('letter.saveFailed'))
+    handleApiError(error, t('letter.saveFailed'))
   } finally {
     saving.value = false
   }

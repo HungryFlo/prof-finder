@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, h, computed } from 'vue'
+import { ref, onMounted, h, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   NCard,
@@ -14,16 +14,19 @@ import {
   NDescriptionsItem,
   NSpin,
   NSelect,
+  NInput,
   useMessage,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { matchApi } from '@/api/match'
 import { lettersApi } from '@/api/letters'
 import { useTaskStore } from '@/stores/tasks'
+import { useApiError } from '@/composables/useApiError'
 import type { MatchResult, MatchDetail, PaginatedResponse } from '@/types'
 
 const message = useMessage()
 const taskStore = useTaskStore()
+const { handleApiError } = useApiError()
 const { t } = useI18n()
 
 const loading = ref(false)
@@ -47,6 +50,20 @@ const letterLangOptions = computed(() => [
   { label: 'English', value: 'en' as const },
 ])
 
+const searchQuery = ref('')
+const sortBy = ref<string | null>(null)
+const sortOrder = ref<'asc' | 'desc'>('desc')
+
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(searchQuery, () => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = setTimeout(() => {
+    currentPage.value = 1
+    fetchResults()
+  }, 300)
+})
+
 const columns = computed<DataTableColumns<MatchResult>>(() => [
   {
     title: t('match.rank'),
@@ -56,16 +73,18 @@ const columns = computed<DataTableColumns<MatchResult>>(() => [
       return (currentPage.value - 1) * data.value.page_size + index + 1
     },
   },
-  { title: t('match.professor'), key: 'professor_name', width: 168 },
+  { title: t('match.professor'), key: 'professor_name', width: 168, sorter: 'default' },
   {
     title: t('match.affiliation'),
     key: 'professor_affiliation',
     ellipsis: { tooltip: true },
+    sorter: 'default',
   },
   {
     title: t('match.score'),
     key: 'score',
     width: 168,
+    sorter: 'default',
     render(row) {
       return h(NProgress, {
         type: 'line',
@@ -150,13 +169,27 @@ async function fetchResults() {
     data.value = await matchApi.getResults({
       page: currentPage.value,
       page_size: data.value.page_size || 20,
+      search: searchQuery.value || undefined,
+      sort_by: sortBy.value || undefined,
+      sort_order: sortBy.value ? sortOrder.value : undefined,
     })
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('match.fetchFailed'))
+    handleApiError(error, t('match.fetchFailed'))
   } finally {
     loading.value = false
   }
+}
+
+function handleSorterChange(sorter: { columnKey: string | number | null; order: 'ascend' | 'descend' | false }) {
+  if (sorter.order === false) {
+    sortBy.value = null
+    sortOrder.value = 'desc'
+  } else {
+    sortBy.value = String(sorter.columnKey)
+    sortOrder.value = sorter.order === 'ascend' ? 'asc' : 'desc'
+  }
+  currentPage.value = 1
+  fetchResults()
 }
 
 async function checkModelStatus() {
@@ -175,8 +208,7 @@ async function handleDownloadModel() {
       modelReady.value = true
     })
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('match.downloadModelFailed'))
+    handleApiError(error, t('match.downloadModelFailed'))
   }
 }
 
@@ -191,8 +223,7 @@ async function handleRunMatch() {
       fetchResults()
     })
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('match.runMatchFailed'))
+    handleApiError(error, t('match.runMatchFailed'))
   }
 }
 
@@ -202,8 +233,7 @@ async function showMatchDetail(professorId: number) {
   try {
     matchDetail.value = await matchApi.getDetail(professorId)
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('match.detailFetchFailed'))
+    handleApiError(error, t('match.detailFetchFailed'))
     showDetailModal.value = false
   } finally {
     detailLoading.value = false
@@ -223,8 +253,7 @@ async function handleGenerateLetter(professorId: number) {
       fetchResults()
     })
   } catch (error: unknown) {
-    const err = error as { response?: { data?: { detail?: string } } }
-    message.error(err.response?.data?.detail || t('match.generateLetterFail'))
+    handleApiError(error, t('match.generateLetterFail'))
   }
 }
 
@@ -289,12 +318,23 @@ onMounted(() => {
         </n-space>
       </template>
 
+      <n-input
+        v-model:value="searchQuery"
+        :placeholder="$t('match.searchPlaceholder')"
+        clearable
+        style="margin-bottom: 12px"
+      />
+
       <n-data-table
+        remote
         :columns="columns"
         :data="data.items"
         :loading="loading"
         :row-key="(row: MatchResult) => row.professor_id"
         :scroll-x="1420"
+        :sort-by="sortBy"
+        :sort-order="sortOrder === 'asc' ? 'ascend' : 'descend'"
+        @update:sorter="handleSorterChange"
       />
 
       <n-space justify="end" style="margin-top: 16px">
