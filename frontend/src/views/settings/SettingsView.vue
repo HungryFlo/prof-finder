@@ -15,6 +15,7 @@ import {
 } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { settingsApi } from '@/api/settings'
+import PasswordRequirementCheck from '@/components/PasswordRequirementCheck.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useApiError } from '@/composables/useApiError'
 import type { UserSettings } from '@/types'
@@ -109,7 +110,7 @@ async function handleChangePassword() {
   }
 
   if (passwordForm.value.newPassword.length < 6) {
-    message.error(t('auth.passwordMismatch'))
+    message.error(t('auth.passwordMinLength'))
     return
   }
 
@@ -205,12 +206,15 @@ onMounted(() => {
             />
           </n-form-item>
           <n-form-item :label="t('auth.newPassword')">
-            <n-input
-              v-model:value="passwordForm.newPassword"
-              type="password"
-              :placeholder="t('auth.newPasswordPlaceholder')"
-              show-password-on="click"
-            />
+            <div class="password-field">
+              <n-input
+                v-model:value="passwordForm.newPassword"
+                type="password"
+                :placeholder="t('auth.newPasswordPlaceholder')"
+                show-password-on="click"
+              />
+              <PasswordRequirementCheck :password="passwordForm.newPassword" />
+            </div>
           </n-form-item>
           <n-form-item :label="t('auth.confirmNewPasswordLabel')">
             <n-input
@@ -230,3 +234,9 @@ onMounted(() => {
     </n-space>
   </div>
 </template>
+
+<style scoped>
+.password-field {
+  width: 100%;
+}
+</style>
