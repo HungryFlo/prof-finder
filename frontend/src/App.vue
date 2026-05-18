@@ -5,6 +5,7 @@ import {
   NMessageProvider,
   NDialogProvider,
   NNotificationProvider,
+  darkTheme,
   zhCN,
   dateZhCN,
   enUS,
@@ -12,11 +13,14 @@ import {
 } from 'naive-ui'
 import type { GlobalThemeOverrides } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
+import { useTheme } from '@/composables/useTheme'
 
 const { locale } = useI18n()
+const { isDark } = useTheme()
 
 const naiveLocale = computed(() => (locale.value === 'en' ? enUS : zhCN))
 const naiveDateLocale = computed(() => (locale.value === 'en' ? dateEnUS : dateZhCN))
+const baseTheme = computed(() => (isDark.value ? darkTheme : undefined))
 
 const themeOverrides: GlobalThemeOverrides = {
   common: {
@@ -48,6 +52,7 @@ const themeOverrides: GlobalThemeOverrides = {
 
 <template>
   <n-config-provider
+    :theme="baseTheme"
     :locale="naiveLocale"
     :date-locale="naiveDateLocale"
     :theme-overrides="themeOverrides"

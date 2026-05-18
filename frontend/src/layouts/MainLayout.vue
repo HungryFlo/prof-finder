@@ -24,6 +24,8 @@ import {
   PeopleCircleOutline,
   LogOutOutline,
   LanguageOutline,
+  SunnyOutline,
+  MoonOutline,
 } from '@vicons/ionicons5'
 import type { MenuOption } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
@@ -33,6 +35,7 @@ import { setLocale } from '@/i18n'
 import { settingsApi } from '@/api/settings'
 import TaskPanel from '@/components/TaskPanel.vue'
 import TaskNotificationHost from '@/components/TaskNotificationHost.vue'
+import { useTheme } from '@/composables/useTheme'
 
 const router = useRouter()
 const route = useRoute()
@@ -40,6 +43,7 @@ const authStore = useAuthStore()
 const taskStore = useTaskStore()
 const message = useMessage()
 const { t, locale } = useI18n()
+const { isDark, toggleTheme } = useTheme()
 const needsApiConfig = ref(false)
 
 onMounted(() => {
@@ -178,6 +182,11 @@ function toggleLang() {
     <n-layout>
       <n-layout-header bordered style="height: 60px; padding: 0 24px;">
         <n-space justify="end" align="center" style="height: 100%">
+          <n-button quaternary circle @click="toggleTheme" :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'">
+            <template #icon>
+              <n-icon><MoonOutline v-if="isDark" /><SunnyOutline v-else /></n-icon>
+            </template>
+          </n-button>
           <n-button text @click="toggleLang">
             <template #icon>
               <n-icon><LanguageOutline /></n-icon>
