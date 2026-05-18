@@ -62,8 +62,7 @@ const router = createRouter({
         },
         {
           path: 'letter',
-          name: 'LetterList',
-          component: () => import('@/views/letter/LetterListView.vue'),
+          redirect: '/match',
         },
         {
           path: 'settings',
