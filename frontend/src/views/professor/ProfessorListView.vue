@@ -241,9 +241,9 @@ function handleSorterChange(sorter: { columnKey: string | number | null; order: 
   fetchProfessors()
 }
 
-function handleFiltersChange(filters: Record<string, (string | number)[] | null>) {
-  const aff = filters['affiliation']
-  filterAffiliations.value = (aff as string[]) || []
+function handleFiltersChange(filterState: Record<string, (string | number)[] | string | number | null | undefined>) {
+  const aff = filterState['affiliation']
+  filterAffiliations.value = Array.isArray(aff) ? aff.map(String) : []
   currentPage.value = 1
   fetchProfessors()
 }

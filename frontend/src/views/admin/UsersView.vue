@@ -18,7 +18,7 @@ import { useApiError } from '@/composables/useApiError'
 import type { User } from '@/types'
 
 const message = useMessage()
-const { t, locale } = useI18n()
+const { t } = useI18n()
 const { handleApiError } = useApiError()
 
 const dateLocale = useDateLocale()

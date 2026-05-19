@@ -29,7 +29,7 @@ const router = useRouter()
 const message = useMessage()
 const dialog = useDialog()
 const taskStore = useTaskStore()
-const { t, locale } = useI18n()
+const { t } = useI18n()
 const { handleApiError } = useApiError()
 
 const dateLocale = useDateLocale()

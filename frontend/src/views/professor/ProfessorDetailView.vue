@@ -34,7 +34,7 @@ const router = useRouter()
 const message = useMessage()
 const taskStore = useTaskStore()
 const { handleApiError } = useApiError()
-const { t, locale } = useI18n()
+const { t } = useI18n()
 
 const setBreadcrumbTitle = inject<(title: string) => void>('setBreadcrumbTitle', () => {})
 

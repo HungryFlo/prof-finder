@@ -11,7 +11,6 @@ import {
   NSpin,
   NDivider,
   NTag,
-  useMessage,
 } from 'naive-ui'
 import {
   ListOutline,
@@ -25,7 +24,6 @@ import { useApiError } from '@/composables/useApiError'
 import type { TaskEntry } from '@/stores/tasks'
 
 const taskStore = useTaskStore()
-const message = useMessage()
 const { handleApiError } = useApiError()
 const { t } = useI18n()
 

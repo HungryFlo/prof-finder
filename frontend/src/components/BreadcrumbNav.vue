@@ -48,6 +48,7 @@ const breadcrumbItems = computed<BreadcrumbItem[]>(() => {
   // Build items from matched routes that have breadcrumb meta
   for (let i = 0; i < matched.length; i++) {
     const record = matched[i]
+    if (!record) continue
     const bc = record.meta?.breadcrumb as { labelKey?: string; dynamic?: boolean } | undefined
     if (!bc?.labelKey) continue
 

@@ -12,7 +12,6 @@ import {
   NSpace,
   NSpin,
   NTag,
-  useMessage,
 } from 'naive-ui'
 import { professorsApi } from '@/api/professors'
 import { useDateLocale } from '@/composables/useDateLocale'
@@ -30,8 +29,8 @@ const emit = defineEmits<{
 }>()
 
 const router = useRouter()
-const message = useMessage()
 const { t } = useI18n()
+const { handleApiError } = useApiError()
 
 const dateLocale = useDateLocale()
 
