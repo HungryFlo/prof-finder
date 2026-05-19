@@ -54,6 +54,7 @@ function progressLabel(task: TaskEntry): string {
   if (task.status === 'cancelled') return task.message || t('task.cancelledMessage')
   if (task.status === 'cancelling') return task.message || t('task.cancellingMessage')
   if (task.total <= 1) return task.message || ''
+  if (task.taskType === 'download-model') return `${task.current}%`
   return `${task.current} / ${task.total}`
 }
 
@@ -113,7 +114,7 @@ function handleDismiss(taskId: string) {
         v-if="clearableCount > 0"
         text
         size="tiny"
-        style="font-size: 12px; color: #999;"
+        style="font-size: 12px; color: var(--muted-foreground);"
         @click="taskStore.clearCompleted()"
       >
         {{ t('task.clearFinished') }}
@@ -123,7 +124,7 @@ function handleDismiss(taskId: string) {
     <n-divider style="margin: 0;" />
 
     <div v-if="!hasAny" class="panel-empty">
-      <n-icon size="28" color="#ccc"><CheckmarkCircleOutline /></n-icon>
+      <n-icon size="28" color="var(--muted-foreground)"><CheckmarkCircleOutline /></n-icon>
       <n-text depth="3" style="font-size: 13px; margin-top: 8px;">{{ t('task.noRunningTasks') }}</n-text>
     </div>
 
@@ -188,7 +189,7 @@ function handleDismiss(taskId: string) {
                   v-else-if="isCancellable(task)"
                   quaternary
                   size="tiny"
-                  style="font-size: 11px; color: #999;"
+                  style="font-size: 11px; color: var(--muted-foreground);"
                   :loading="task.status === 'cancelling'"
                   :disabled="task.status === 'cancelling'"
                   @click="handleCancel(task.taskId)"
@@ -211,7 +212,7 @@ function handleDismiss(taskId: string) {
             <n-text
               v-if="task.status === 'failed'"
               depth="3"
-              style="font-size: 12px; color: #e03131; display: block; margin-top: 4px; word-break: break-all;"
+              style="font-size: 12px; color: var(--destructive); display: block; margin-top: 4px; word-break: break-all;"
             >
               {{ task.errorMessage.length > 80 ? task.errorMessage.slice(0, 80) + '…' : task.errorMessage }}
             </n-text>
@@ -258,7 +259,7 @@ function handleDismiss(taskId: string) {
   padding: 8px 14px 4px;
   font-size: 12px;
   font-weight: 600;
-  color: #888;
+  color: var(--muted-foreground);
 }
 
 .task-item {
@@ -271,15 +272,15 @@ function handleDismiss(taskId: string) {
 }
 
 .task-failed {
-  background-color: #fff5f5;
+  background-color: var(--status-fail-bg);
 }
 
 .task-completed {
-  background-color: #f8fff9;
+  background-color: var(--status-success-bg);
 }
 
 .task-cancelled {
-  background-color: #fff9db;
+  background-color: var(--status-warn-bg);
 }
 
 .spinning-icon :deep(.n-button__icon) {

@@ -56,7 +56,7 @@ git clone https://github.com/HungryFlo/prof-finder.git
 cd prof-finder
 
 # 激活 conda 环境
-conda activate prof-finder
+source activate prof-finder
 
 # 安装后端依赖
 poetry install

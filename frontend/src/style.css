@@ -46,6 +46,9 @@
   --sidebar-accent-foreground: oklch(0.28 0.04 252);
   --sidebar-border: oklch(0.91 0.012 240);
   --sidebar-ring: oklch(0.55 0.1 235);
+  --status-fail-bg: oklch(0.95 0.04 25);
+  --status-success-bg: oklch(0.96 0.04 145);
+  --status-warn-bg: oklch(0.96 0.06 90);
 }
 
 html {
@@ -63,6 +66,14 @@ html::before {
   background:
     radial-gradient(ellipse 120% 80% at 0% 0%, oklch(0.72 0.06 235 / 0.07), transparent 55%),
     radial-gradient(ellipse 100% 70% at 100% 100%, oklch(0.7 0.05 245 / 0.05), transparent 50%);
+  transition: opacity 0.3s ease;
+}
+
+html.dark::before {
+  opacity: 0.3;
+  background:
+    radial-gradient(ellipse 120% 80% at 0% 0%, oklch(0.55 0.08 235 / 0.12), transparent 55%),
+    radial-gradient(ellipse 100% 70% at 100% 100%, oklch(0.45 0.06 248 / 0.08), transparent 50%);
 }
 
 * {
@@ -127,7 +138,7 @@ body {
   --card-foreground: oklch(0.97 0.012 240);
   --popover: oklch(0.195 0.022 252);
   --popover-foreground: oklch(0.97 0.012 240);
-  --primary: oklch(0.72 0.09 235);
+  --primary: oklch(0.78 0.1 235);
   --primary-foreground: oklch(0.16 0.03 252);
   --secondary: oklch(0.26 0.02 252);
   --secondary-foreground: oklch(0.97 0.012 240);
@@ -152,6 +163,9 @@ body {
   --sidebar-accent-foreground: oklch(0.97 0.012 240);
   --sidebar-border: oklch(0.98 0.01 240 / 12%);
   --sidebar-ring: oklch(0.62 0.09 235);
+  --status-fail-bg: oklch(0.25 0.06 25);
+  --status-success-bg: oklch(0.25 0.05 145);
+  --status-warn-bg: oklch(0.26 0.06 90);
 }
 
 @layer base {

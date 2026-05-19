@@ -2,7 +2,7 @@ import { profilesApi } from './profiles'
 import { professorsApi } from './professors'
 import { matchApi } from './match'
 import { lettersApi } from './letters'
-import type { Profile, ProfessorListItem } from '@/types'
+import type { Profile, ProfessorListItem, MatchResult, Letter } from '@/types'
 
 export interface DashboardStats {
   profileCount: number
@@ -13,23 +13,30 @@ export interface DashboardStats {
 
 export interface DashboardData {
   stats: DashboardStats
+  activeProfile: Profile | null
   recentProfiles: Profile[]
   recentProfessors: ProfessorListItem[]
+  topMatches: MatchResult[]
+  recentLetters: Letter[]
 }
 
 export const dashboardApi = {
   async getData(): Promise<DashboardData> {
-    const [profiles, professorsRes, matchesRes, lettersRes] = await Promise.all([
-      profilesApi.list(),
-      professorsApi.list({ page: 1, page_size: 5 }),
-      matchApi.getResults({ page: 1, page_size: 1 }),
-      lettersApi.list({ page: 1, page_size: 1 }),
-    ])
+    const [profiles, professorsRes, matchesRes, lettersRes, topMatchesRes, recentLettersRes] =
+      await Promise.all([
+        profilesApi.list(),
+        professorsApi.list({ page: 1, page_size: 5 }),
+        matchApi.getResults({ page: 1, page_size: 1 }),
+        lettersApi.list({ page: 1, page_size: 1 }),
+        matchApi.getResults({ page: 1, page_size: 5 }),
+        lettersApi.list({ page: 1, page_size: 5 }),
+      ])
 
-    // Sort profiles by updated_at descending and take the 5 most recent
     const recentProfiles = [...profiles]
       .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
       .slice(0, 5)
+
+    const activeProfile = profiles.find((p) => p.is_active) ?? null
 
     return {
       stats: {
@@ -38,8 +45,11 @@ export const dashboardApi = {
         matchCount: matchesRes.total,
         letterCount: lettersRes.total,
       },
+      activeProfile,
       recentProfiles,
       recentProfessors: professorsRes.items,
+      topMatches: topMatchesRes.items,
+      recentLetters: recentLettersRes.items,
     }
   },
 }

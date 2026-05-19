@@ -34,15 +34,15 @@ const { passwordChecks } = usePasswordChecks(computed(() => props.password))
 .password-requirements {
   margin-top: 8px;
   padding: 8px 12px;
-  background-color: #fafafa;
+  background-color: var(--muted);
   border-radius: 4px;
-  border: 1px solid #e0e0e6;
+  border: 1px solid var(--border);
 }
 
 .requirements-title {
   font-size: 13px;
   font-weight: 500;
-  color: #333;
+  color: var(--foreground);
   margin-bottom: 4px;
 }
 
@@ -60,10 +60,10 @@ const { passwordChecks } = usePasswordChecks(computed(() => props.password))
 }
 
 .req-item.met .req-icon {
-  color: #18a058;
+  color: oklch(0.62 0.17 145);
 }
 
 .req-item.unmet .req-icon {
-  color: #d03050;
+  color: var(--destructive);
 }
 </style>

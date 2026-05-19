@@ -15,15 +15,21 @@ _LOCAL_MODEL_PATH = Path(__file__).resolve().parents[2] / "qwen3-embedding-0.6b"
 _MODELSCOPE_ID = "Qwen/Qwen3-Embedding-0.6B"
 
 
-def _download_from_modelscope() -> None:
+def _download_from_modelscope(progress_callbacks=None) -> None:
     """Download model from ModelScope to _LOCAL_MODEL_PATH.
+
+    Args:
+        progress_callbacks: Optional list of ProgressCallback classes for download progress.
 
     Raises RuntimeError if download fails (network error, model not found, etc.).
     """
     try:
         from modelscope import snapshot_download
 
-        snapshot_download(_MODELSCOPE_ID, local_dir=str(_LOCAL_MODEL_PATH))
+        kwargs = {"local_dir": str(_LOCAL_MODEL_PATH)}
+        if progress_callbacks is not None:
+            kwargs["progress_callbacks"] = progress_callbacks
+        snapshot_download(_MODELSCOPE_ID, **kwargs)
     except Exception as e:
         raise RuntimeError(
             f"无法从 ModelScope 下载模型 {_MODELSCOPE_ID}，请检查网络连接后重试: {e}"
@@ -41,8 +47,11 @@ def _detect_device() -> str:
     return "cpu"
 
 
-def _get_model():
+def _get_model(progress_callbacks=None):
     """Lazily load the Qwen3-Embedding-0.6B model, preferring local disk cache.
+
+    Args:
+        progress_callbacks: Optional list of ProgressCallback classes passed to download.
 
     Raises RuntimeError if the model cannot be loaded or downloaded.
     """
@@ -56,7 +65,7 @@ def _get_model():
     if _LOCAL_MODEL_PATH.exists():
         _model = SentenceTransformer(str(_LOCAL_MODEL_PATH), local_files_only=True, device=device)
     else:
-        _download_from_modelscope()
+        _download_from_modelscope(progress_callbacks=progress_callbacks)
         _model = SentenceTransformer(str(_LOCAL_MODEL_PATH), local_files_only=True, device=device)
     return _model
 

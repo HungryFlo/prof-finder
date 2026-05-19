@@ -376,7 +376,7 @@ onMounted(() => {
         </n-form-item>
         <n-form-item :label="$t('profile.extractFieldsLabel')">
           <n-switch v-model:value="useLlm" />
-          <span style="margin-left: 8px; color: #999">
+          <span style="margin-left: 8px; color: var(--muted-foreground)">
             {{ $t('profile.extractFieldsHint') }}
           </span>
         </n-form-item>

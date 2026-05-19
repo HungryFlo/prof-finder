@@ -22,7 +22,7 @@ const naiveLocale = computed(() => (locale.value === 'en' ? enUS : zhCN))
 const naiveDateLocale = computed(() => (locale.value === 'en' ? dateEnUS : dateZhCN))
 const baseTheme = computed(() => (isDark.value ? darkTheme : undefined))
 
-const themeOverrides: GlobalThemeOverrides = {
+const themeOverrides = computed<GlobalThemeOverrides>(() => ({
   common: {
     fontFamily: 'Geist, ui-sans-serif, system-ui, sans-serif',
     fontFamilyMono: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
@@ -34,20 +34,37 @@ const themeOverrides: GlobalThemeOverrides = {
     primaryColorSuppl: '#3d87ad',
     borderRadius: '10px',
     borderRadiusSmall: '8px',
-    bodyColor: '#f2f5f8',
-    cardColor: '#ffffff',
-    modalColor: '#ffffff',
-    hoverColor: 'rgba(47, 111, 143, 0.08)',
-    borderColor: '#d8e0e8',
-    textColor1: '#14232c',
-    textColor2: '#2a3d49',
-    textColor3: '#5a6d7a',
+    ...(isDark.value
+      ? {
+          bodyColor: '#141c24',
+          cardColor: '#1a2530',
+          modalColor: '#1a2530',
+          hoverColor: 'rgba(47, 111, 143, 0.15)',
+          borderColor: 'rgba(255, 255, 255, 0.08)',
+          textColor1: '#e8eef3',
+          textColor2: '#b8c8d6',
+          textColor3: '#7a8e9d',
+          successColor: '#3a9a6a',
+          successColorHover: '#4aad7a',
+          successColorPressed: '#2e8a5a',
+          successColorSuppl: '#4db87a',
+        }
+      : {
+          bodyColor: '#f2f5f8',
+          cardColor: '#ffffff',
+          modalColor: '#ffffff',
+          hoverColor: 'rgba(47, 111, 143, 0.08)',
+          borderColor: '#d8e0e8',
+          textColor1: '#14232c',
+          textColor2: '#2a3d49',
+          textColor3: '#5a6d7a',
+        }),
     cubicBezierEaseInOut: 'cubic-bezier(0.4, 0, 0.2, 1)',
   },
   Button: {
     fontWeight: '500',
   },
-}
+}))
 </script>
 
 <template>

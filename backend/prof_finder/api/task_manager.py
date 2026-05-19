@@ -49,7 +49,7 @@ class TaskState:
     error_message: str = ""
     results: List[Dict[str, Any]] = field(default_factory=list)
     cancel_requested: bool = False
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=datetime.now)
     # Huey result ID for revocation of not-yet-started tasks
     huey_result_id: Optional[str] = None
     # Original enqueue arguments for rehydration on restart
@@ -169,7 +169,7 @@ def persist_task(task: TaskState) -> None:
 
 def cleanup_old_tasks() -> None:
     """Remove completed / cancelled tasks older than 5 minutes from memory."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now()
     with _tasks_lock:
         stale = [
             tid
@@ -2277,11 +2277,37 @@ def execute_download_model(task_id: str) -> None:
     if not task:
         return
     task.status = TaskStatus.RUNNING
-    task.message = "正在从 ModelScope 下载模型..."
+    task.message = "正在从 ModelScope 下载模型，预计 3-5 分钟..."
     persist_task(task)
 
+    class _DownloadProgress:
+        """ProgressCallback that forwards model.safetensors progress to the task state."""
+
+        def __init__(self, filename: str, file_size: int):
+            self.filename = filename
+            self.file_size = file_size
+            self.downloaded = 0
+            self._last_pct = -1
+
+        def update(self, size: int):
+            if "model.safetensors" not in self.filename or self.file_size <= 0:
+                return
+            self.downloaded += size
+            pct = int(self.downloaded / self.file_size * 100)
+            pct = min(pct, 100)
+            if pct == self._last_pct:
+                return
+            self._last_pct = pct
+            task.current = pct
+            task.message = f"正在下载模型... {pct}%"
+            persist_task(task)
+
+        def end(self):
+            pass
+
     try:
-        _get_model()
+        _get_model(progress_callbacks=[_DownloadProgress])
+        task.current = 100
         task.status = TaskStatus.COMPLETED
         task.message = "模型下载完成"
         persist_task(task)

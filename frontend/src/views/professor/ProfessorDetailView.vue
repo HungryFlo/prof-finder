@@ -131,11 +131,11 @@ const publicationColumns = computed<DataTableColumns<Publication>>(() => [
     key: 'abstract',
     width: 340,
     render(row) {
-      if (!row.abstract) return h('span', { style: 'color: #999' }, '-')
+      if (!row.abstract) return h('span', { style: 'color: var(--muted-foreground)' }, '-')
       return h(NEllipsis, {
         lineClamp: 2,
         tooltip: { width: 480 },
-        style: 'font-size: 12px; color: #666',
+        style: 'font-size: 12px; color: var(--muted-foreground)',
       }, { default: () => row.abstract || '' })
     },
   },
@@ -365,7 +365,7 @@ onMounted(fetchData)
           </n-button>
         </template>
       </SourceInputPanel>
-      <div style="color: #888; font-size: 12px; margin-top: -8px">
+      <div style="color: var(--muted-foreground); font-size: 12px; margin-top: -8px">
         {{ $t('professor.sourceCardsHintAfterUpload') }}
       </div>
 
@@ -416,7 +416,7 @@ onMounted(fetchData)
           >
             <n-space vertical style="width: 100%">
               <div style="font-weight: 600">{{ item.title }}</div>
-              <div style="color: #666; font-size: 13px">
+              <div style="color: var(--muted-foreground); font-size: 13px">
                 {{ item.summary || '-' }}
               </div>
               <n-space v-if="item.keywords?.length" size="small">

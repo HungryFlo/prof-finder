@@ -34,27 +34,37 @@ const router = createRouter({
         },
         {
           path: 'profile',
-          name: 'ProfileList',
-          component: () => import('@/views/profile/ProfileListView.vue'),
           meta: { breadcrumb: { labelKey: 'breadcrumb.profiles' } },
-        },
-        {
-          path: 'profile/:id',
-          name: 'ProfileDetail',
-          component: () => import('@/views/profile/ProfileDetailView.vue'),
-          meta: { breadcrumb: { labelKey: 'breadcrumb.profileDetail', dynamic: true } },
+          children: [
+            {
+              path: '',
+              name: 'ProfileList',
+              component: () => import('@/views/profile/ProfileListView.vue'),
+            },
+            {
+              path: ':id',
+              name: 'ProfileDetail',
+              component: () => import('@/views/profile/ProfileDetailView.vue'),
+              meta: { breadcrumb: { labelKey: 'breadcrumb.profileDetail', dynamic: true } },
+            },
+          ],
         },
         {
           path: 'professor',
-          name: 'ProfessorList',
-          component: () => import('@/views/professor/ProfessorListView.vue'),
           meta: { breadcrumb: { labelKey: 'breadcrumb.professors' } },
-        },
-        {
-          path: 'professor/:id',
-          name: 'ProfessorDetail',
-          component: () => import('@/views/professor/ProfessorDetailView.vue'),
-          meta: { breadcrumb: { labelKey: 'breadcrumb.professorDetail', dynamic: true } },
+          children: [
+            {
+              path: '',
+              name: 'ProfessorList',
+              component: () => import('@/views/professor/ProfessorListView.vue'),
+            },
+            {
+              path: ':id',
+              name: 'ProfessorDetail',
+              component: () => import('@/views/professor/ProfessorDetailView.vue'),
+              meta: { breadcrumb: { labelKey: 'breadcrumb.professorDetail', dynamic: true } },
+            },
+          ],
         },
         {
           path: 'professor/:id/edit',

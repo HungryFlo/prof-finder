@@ -146,7 +146,7 @@ onMounted(() => {
           <n-card :title="t('settings.apiConfig')">
             <n-form label-placement="left" label-width="100">
               <n-form-item :label="t('settings.currentApiKey')">
-                <span style="color: #999">
+                <span style="color: var(--muted-foreground)">
                   {{ settings.deepseek_api_key_masked || t('common.noData') }}
                 </span>
               </n-form-item>

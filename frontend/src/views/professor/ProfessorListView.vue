@@ -108,7 +108,7 @@ const columns = computed<DataTableColumns<ProfessorListItem>>(() => [
       return h(
         'a',
         {
-          style: 'cursor: pointer; color: #2080f0',
+          style: 'cursor: pointer; color: var(--primary)',
           onClick: () => openSummaryDrawer(row.id),
         },
         row.name
@@ -473,7 +473,7 @@ onMounted(() => {
       style="width: 480px"
     >
       <div style="padding: 8px 0">
-        <p style="color: #666; margin-bottom: 16px; font-size: 13px">
+        <p style="color: var(--muted-foreground); margin-bottom: 16px; font-size: 13px">
           {{ $t('professor.univModalIntro') }}
         </p>
         <n-spin :show="crawlersLoading">

@@ -51,7 +51,7 @@ async def download_model(
         task_type="download-model",
         task_name="下载语义匹配模型",
         user_id=current_user.id,
-        total=1,
+        total=100,
     )
     enqueue_task("download-model", task.task_id)
 
@@ -78,6 +78,12 @@ async def run_matching(
     Returns:
         Task ID for SSE progress tracking.
     """
+    if not _MODEL_LOCAL_PATH.exists():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="MODEL_NOT_DOWNLOADED",
+        )
+
     active_profile = (
         session.query(UserProfile)
         .filter(UserProfile.user_id == current_user.id, UserProfile.is_active == True)
@@ -150,7 +156,12 @@ def get_match_results(
     if min_score is not None:
         query = query.filter(MatchRecord.score >= min_score)
     if search:
-        query = query.filter(Professor.name.ilike(f"%{search}%"))
+        query = query.filter(
+            or_(
+                Professor.name.ilike(f"%{search}%"),
+                Professor.affiliation.ilike(f"%{search}%"),
+            )
+        )
 
     # Get total count
     total = query.count()

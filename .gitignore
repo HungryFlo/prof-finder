@@ -240,4 +240,9 @@ reference/
 
 *.DS_Store
 
-.claude/skills/.claude/worktrees/
+# Claude Code
+.claude/
+
+# Node
+node_modules/
+dist/

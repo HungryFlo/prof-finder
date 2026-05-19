@@ -183,12 +183,11 @@ onMounted(() => {
 
       <template v-if="profile.academic_profile">
         <n-divider>{{ $t('profile.academicProfile') }}</n-divider>
-        <n-input
-          :value="profile.academic_profile"
-          type="textarea"
-          readonly
-          :autosize="{ minRows: 8, maxRows: 20 }"
-        />
+        <div
+          style="white-space: pre-wrap; line-height: 1.7; font-size: 13px; padding: 12px; border: 1px solid var(--n-border-color); border-radius: 6px; background: var(--n-color-modal)"
+        >
+          {{ profile.academic_profile }}
+        </div>
 
         <n-space v-if="profile.evidence_notes?.length" vertical style="margin-top: 16px">
           <strong>{{ $t('profile.evidenceNotes') }}</strong>

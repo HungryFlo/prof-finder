@@ -231,12 +231,12 @@ async function handleRefine() {
             v-for="msg in messages"
             :key="msg.key"
             :from="msg.role"
-            :class="msg.role === 'assistant' ? '!max-w-full' : ''"
+            :class="msg.role === 'assistant' ? '!max-w-full flex-col' : ''"
           >
             <MessageContent :class="msg.role === 'assistant' ? '!w-full' : ''">
               <MessageResponse :content="msg.content" />
             </MessageContent>
-            <MessageToolbar v-if="msg.role === 'assistant' && msg.content">
+            <MessageToolbar v-if="msg.role === 'assistant' && msg.content && status === 'ready'">
               <MessageActions>
                 <MessageAction
                   :tooltip="$t('chat.actionCopy')"

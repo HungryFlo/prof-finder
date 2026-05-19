@@ -1,8 +1,18 @@
 import client from './client'
-import type { Letter } from '@/types'
+import type { Letter, PaginatedResponse } from '@/types'
 import type { TaskStartResponse } from './tasks'
 
 export const lettersApi = {
+  async list(params: { page?: number; page_size?: number } = {}): Promise<PaginatedResponse<Letter>> {
+    const response = await client.get<PaginatedResponse<Letter>>('/letters', {
+      params: {
+        page: params.page || 1,
+        page_size: params.page_size || 20,
+      },
+    })
+    return response.data
+  },
+
   async generate(professorId: number, language: 'zh' | 'en'): Promise<TaskStartResponse> {
     const response = await client.post<TaskStartResponse>(`/letters/generate/${professorId}`, null, {
       params: { language },

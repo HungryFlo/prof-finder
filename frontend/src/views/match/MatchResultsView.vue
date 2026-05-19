@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, h, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import {
   NCard,
   NSpace,
@@ -17,7 +18,9 @@ import {
   NInput,
   NDivider,
   NIcon,
+  NAlert,
   useMessage,
+  useDialog,
 } from 'naive-ui'
 import { CopyOutline } from '@vicons/ionicons5'
 import type { DataTableColumns } from 'naive-ui'
@@ -28,9 +31,22 @@ import { useApiError } from '@/composables/useApiError'
 import type { MatchResult, MatchDetail, PaginatedResponse } from '@/types'
 
 const message = useMessage()
+const dialog = useDialog()
 const taskStore = useTaskStore()
 const { handleApiError } = useApiError()
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
+
+const modelDownloadTask = computed(() =>
+  taskStore.taskList.find((t) => t.taskType === 'download-model' && (t.status === 'running' || t.status === 'pending'))
+)
+const modelDownloading = computed(() => !!modelDownloadTask.value)
+const modelDownloadProgress = computed(() => {
+  const task = modelDownloadTask.value
+  if (!task) return 0
+  return Math.min(task.current, 100)
+})
 
 const loading = ref(false)
 const modelReady = ref(false)
@@ -50,6 +66,7 @@ const matchDetail = ref<MatchDetail | null>(null)
 const letterContent = ref('')
 const letterSaving = ref(false)
 const letterLoading = ref(false)
+const isEditingLetter = ref(false)
 
 const letterLanguage = ref<'zh' | 'en'>('zh')
 const letterLangOptions = computed(() => [
@@ -219,9 +236,21 @@ async function handleDownloadModel() {
   }
 }
 
+function promptDownloadModel() {
+  dialog.warning({
+    title: t('match.modelNotReadyTitle'),
+    content: t('match.modelNotReadyDesc'),
+    positiveText: t('match.downloadModel'),
+    negativeText: t('common.cancel'),
+    onPositiveClick: () => {
+      handleDownloadModel()
+    },
+  })
+}
+
 async function handleRunMatch() {
   if (!modelReady.value) {
-    message.warning(t('match.modelNotReady'))
+    promptDownloadModel()
     return
   }
   try {
@@ -230,6 +259,12 @@ async function handleRunMatch() {
       fetchResults()
     })
   } catch (error: unknown) {
+    // Backend returns MODEL_NOT_DOWNLOADED if model was removed after page load
+    if ((error as any)?.response?.data?.detail === 'MODEL_NOT_DOWNLOADED') {
+      modelReady.value = false
+      promptDownloadModel()
+      return
+    }
     handleApiError(error, t('match.runMatchFailed'))
   }
 }
@@ -238,6 +273,7 @@ async function showMatchDetail(professorId: number) {
   showDetailModal.value = true
   detailLoading.value = true
   letterContent.value = ''
+  isEditingLetter.value = false
   try {
     matchDetail.value = await matchApi.getDetail(professorId)
     await loadLetterContent(professorId)
@@ -346,9 +382,27 @@ function handleExport() {
   link.click()
 }
 
-onMounted(() => {
+onMounted(async () => {
   checkModelStatus()
-  fetchResults()
+  await fetchResults()
+
+  const professorParam = route.query.professor
+  if (professorParam) {
+    const professorId = Number(professorParam)
+    if (!isNaN(professorId)) {
+      showMatchDetail(professorId)
+    }
+  }
+})
+
+watch(showDetailModal, (val) => {
+  if (!val) {
+    // Clean up query param when modal closes
+    const { professor, ...rest } = route.query
+    if (professor) {
+      router.replace({ query: rest })
+    }
+  }
 })
 </script>
 
@@ -366,14 +420,46 @@ onMounted(() => {
           <n-button @click="handleExport" :disabled="data.items.length === 0">
             {{ $t('match.exportCsv') }}
           </n-button>
-          <n-button v-if="!modelReady" type="warning" @click="handleDownloadModel">
-            {{ $t('match.downloadModel') }}
+          <n-button
+            v-if="!modelReady"
+            type="warning"
+            :loading="modelDownloading"
+            :disabled="modelDownloading"
+            @click="handleDownloadModel"
+          >
+            {{ modelDownloading ? $t('match.downloadingModel') : $t('match.downloadModel') }}
           </n-button>
-          <n-button type="primary" :disabled="!modelReady" @click="handleRunMatch">
+          <n-button type="primary" :disabled="!modelReady || modelDownloading" @click="handleRunMatch">
             {{ $t('match.runMatch') }}
           </n-button>
         </n-space>
       </template>
+
+      <n-alert
+        v-if="modelDownloading"
+        type="info"
+        :title="$t('match.downloadingModel')"
+        style="margin-bottom: 12px"
+      >
+        <n-progress
+          type="line"
+          :percentage="modelDownloadProgress"
+          :show-indicator="true"
+          :status="modelDownloadProgress >= 100 ? 'success' : 'default'"
+        />
+        <div style="margin-top: 8px; font-size: 13px; color: var(--muted-foreground)">
+          {{ $t('match.modelDownloadHint') }}
+        </div>
+      </n-alert>
+
+      <n-alert
+        v-else-if="!modelReady"
+        type="warning"
+        :title="$t('match.modelNotReadyTitle')"
+        style="margin-bottom: 12px"
+      >
+        {{ $t('match.modelNotReadyDesc') }}
+      </n-alert>
 
       <n-input
         v-model:value="searchQuery"
@@ -448,14 +534,21 @@ onMounted(() => {
           <n-spin :show="letterLoading">
             <template v-if="letterContent">
               <n-input
+                v-if="isEditingLetter"
                 v-model:value="letterContent"
                 type="textarea"
                 :rows="15"
                 :placeholder="$t('letter.placeholderBody')"
               />
+              <div
+                v-else
+                style="white-space: pre-wrap; line-height: 1.7; font-size: 13px; padding: 8px 0"
+              >
+                {{ letterContent }}
+              </div>
             </template>
             <template v-else-if="!letterLoading">
-              <div style="text-align: center; padding: 24px 0; color: #999">
+              <div style="text-align: center; padding: 24px 0; color: var(--muted-foreground)">
                 {{ $t('match.noLetterYet') }}
               </div>
             </template>
@@ -471,12 +564,22 @@ onMounted(() => {
                 <template #icon><n-icon><CopyOutline /></n-icon></template>
                 {{ $t('match.copyLetter') }}
               </n-button>
-              <n-button type="primary" :loading="letterSaving" @click="handleSaveLetter(matchDetail.professor_id)">
-                {{ $t('match.saveLetter') }}
-              </n-button>
-              <n-button @click="handleGenerateFromModal(matchDetail.professor_id)">
-                {{ $t('match.regenerateLetter') }}
-              </n-button>
+              <template v-if="isEditingLetter">
+                <n-button @click="isEditingLetter = false; loadLetterContent(matchDetail.professor_id)">
+                  {{ $t('common.cancel') }}
+                </n-button>
+                <n-button type="primary" :loading="letterSaving" @click="async () => { await handleSaveLetter(matchDetail!.professor_id); isEditingLetter = false }">
+                  {{ $t('match.saveLetter') }}
+                </n-button>
+              </template>
+              <template v-else>
+                <n-button type="primary" @click="isEditingLetter = true">
+                  {{ $t('common.edit') }}
+                </n-button>
+                <n-button @click="handleGenerateFromModal(matchDetail.professor_id)">
+                  {{ $t('match.regenerateLetter') }}
+                </n-button>
+              </template>
             </template>
             <template v-else>
               <n-button type="primary" @click="handleGenerateFromModal(matchDetail.professor_id)">

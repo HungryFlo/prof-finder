@@ -121,6 +121,6 @@ function goToRegister() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #f5f7fa;
+  background-color: var(--background);
 }
 </style>
