@@ -57,6 +57,8 @@ jobs:
           python -m pip install "setuptools<71" poetry pyinstaller
           poetry config virtualenvs.create false
           poetry install --without dev --no-interaction --no-root
+          python -m pip install "setuptools<71"
+          python -c "import pkg_resources; print('setuptools OK:', pkg_resources.NullProvider)"
 
       - name: Force CPU-only torch
         if: runner.os == 'Linux' || runner.os == 'Windows'
