@@ -97,7 +97,22 @@ const columns = computed<DataTableColumns<MatchResult>>(() => [
       return (currentPage.value - 1) * data.value.page_size + index + 1
     },
   },
-  { title: t('match.professor'), key: 'professor_name', width: 168, sorter: 'default' },
+  {
+    title: t('match.professor'),
+    key: 'professor_name',
+    width: 168,
+    sorter: 'default',
+    render(row) {
+      return h(
+        'a',
+        {
+          style: { cursor: 'pointer', color: 'var(--n-color-target)', textDecoration: 'none' },
+          onClick: () => showMatchDetail(row.professor_id),
+        },
+        row.professor_name,
+      )
+    },
+  },
   {
     title: t('match.affiliation'),
     key: 'professor_affiliation',
@@ -157,32 +172,15 @@ const columns = computed<DataTableColumns<MatchResult>>(() => [
     key: 'letter_generated',
     width: 148,
     render(row) {
-      return row.letter_generated
-        ? h(NTag, { type: 'success', size: 'small' }, { default: () => t('letter.generated') })
-        : h(NTag, { type: 'default', size: 'small' }, { default: () => t('letter.notGenerated') })
-    },
-  },
-  {
-    title: t('match.actions'),
-    key: 'actions',
-    width: 320,
-    render(row) {
-      return h(NSpace, { size: 'small', wrap: true }, () => [
-        h(
-          NButton,
-          { size: 'small', onClick: () => showMatchDetail(row.professor_id) },
-          { default: () => t('match.detail') }
-        ),
-        h(
-          NButton,
-          {
-            size: 'small',
-            type: 'primary',
-            onClick: () => handleGenerateLetter(row.professor_id),
-          },
-          { default: () => (row.letter_generated ? t('match.regenerateLetter') : t('match.generateLetter')) }
-        ),
-      ])
+      return h(
+        NButton,
+        {
+          size: 'small',
+          type: row.letter_generated ? 'default' : 'primary',
+          onClick: () => handleGenerateLetter(row.professor_id),
+        },
+        { default: () => row.letter_generated ? t('match.regenerateLetter') : t('match.generateLetter') },
+      )
     },
   },
 ])
@@ -436,6 +434,14 @@ watch(showDetailModal, (val) => {
       </template>
 
       <n-alert
+        v-if="!modelDownloading"
+        type="info"
+        style="margin-bottom: 12px"
+      >
+        {{ $t('help.matchPrerequisitesHint') }}
+      </n-alert>
+
+      <n-alert
         v-if="modelDownloading"
         type="info"
         :title="$t('match.downloadingModel')"
@@ -474,7 +480,7 @@ watch(showDetailModal, (val) => {
         :data="data.items"
         :loading="loading"
         :row-key="(row: MatchResult) => row.professor_id"
-        :scroll-x="1420"
+        :scroll-x="1100"
         :sort-by="sortBy"
         :sort-order="sortOrder === 'asc' ? 'ascend' : 'descend'"
         @update:sorter="handleSorterChange"

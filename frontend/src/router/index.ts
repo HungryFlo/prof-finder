@@ -1,9 +1,16 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useSetupGate } from '@/composables/useSetupGate'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    {
+      path: '/setup',
+      name: 'Setup',
+      component: () => import('@/views/setup/SetupView.vue'),
+      meta: { requiresAuth: false, setupOnly: true },
+    },
     {
       path: '/login',
       name: 'Login',
@@ -104,6 +111,29 @@ const router = createRouter({
 // Navigation guard
 router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore()
+  const { requiresSetup, ensureStatus } = useSetupGate()
+
+  if (to.name !== 'Setup') {
+    try {
+      if (await requiresSetup()) {
+        next({ name: 'Setup' })
+        return
+      }
+    } catch {
+      // Allow navigation if setup status cannot be loaded (e.g. API down).
+    }
+  } else {
+    try {
+      const status = await ensureStatus()
+      if (!status.packaged || status.configured) {
+        next({ name: 'Login' })
+        return
+      }
+    } catch {
+      next({ name: 'Login' })
+      return
+    }
+  }
 
   // Initialize auth state if needed
   if (authStore.accessToken && !authStore.user) {

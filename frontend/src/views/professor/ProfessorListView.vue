@@ -509,6 +509,9 @@ onMounted(() => {
       @positive-click="handleAddByScholar"
       style="width: 500px"
     >
+      <p style="margin: 0 0 12px; color: var(--muted-foreground); font-size: 13px; line-height: 1.5">
+        {{ $t('help.scholarModalIntro') }}
+      </p>
       <n-form-item :label="$t('professor.scholarFormLabel')">
         <n-input
           v-model:value="scholarUrl"
@@ -527,6 +530,9 @@ onMounted(() => {
       @positive-click="handleAddManually"
       style="width: 500px"
     >
+      <p style="margin: 0 0 12px; color: var(--muted-foreground); font-size: 13px; line-height: 1.5">
+        {{ $t('help.manualModalIntro') }}
+      </p>
       <n-form label-placement="left" label-width="80">
         <n-form-item :label="$t('professor.name')" required>
           <n-input v-model:value="manualForm.name" :placeholder="$t('professor.placeholderProfName')" />

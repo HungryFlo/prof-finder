@@ -1,7 +1,7 @@
 """Letter generation command for Prof-Finder."""
 
 from typing import Optional
-from datetime import datetime
+from ..utils.time import utc_now
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -104,7 +104,7 @@ def generate_letter(
                 session.add(match_record)
 
             match_record.letter_content = letter
-            match_record.letter_generated_at = datetime.utcnow()
+            match_record.letter_generated_at = utc_now()
             session.commit()
 
             console.print("\n[green]✓ 邮件已保存[/green]")
@@ -221,7 +221,7 @@ def batch_generate(
                 )
 
                 record.letter_content = letter
-                record.letter_generated_at = datetime.utcnow()
+                record.letter_generated_at = utc_now()
                 session.commit()
 
                 console.print(f"[green]✓ {record.professor.name}[/green]")

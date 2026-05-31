@@ -19,7 +19,7 @@ import {
 } from 'naive-ui'
 import { profilesApi } from '@/api/profiles'
 import ProfileChatPanel from '@/components/ProfileChatPanel.vue'
-import { useDateLocale } from '@/composables/useDateLocale'
+import { useFormatDate } from '@/composables/useDateLocale'
 import { useApiError } from '@/composables/useApiError'
 import type { Profile, EducationItem, ResearchItem, ProjectItem } from '@/types'
 
@@ -31,7 +31,7 @@ const { handleApiError } = useApiError()
 
 const setBreadcrumbTitle = inject<(title: string) => void>('setBreadcrumbTitle', () => {})
 
-const dateLocale = useDateLocale()
+const { formatDateTime } = useFormatDate()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -53,10 +53,6 @@ function sourceFormatDisplay(fmt: string | null | undefined): string {
   if (fmt === 'materials') return t('profile.sourceMaterials')
   if (!fmt || fmt === 'manual') return t('profile.manualInput')
   return fmt
-}
-
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleString(dateLocale.value)
 }
 
 async function fetchProfile() {
@@ -175,7 +171,7 @@ onMounted(() => {
           {{ sourceFormatDisplay(profile.source_format ?? undefined) }}
         </n-descriptions-item>
         <n-descriptions-item :label="$t('profile.createdAt')">
-          {{ fmtDate(profile.created_at) }}
+          {{ formatDateTime(profile.created_at) }}
         </n-descriptions-item>
       </n-descriptions>
 

@@ -19,7 +19,7 @@ import {
   useDialog,
 } from 'naive-ui'
 import type { DataTableColumns, UploadFileInfo } from 'naive-ui'
-import { useDateLocale } from '@/composables/useDateLocale'
+import { useFormatDate } from '@/composables/useDateLocale'
 import { useApiError } from '@/composables/useApiError'
 import { profilesApi } from '@/api/profiles'
 import { useTaskStore } from '@/stores/tasks'
@@ -32,7 +32,7 @@ const taskStore = useTaskStore()
 const { t } = useI18n()
 const { handleApiError } = useApiError()
 
-const dateLocale = useDateLocale()
+const { formatDateTime } = useFormatDate()
 
 // State
 const loading = ref(false)
@@ -96,7 +96,7 @@ const columns = computed<DataTableColumns<Profile>>(() => [
     key: 'updated_at',
     width: 200,
     render(row) {
-      return new Date(row.updated_at).toLocaleString(dateLocale.value)
+      return formatDateTime(row.updated_at)
     },
   },
   {
@@ -341,6 +341,9 @@ onMounted(() => {
           >
             <n-button>{{ $t('profile.selectFilesButton') }}</n-button>
           </n-upload>
+          <div style="margin-top: 6px; font-size: 13px; color: var(--muted-foreground)">
+            {{ $t('profile.uploadHint') }}
+          </div>
         </n-form-item>
         <n-form-item :label="$t('profile.researchInterests')">
           <n-input
@@ -379,6 +382,9 @@ onMounted(() => {
           <span style="margin-left: 8px; color: var(--muted-foreground)">
             {{ $t('profile.extractFieldsHint') }}
           </span>
+          <div v-if="useLlm" style="margin-top: 6px; font-size: 13px; color: var(--muted-foreground)">
+            {{ $t('help.profileLlmRequiresApiKey') }}
+          </div>
         </n-form-item>
       </n-form>
     </n-modal>

@@ -307,6 +307,17 @@ export const useTaskStore = defineStore('tasks', () => {
     }
   }
 
+  async function retryTask(taskId: string): Promise<void> {
+    const entry = activeTasks.value.get(taskId)
+    if (!entry || entry.status !== 'failed') return
+
+    entry.eventSource?.close()
+    activeTasks.value.delete(taskId)
+
+    const result = await tasksApi.retry(taskId)
+    addTask(result.task_id, entry.taskType, entry.taskName, entry.total)
+  }
+
   /**
    * Remove all tasks that have reached a dismissible terminal status.
    */
@@ -375,6 +386,7 @@ export const useTaskStore = defineStore('tasks', () => {
     addTask,
     removeTask,
     requestCancel,
+    retryTask,
     clearCompleted,
     consumeTaskEvents,
     restoreFromServer,

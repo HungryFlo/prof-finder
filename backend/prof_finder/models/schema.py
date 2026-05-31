@@ -1,6 +1,6 @@
 """SQLAlchemy database models."""
 
-from datetime import datetime
+from ..utils.time import utc_now
 from typing import Optional
 from sqlalchemy import (
     Column,
@@ -29,7 +29,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=True)  # Nullable for legacy CLI users
     is_admin = Column(Boolean, default=False)
     must_change_password = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
     # Relationships
     profiles = relationship("UserProfile", back_populates="user", cascade="all, delete-orphan")
@@ -65,8 +65,8 @@ class UserSettings(Base):
     profile_language = Column(String(10), default="zh")
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
     user = relationship("User", back_populates="settings")
@@ -109,8 +109,8 @@ class UserProfile(Base):
     profile_generated_at = Column(DateTime)
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
     user = relationship("User", back_populates="profiles")
@@ -159,8 +159,8 @@ class Professor(Base):
     research_profile_generated_at = Column(DateTime)
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
     user = relationship("User", back_populates="professors")
@@ -194,7 +194,7 @@ class MatchRecord(Base):
     letter_generated_at = Column(DateTime)
     
     # Timestamp
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
     # Relationships
     profile = relationship("UserProfile", back_populates="match_records")
@@ -234,8 +234,8 @@ class SourceInput(Base):
     error_message = Column(Text)
     metadata_only = Column(Boolean, default=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     user = relationship("User", back_populates="source_inputs")
     professor = relationship("Professor", back_populates="source_inputs")

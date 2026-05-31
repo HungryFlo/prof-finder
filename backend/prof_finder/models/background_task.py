@@ -1,6 +1,6 @@
 """BackgroundTask model for persistent task state."""
 
-from datetime import datetime, timezone
+from ..utils.time import utc_now
 from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, JSON, ForeignKey
 from sqlalchemy.orm import relationship
 from .schema import Base
@@ -25,7 +25,7 @@ class BackgroundTask(Base):
     cancel_requested = Column(Boolean, default=False)
     enqueue_args = Column(JSON, default=list)
     enqueue_kwargs = Column(JSON, default=dict)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now)
 
     user = relationship("User", backref="background_tasks")

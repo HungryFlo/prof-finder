@@ -15,10 +15,14 @@ import {
 } from '@vicons/ionicons5'
 import { useAuthStore } from '@/stores/auth'
 import { dashboardApi, type DashboardData } from '@/api/dashboard'
+import { useFormatDate } from '@/composables/useDateLocale'
+import { useHelpDrawer } from '@/composables/useHelpDrawer'
 
 const router = useRouter()
-const { t, tm, locale } = useI18n()
+const { t, tm } = useI18n()
+const { formatRelativeTime } = useFormatDate()
 const authStore = useAuthStore()
+const { openHelp } = useHelpDrawer()
 
 const loading = ref(true)
 const data = ref<DashboardData | null>(null)
@@ -82,22 +86,6 @@ const recentLetters = computed(() => data.value?.recentLetters ?? [])
 
 const activeProfile = computed(() => data.value?.activeProfile ?? null)
 
-function formatRelative(dateStr: string): string {
-  const date = new Date(dateStr)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMin = Math.floor(diffMs / 60000)
-  const diffHr = Math.floor(diffMs / 3600000)
-  const diffDay = Math.floor(diffMs / 86400000)
-  const isEn = locale.value === 'en'
-
-  if (diffMin < 1) return isEn ? 'just now' : '刚刚'
-  if (diffMin < 60) return isEn ? `${diffMin}m ago` : `${diffMin} 分钟前`
-  if (diffHr < 24) return isEn ? `${diffHr}h ago` : `${diffHr} 小时前`
-  if (diffDay < 7) return isEn ? `${diffDay}d ago` : `${diffDay} 天前`
-  return date.toLocaleDateString(isEn ? 'en-US' : 'zh-CN', { month: 'short', day: 'numeric' })
-}
-
 function navigateTo(path: string) {
   router.push(path)
 }
@@ -137,7 +125,12 @@ onMounted(async () => {
     <template v-else>
       <!-- Progress Flow -->
       <section class="flow-section">
-        <h2 class="section-heading">{{ t('dashboard.flowTitle') }}</h2>
+        <div class="flow-section__header">
+          <h2 class="section-heading">{{ t('dashboard.flowTitle') }}</h2>
+          <n-button text type="primary" size="small" @click="openHelp">
+            {{ t('help.viewGuide') }}
+          </n-button>
+        </div>
         <div class="flow-steps">
           <div
             v-for="(step, i) in steps"
@@ -184,7 +177,7 @@ onMounted(async () => {
               <span class="profile-card__name">{{ activeProfile.title }}</span>
               <n-tag type="success" size="small" round>{{ t('dashboard.activeProfile') }}</n-tag>
             </div>
-            <p class="profile-card__updated">{{ t('dashboard.lastUpdated', { date: formatRelative(activeProfile.updated_at) }) }}</p>
+            <p class="profile-card__updated">{{ t('dashboard.lastUpdated', { date: formatRelativeTime(activeProfile.updated_at) }) }}</p>
 
             <div v-if="activeProfile.education?.length" class="profile-card__section">
               <span class="profile-card__section-label">{{ t('dashboard.profileEducation') }}</span>
@@ -285,7 +278,7 @@ onMounted(async () => {
                 <div class="activity-item__dot" />
                 <div class="activity-item__content">
                   <span class="activity-item__title">{{ profile.title }}</span>
-                  <span class="activity-item__time">{{ formatRelative(profile.updated_at) }}</span>
+                  <span class="activity-item__time">{{ formatRelativeTime(profile.updated_at) }}</span>
                 </div>
               </div>
             </div>
@@ -336,7 +329,7 @@ onMounted(async () => {
                 <div class="activity-item__content">
                   <span class="activity-item__title">{{ letter.professor_name }}</span>
                   <span class="activity-item__meta">
-                    {{ letter.generated_at ? formatRelative(letter.generated_at) : t('dashboard.letterPending') }}
+                    {{ letter.generated_at ? formatRelativeTime(letter.generated_at) : t('dashboard.letterPending') }}
                   </span>
                 </div>
               </div>
@@ -404,6 +397,13 @@ onMounted(async () => {
 /* ---- Progress Flow ---- */
 .flow-section {
   margin-bottom: 36px;
+}
+
+.flow-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .flow-steps {

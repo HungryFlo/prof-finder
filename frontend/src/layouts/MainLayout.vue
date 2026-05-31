@@ -26,6 +26,7 @@ import {
   LanguageOutline,
   SunnyOutline,
   MoonOutline,
+  HelpCircleOutline,
 } from '@vicons/ionicons5'
 import type { MenuOption } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
@@ -37,6 +38,8 @@ import TaskPanel from '@/components/TaskPanel.vue'
 import TaskNotificationHost from '@/components/TaskNotificationHost.vue'
 import { useTheme } from '@/composables/useTheme'
 import BreadcrumbNav from '@/components/BreadcrumbNav.vue'
+import HelpDrawer from '@/components/HelpDrawer.vue'
+import { useHelpDrawer } from '@/composables/useHelpDrawer'
 
 const router = useRouter()
 const route = useRoute()
@@ -45,6 +48,7 @@ const taskStore = useTaskStore()
 const message = useMessage()
 const { t, locale } = useI18n()
 const { isDark, toggleTheme } = useTheme()
+const { openHelp } = useHelpDrawer()
 const needsApiConfig = ref(false)
 
 onMounted(() => {
@@ -188,6 +192,12 @@ function toggleLang() {
               <n-icon><MoonOutline v-if="isDark" /><SunnyOutline v-else /></n-icon>
             </template>
           </n-button>
+          <n-button text @click="openHelp">
+            <template #icon>
+              <n-icon><HelpCircleOutline /></n-icon>
+            </template>
+            {{ t('help.openGuide') }}
+          </n-button>
           <n-button text @click="toggleLang">
             <template #icon>
               <n-icon><LanguageOutline /></n-icon>
@@ -223,16 +233,22 @@ function toggleLang() {
             style="margin-bottom: 20px"
           >
             <n-space vertical align="start">
-              <span>{{ t('settings.firstRunApiKeyDescription') }}</span>
-              <n-button size="small" type="primary" @click="router.push('/settings')">
-                {{ t('settings.configureApiKey') }}
-              </n-button>
+              <span>{{ t('settings.firstRunApiKeyDescription') }} {{ t('help.bannerSeeHelp') }}</span>
+              <n-space>
+                <n-button size="small" type="primary" @click="router.push('/settings')">
+                  {{ t('settings.configureApiKey') }}
+                </n-button>
+                <n-button size="small" @click="openHelp">
+                  {{ t('help.openGuide') }}
+                </n-button>
+              </n-space>
             </n-space>
           </n-alert>
           <router-view />
         </main>
       </n-layout-content>
     </n-layout>
+    <HelpDrawer />
   </n-layout>
 </template>
 

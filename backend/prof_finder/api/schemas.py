@@ -5,6 +5,10 @@ from typing import Optional, List, Any, Literal, Annotated
 
 from pydantic import BaseModel, Field, field_validator, BeforeValidator
 
+from ..utils.time import as_utc
+
+ApiDateTime = Annotated[datetime, BeforeValidator(as_utc)]
+
 _ALLOWED_NAME_LOCALE_KEYS = frozenset({"zh", "en"})
 
 
@@ -87,7 +91,7 @@ class UserResponse(BaseModel):
     username: str
     is_admin: bool
     must_change_password: bool
-    created_at: datetime
+    created_at: ApiDateTime
 
     class Config:
         from_attributes = True
@@ -99,7 +103,7 @@ class UserListResponse(BaseModel):
     id: int
     username: str
     is_admin: bool
-    created_at: datetime
+    created_at: ApiDateTime
 
     class Config:
         from_attributes = True
@@ -191,9 +195,9 @@ class ProfileResponse(BaseModel):
     profile_analysis: Optional[dict] = None
     evidence_notes: Optional[List[Any]] = None
     conflict_notes: Optional[List[Any]] = None
-    profile_generated_at: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
+    profile_generated_at: Optional[ApiDateTime] = None
+    created_at: ApiDateTime
+    updated_at: ApiDateTime
 
     class Config:
         from_attributes = True
@@ -311,9 +315,9 @@ class ProfessorResponse(BaseModel):
     research_profile_sources: Optional[List[dict]] = None
     research_profile_evidence: Optional[List[Any]] = None
     research_profile_conflicts: Optional[List[Any]] = None
-    research_profile_generated_at: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
+    research_profile_generated_at: Optional[ApiDateTime] = None
+    created_at: ApiDateTime
+    updated_at: ApiDateTime
     enrichment_task_id: Optional[str] = None
     enrichment_task_total: Optional[int] = None
 
@@ -330,7 +334,7 @@ class ProfessorListResponse(BaseModel):
     research_interests: List[str]
     h_index: Optional[int]
     publication_count: int
-    created_at: datetime
+    created_at: ApiDateTime
 
     class Config:
         from_attributes = True
@@ -367,8 +371,8 @@ class SourceInputResponse(BaseModel):
     status: str
     error_message: Optional[str]
     metadata_only: bool
-    created_at: datetime
-    updated_at: datetime
+    created_at: ApiDateTime
+    updated_at: ApiDateTime
 
     class Config:
         from_attributes = True
@@ -436,7 +440,7 @@ class MatchDetailResponse(BaseModel):
     score: float
     match_reasons: List[str]
     letter_content: Optional[str]
-    letter_generated_at: Optional[datetime]
+    letter_generated_at: Optional[ApiDateTime]
 
     class Config:
         from_attributes = True
@@ -451,7 +455,7 @@ class LetterGenerateResponse(BaseModel):
     professor_id: int
     professor_name: str
     content: str
-    generated_at: datetime
+    generated_at: ApiDateTime
 
 
 class LetterUpdate(BaseModel):
@@ -466,7 +470,7 @@ class LetterResponse(BaseModel):
     professor_id: int
     professor_name: str
     content: Optional[str]
-    generated_at: Optional[datetime]
+    generated_at: Optional[ApiDateTime]
     is_generated: bool
 
 

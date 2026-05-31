@@ -331,3 +331,84 @@ async def list_tasks(
         )
         for t in tasks
     ]
+
+
+@router.post("/{task_id}/retry", response_model=TaskStartResponse)
+async def retry_task(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Retry a failed task by creating a new task with the same parameters.
+
+    Only tasks in FAILED status can be retried.  The new task re-uses the
+    stored enqueue_args / enqueue_kwargs from the original task, ensuring
+    it runs with identical parameters.
+
+    Args:
+        task_id: Failed task to retry.
+        current_user: Authenticated user.
+
+    Returns:
+        New task ID for progress tracking.
+    """
+    task = get_task(task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="任务不存在",
+        )
+    if task.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权重试此任务",
+        )
+    if task.status != TaskStatus.FAILED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="只能重试失败的任务",
+        )
+
+    # For tasks that use an API key (letter generation, profile generation),
+    # re-fetch the current key from settings so that a newly-configured key
+    # takes effect without requiring the user to re-trigger from the UI.
+    from ...models.schema import UserSettings
+    from ...config import settings as app_settings
+
+    new_kwargs = dict(task.enqueue_kwargs)
+    if "api_key" in new_kwargs:
+        from ..deps import get_db_session as _get_db
+        # Inline session to avoid Depends() in non-route code
+        from ...db.database import get_db
+
+        db = get_db()
+        with db.session() as session:
+            user_settings = (
+                session.query(UserSettings)
+                .filter(UserSettings.user_id == current_user.id)
+                .first()
+            )
+            new_key = (
+                (user_settings.deepseek_api_key if user_settings else None)
+                or app_settings.deepseek_api_key
+            )
+            if new_key:
+                new_kwargs["api_key"] = new_key
+
+    cleanup_old_tasks()
+    new_task = create_task(
+        task_type=task.task_type,
+        task_name=task.task_name,
+        user_id=current_user.id,
+        total=task.total,
+    )
+    enqueue_task(
+        task.task_type,
+        new_task.task_id,
+        *task.enqueue_args,
+        **new_kwargs,
+    )
+
+    return TaskStartResponse(
+        task_id=new_task.task_id,
+        message="任务已重新启动",
+    )

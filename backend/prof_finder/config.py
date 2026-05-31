@@ -4,9 +4,10 @@ import os
 import secrets
 from dataclasses import dataclass
 
-from .runtime import is_packaged, load_runtime_environment, runtime_file
+from .runtime import is_configured, is_packaged, load_runtime_environment, runtime_file
 
-load_runtime_environment()
+if not is_packaged() or is_configured():
+    load_runtime_environment()
 
 
 @dataclass
@@ -47,11 +48,12 @@ class Settings:
     @classmethod
     def load(cls) -> "Settings":
         """Load settings from environment variables."""
+        use_packaged_paths = is_packaged() and is_configured()
         default_database_path = (
-            str(runtime_file("prof_finder.db")) if is_packaged() else "./data/prof_finder.db"
+            str(runtime_file("prof_finder.db")) if use_packaged_paths else "./data/prof_finder.db"
         )
         default_huey_db_path = (
-            str(runtime_file("huey_tasks.db")) if is_packaged() else "./data/huey_tasks.db"
+            str(runtime_file("huey_tasks.db")) if use_packaged_paths else "./data/huey_tasks.db"
         )
 
         return cls(

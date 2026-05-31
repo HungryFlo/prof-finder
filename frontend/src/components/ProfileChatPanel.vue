@@ -152,6 +152,24 @@ function handleRegenerate() {
   }
 }
 
+function isApiKeyError(content: string): boolean {
+  return content.includes('DeepSeek') || content.includes('API Key') || content.includes('503')
+}
+
+function handleRetry() {
+  // Remove the last assistant error message and resend the last user message
+  const lastAssistantIdx = [...messages.value].reverse().findIndex((m) => m.role === 'assistant')
+  if (lastAssistantIdx !== -1) {
+    const idx = messages.value.length - 1 - lastAssistantIdx
+    messages.value.splice(idx, 1)
+  }
+  status.value = 'ready'
+  const lastUserMsg = [...messages.value].reverse().find((m) => m.role === 'user')
+  if (lastUserMsg) {
+    sendMessage(lastUserMsg.content)
+  }
+}
+
 async function handleRefine() {
   if (messages.value.length <= 1) {
     message.warning(t('chat.needChatFirst'))
@@ -173,7 +191,12 @@ async function handleRefine() {
       emit('profile-refreshed')
     })
   } catch (error: unknown) {
-    handleApiError(error, t('chat.refineStartFailed'))
+    const err = error as { response?: { status?: number; data?: { detail?: string } } }
+    if (err.response?.status === 503 || isApiKeyError(err.response?.data?.detail || '')) {
+      message.warning(t('chat.apiKeyHint'), { duration: 5000 })
+    } else {
+      handleApiError(error, t('chat.refineStartFailed'))
+    }
   }
 }
 </script>
@@ -236,7 +259,7 @@ async function handleRefine() {
             <MessageContent :class="msg.role === 'assistant' ? '!w-full' : ''">
               <MessageResponse :content="msg.content" />
             </MessageContent>
-            <MessageToolbar v-if="msg.role === 'assistant' && msg.content && status === 'ready'">
+            <MessageToolbar v-if="msg.role === 'assistant' && msg.content && (status === 'ready' || status === 'error')">
               <MessageActions>
                 <MessageAction
                   :tooltip="$t('chat.actionCopy')"
@@ -245,13 +268,27 @@ async function handleRefine() {
                   <CopyIcon class="size-4" />
                 </MessageAction>
                 <MessageAction
+                  v-if="status === 'ready'"
                   :tooltip="$t('chat.actionRegenerate')"
                   @click="handleRegenerate"
                 >
                   <RefreshCwIcon class="size-4" />
                 </MessageAction>
+                <MessageAction
+                  v-if="status === 'error'"
+                  :tooltip="$t('chat.actionRetry')"
+                  @click="handleRetry"
+                >
+                  <RefreshCwIcon class="size-4" />
+                </MessageAction>
               </MessageActions>
             </MessageToolbar>
+            <div
+              v-if="msg.role === 'assistant' && status === 'error' && isApiKeyError(msg.content)"
+              class="text-xs text-amber-600 dark:text-amber-400 mt-1 px-1"
+            >
+              {{ $t('chat.apiKeyHint') }}
+            </div>
           </Message>
 
           <ConversationScrollButton />

@@ -11,6 +11,8 @@ import time
 import re
 import uuid
 from datetime import datetime, timezone
+
+from ..utils.time import as_utc, utc_now
 from dataclasses import dataclass, field
 from enum import Enum
 from contextlib import contextmanager
@@ -49,7 +51,7 @@ class TaskState:
     error_message: str = ""
     results: List[Dict[str, Any]] = field(default_factory=list)
     cancel_requested: bool = False
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=utc_now)
     # Huey result ID for revocation of not-yet-started tasks
     huey_result_id: Optional[str] = None
     # Original enqueue arguments for rehydration on restart
@@ -169,14 +171,14 @@ def persist_task(task: TaskState) -> None:
 
 def cleanup_old_tasks() -> None:
     """Remove completed / cancelled tasks older than 5 minutes from memory."""
-    now = datetime.now()
+    now = utc_now()
     with _tasks_lock:
         stale = [
             tid
             for tid, t in _tasks.items()
             if t.status
             in (TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.FAILED)
-            and (now - t.created_at).total_seconds() > 300
+            and (now - as_utc(t.created_at)).total_seconds() > 300
         ]
         for tid in stale:
             del _tasks[tid]

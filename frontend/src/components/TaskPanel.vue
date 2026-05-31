@@ -17,6 +17,7 @@ import {
   CloseOutline,
   AlertCircleOutline,
   CheckmarkCircleOutline,
+  RefreshOutline,
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useTaskStore } from '@/stores/tasks'
@@ -81,6 +82,14 @@ async function handleCancel(taskId: string) {
     await taskStore.requestCancel(taskId)
   } catch (error: unknown) {
     handleApiError(error, t('task.cancelFailed'))
+  }
+}
+
+async function handleRetry(taskId: string) {
+  try {
+    await taskStore.retryTask(taskId)
+  } catch (error: unknown) {
+    handleApiError(error, t('task.taskFailed'))
   }
 }
 
@@ -174,6 +183,15 @@ function handleDismiss(taskId: string) {
                 >
                   {{ statusLabel(task) }}
                 </n-tag>
+                <n-button
+                  v-if="task.status === 'failed'"
+                  quaternary
+                  circle
+                  size="tiny"
+                  @click="handleRetry(task.taskId)"
+                >
+                  <template #icon><n-icon size="14" color="#e03131"><RefreshOutline /></n-icon></template>
+                </n-button>
                 <n-button
                   v-if="task.status === 'failed' || task.status === 'completed' || task.status === 'cancelled'"
                   quaternary

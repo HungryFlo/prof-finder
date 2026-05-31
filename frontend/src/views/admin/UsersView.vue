@@ -13,7 +13,7 @@ import {
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { adminApi } from '@/api/auth'
-import { useDateLocale } from '@/composables/useDateLocale'
+import { useFormatDate } from '@/composables/useDateLocale'
 import { useApiError } from '@/composables/useApiError'
 import type { User } from '@/types'
 
@@ -21,7 +21,7 @@ const message = useMessage()
 const { t } = useI18n()
 const { handleApiError } = useApiError()
 
-const dateLocale = useDateLocale()
+const { formatDateTime } = useFormatDate()
 
 const loading = ref(false)
 const users = ref<User[]>([])
@@ -49,7 +49,7 @@ const columns = computed<DataTableColumns<User>>(() => [
     key: 'created_at',
     width: 180,
     render(row) {
-      return new Date(row.created_at).toLocaleString(dateLocale.value)
+      return formatDateTime(row.created_at)
     },
   },
   {

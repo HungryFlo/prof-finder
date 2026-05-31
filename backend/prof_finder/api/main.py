@@ -3,17 +3,17 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from ..config import settings
 from ..db.database import get_db
-from ..models.schema import User, UserSettings
-from ..runtime import frontend_dist_dir
-from .auth import hash_password
+from ..runtime import frontend_dist_dir, is_configured, is_packaged
+from .bootstrap import init_admin_user
 from .routes.auth import router as auth_router, admin_router
+from .routes.setup import router as setup_router
 from .routes.profiles import router as profiles_router
 from .routes.professors import router as professors_router
 from .routes.match import router as match_router
@@ -94,56 +94,14 @@ def _rehydrate_tasks():
         print(f"已在数据库中恢复 {rehydrated} 个未完成的任务")
 
 
-def init_admin_user():
-    """Initialize the admin user if it doesn't exist.
-
-    Creates the admin account with credentials from settings:
-    - Default: root / root123
-    - Can be overridden via ADMIN_USERNAME and ADMIN_PASSWORD env vars
-    - If using default password, sets must_change_password=True
-    """
-    db = get_db()
-    with db.session() as session:
-        # Check if admin user already exists
-        admin = session.query(User).filter(User.username == settings.admin_username).first()
-
-        if not admin:
-            # Create admin user
-            admin = User(
-                username=settings.admin_username,
-                password_hash=hash_password(settings.admin_password),
-                is_admin=True,
-                must_change_password=settings.is_default_admin_password,
-            )
-            session.add(admin)
-            session.flush()
-
-            # Create default settings for admin
-            admin_settings = UserSettings(
-                user_id=admin.id,
-                deepseek_api_key=settings.deepseek_api_key or None,
-                deepseek_base_url=settings.deepseek_base_url,
-                request_delay=settings.request_delay,
-            )
-            session.add(admin_settings)
-
-            print(f"✓ 管理员账户已创建: {settings.admin_username}")
-            if settings.is_default_admin_password:
-                print("⚠ 使用默认密码，首次登录请修改密码")
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
-    # Startup
     print("启动 Prof-Finder API 服务...")
-    init_admin_user()
-
-    # Rehydrate background tasks from DB
-    _rehydrate_tasks()
-
-    # Start Huey consumer thread
-    start_consumer()
+    if is_configured():
+        init_admin_user()
+        _rehydrate_tasks()
+        start_consumer()
 
     yield
 
@@ -173,8 +131,25 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
+
+    @app.middleware("http")
+    async def require_setup_completed(request: Request, call_next):
+        if is_packaged() and not is_configured():
+            path = request.url.path
+            if path.startswith("/api/") and not (
+                path == "/api/health"
+                or path.startswith("/api/setup")
+            ):
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "detail": "请先完成首次存储路径配置",
+                    },
+                )
+        return await call_next(request)
+
     # Register routers
+    app.include_router(setup_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(admin_router, prefix="/api")
     app.include_router(profiles_router, prefix="/api")

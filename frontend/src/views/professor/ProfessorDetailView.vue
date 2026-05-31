@@ -26,7 +26,7 @@ import { professorsApi } from '@/api/professors'
 import { sourceInputsApi } from '@/api/source-inputs'
 import { useApiError } from '@/composables/useApiError'
 import { useTaskStore } from '@/stores/tasks'
-import { useDateLocale } from '@/composables/useDateLocale'
+import { useFormatDate } from '@/composables/useDateLocale'
 import type { PaperSummary, Professor, Publication, SourceInput } from '@/types'
 
 const route = useRoute()
@@ -38,7 +38,7 @@ const { t } = useI18n()
 
 const setBreadcrumbTitle = inject<(title: string) => void>('setBreadcrumbTitle', () => {})
 
-const dateLocale = useDateLocale()
+const { formatDateTime } = useFormatDate()
 
 const professorId = Number(route.params.id)
 
@@ -81,11 +81,6 @@ const summaryByTitle = computed(() => {
 function hasMatchingSummary(pub: Publication): boolean {
   if (!pub.title) return false
   return summaryByTitle.value.has(pub.title.toLowerCase())
-}
-
-function fmtDate(iso: string | undefined | null): string {
-  if (!iso) return ''
-  return new Date(iso).toLocaleString(dateLocale.value)
 }
 
 const publicationColumns = computed<DataTableColumns<Publication>>(() => [
@@ -446,7 +441,7 @@ onMounted(fetchData)
         <template #header-extra>
           <n-space>
             <n-tag v-if="professor.research_profile_generated_at" type="success">
-              {{ fmtDate(professor.research_profile_generated_at) }}
+              {{ formatDateTime(professor.research_profile_generated_at) }}
             </n-tag>
             <n-button
               size="small"

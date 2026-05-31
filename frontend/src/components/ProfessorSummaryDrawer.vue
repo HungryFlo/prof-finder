@@ -14,7 +14,7 @@ import {
   NTag,
 } from 'naive-ui'
 import { professorsApi } from '@/api/professors'
-import { useDateLocale } from '@/composables/useDateLocale'
+import { useFormatDate } from '@/composables/useDateLocale'
 import { useApiError } from '@/composables/useApiError'
 import type { Professor } from '@/types'
 
@@ -32,15 +32,10 @@ const router = useRouter()
 const { t } = useI18n()
 const { handleApiError } = useApiError()
 
-const dateLocale = useDateLocale()
+const { formatDateTime } = useFormatDate()
 
 const loading = ref(false)
 const professor = ref<Professor | null>(null)
-
-function fmtDate(iso: string | null | undefined) {
-  if (!iso) return ''
-  return new Date(iso).toLocaleString(dateLocale.value)
-}
 
 watch(
   () => [props.show, props.professorId] as const,
@@ -137,7 +132,7 @@ function formatJsonNote(note: unknown): string {
               type="success"
               style="margin-left: 8px"
             >
-              {{ fmtDate(professor.research_profile_generated_at) }}
+              {{ formatDateTime(professor.research_profile_generated_at) }}
             </n-tag>
           </h4>
           <div

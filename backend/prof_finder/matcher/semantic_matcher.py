@@ -3,30 +3,31 @@
 from __future__ import annotations
 
 from typing import Optional
-from pathlib import Path
 
 import numpy as np
 
+from ..runtime import model_dir
+
 # Singleton — loaded once, reused across all match tasks in the process lifetime.
 _model = None
-_LOCAL_MODEL_PATH = Path(__file__).resolve().parents[2] / "qwen3-embedding-0.6b"
 
 
 _MODELSCOPE_ID = "Qwen/Qwen3-Embedding-0.6B"
 
 
 def _download_from_modelscope(progress_callbacks=None) -> None:
-    """Download model from ModelScope to _LOCAL_MODEL_PATH.
+    """Download model from ModelScope to the configured model directory.
 
     Args:
         progress_callbacks: Optional list of ProgressCallback classes for download progress.
 
     Raises RuntimeError if download fails (network error, model not found, etc.).
     """
+    local_path = model_dir()
     try:
         from modelscope import snapshot_download
 
-        kwargs = {"local_dir": str(_LOCAL_MODEL_PATH)}
+        kwargs = {"local_dir": str(local_path)}
         if progress_callbacks is not None:
             kwargs["progress_callbacks"] = progress_callbacks
         snapshot_download(_MODELSCOPE_ID, **kwargs)
@@ -61,12 +62,13 @@ def _get_model(progress_callbacks=None):
 
     from sentence_transformers import SentenceTransformer
 
+    local_path = model_dir()
     device = _detect_device()
-    if _LOCAL_MODEL_PATH.exists():
-        _model = SentenceTransformer(str(_LOCAL_MODEL_PATH), local_files_only=True, device=device)
+    if local_path.exists():
+        _model = SentenceTransformer(str(local_path), local_files_only=True, device=device)
     else:
         _download_from_modelscope(progress_callbacks=progress_callbacks)
-        _model = SentenceTransformer(str(_LOCAL_MODEL_PATH), local_files_only=True, device=device)
+        _model = SentenceTransformer(str(local_path), local_files_only=True, device=device)
     return _model
 
 

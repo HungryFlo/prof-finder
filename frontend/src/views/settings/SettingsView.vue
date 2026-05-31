@@ -11,6 +11,9 @@ import {
   NButton,
   NSpace,
   NSwitch,
+  NAlert,
+  NCollapse,
+  NCollapseItem,
   useMessage,
 } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
@@ -18,12 +21,14 @@ import { settingsApi } from '@/api/settings'
 import PasswordRequirementCheck from '@/components/PasswordRequirementCheck.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useApiError } from '@/composables/useApiError'
+import { useHelpDrawer } from '@/composables/useHelpDrawer'
 import type { UserSettings } from '@/types'
 
 const authStore = useAuthStore()
 const message = useMessage()
 const { t } = useI18n()
 const { handleApiError } = useApiError()
+const { openHelp } = useHelpDrawer()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -144,6 +149,34 @@ onMounted(() => {
       <n-grid cols="2" :x-gap="16" :y-gap="16" responsive="screen" :item-responsive="true">
         <n-gi span="2 m:1">
           <n-card :title="t('settings.apiConfig')">
+            <n-alert type="info" style="margin-bottom: 16px">
+              {{ t('help.settingsApiKeyHint') }}
+              <n-button text type="primary" size="small" style="margin-left: 4px" @click="openHelp">
+                {{ t('help.settingsApiKeyLink') }}
+              </n-button>
+            </n-alert>
+            <n-collapse style="margin-bottom: 16px">
+              <n-collapse-item :title="t('help.apiKeyGuide')" name="apiKey">
+                <ol style="margin: 0; padding-left: 20px; line-height: 1.6">
+                  <li>{{ t('help.apiKeyStep1') }}</li>
+                  <li>{{ t('help.apiKeyStep2') }}</li>
+                  <li>{{ t('help.apiKeyStep3') }}</li>
+                  <li>{{ t('help.apiKeyStep4') }}</li>
+                  <li>{{ t('help.apiKeyStep5') }}</li>
+                </ol>
+                <n-button
+                  tag="a"
+                  href="https://platform.deepseek.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  type="primary"
+                  size="small"
+                  style="margin-top: 12px"
+                >
+                  {{ t('help.openDeepSeekPlatform') }}
+                </n-button>
+              </n-collapse-item>
+            </n-collapse>
             <n-form label-placement="left" label-width="100">
               <n-form-item :label="t('settings.currentApiKey')">
                 <span style="color: var(--muted-foreground)">

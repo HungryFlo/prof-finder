@@ -15,7 +15,14 @@ import webbrowser
 
 import uvicorn
 
-from prof_finder.runtime import PACKAGE_ENV, logs_dir, user_data_dir
+from prof_finder.runtime import (
+    PACKAGE_ENV,
+    apply_install_config,
+    is_configured,
+    is_packaged,
+    logs_dir,
+    user_data_dir,
+)
 
 
 def _available_port(host: str, preferred_port: int) -> int:
@@ -51,14 +58,20 @@ def _wait_for_health(url: str, timeout_seconds: float) -> None:
 def run(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = True) -> None:
     """Start the local server and optionally open the system browser."""
     os.environ.setdefault(PACKAGE_ENV, "1")
-    data_dir = user_data_dir()
-    data_dir.mkdir(parents=True, exist_ok=True)
-    log_file = logs_dir() / "prof-finder.log"
-    logging.basicConfig(
-        filename=log_file,
-        level=getattr(logging, os.getenv("PROF_FINDER_LOG_LEVEL", "INFO").upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-    )
+    apply_install_config()
+
+    log_file = None
+    if not is_packaged() or is_configured():
+        data_dir = user_data_dir()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        log_file = logs_dir() / "prof-finder.log"
+        logging.basicConfig(
+            filename=log_file,
+            level=getattr(
+                logging, os.getenv("PROF_FINDER_LOG_LEVEL", "INFO").upper(), logging.INFO
+            ),
+            format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        )
 
     selected_port = _available_port(host, port)
 
@@ -80,10 +93,16 @@ def run(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = True) ->
     _wait_for_health(f"{base_url}/api/health", timeout_seconds=30)
 
     print(f"Prof-Finder is running at {base_url}")
-    print(f"User data directory: {data_dir}")
-    print(f"Log file: {log_file}")
-    if open_browser:
-        webbrowser.open(base_url)
+    if is_packaged() and not is_configured():
+        print("First-run setup required. Opening setup wizard...")
+        if open_browser:
+            webbrowser.open(f"{base_url}/setup")
+    else:
+        print(f"User data directory: {user_data_dir()}")
+        if log_file is not None:
+            print(f"Log file: {log_file}")
+        if open_browser:
+            webbrowser.open(base_url)
 
     try:
         while thread.is_alive():
