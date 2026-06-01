@@ -166,11 +166,20 @@ def persist_task(task: TaskState) -> None:
                     )
                 )
     except Exception:
-        pass  # persist failure should not crash the task
+        import logging
+        logging.getLogger(__name__).debug("persist_task failed", exc_info=True)
+
+
+_last_cleanup_ts: float = 0.0
 
 
 def cleanup_old_tasks() -> None:
     """Remove completed / cancelled tasks older than 5 minutes from memory."""
+    global _last_cleanup_ts
+    now_ts = time.time()
+    if now_ts - _last_cleanup_ts < 60:
+        return
+    _last_cleanup_ts = now_ts
     now = utc_now()
     with _tasks_lock:
         stale = [
@@ -1195,6 +1204,186 @@ def execute_university_crawl(task_id: str, university_id: str) -> None:
     persist_task(task)
 
 
+@register_task("generic-university-crawl")
+def execute_generic_university_crawl(task_id: str, config_id: int) -> None:
+    """Crawl professors using a user-defined UniversityCrawlerConfig.
+
+    Loads the config from DB, runs GenericUniversityCrawler, persists professors,
+    then chains enrichment if configured.
+    """
+    from ..config import settings as app_settings
+    from ..db.database import get_db
+    from ..models.schema import Professor, UserSettings, UniversityCrawlerConfig
+
+    task = get_task(task_id)
+    if not task:
+        return
+    task.status = TaskStatus.RUNNING
+    task.message = "正在初始化爬虫..."
+    persist_task(task)
+    db = get_db()
+
+    # Load config from DB
+    with db.session() as session:
+        config_row = (
+            session.query(UniversityCrawlerConfig)
+            .filter(
+                UniversityCrawlerConfig.id == config_id,
+                UniversityCrawlerConfig.user_id == task.user_id,
+            )
+            .first()
+        )
+        if not config_row:
+            task.status = TaskStatus.FAILED
+            task.error_message = "爬虫配置不存在"
+            persist_task(task)
+            return
+
+        # Extract all config fields while session is open
+        config_data = {
+            "id": config_row.id,
+            "name": config_row.name,
+            "university": config_row.university,
+            "department": config_row.department,
+            "list_url": config_row.list_url,
+            "extraction_mode": config_row.extraction_mode,
+            "css_selectors": config_row.css_selectors or {},
+            "affiliation": config_row.affiliation,
+        }
+
+        # Get API key for LLM mode
+        user_settings = (
+            session.query(UserSettings)
+            .filter(UserSettings.user_id == task.user_id)
+            .first()
+        )
+        api_key = (
+            user_settings.deepseek_api_key if user_settings else None
+        ) or app_settings.deepseek_api_key
+        base_url = (
+            user_settings.deepseek_base_url if user_settings else None
+        ) or app_settings.deepseek_base_url
+
+    # Import and create crawler
+    from ..crawler.crawl4ai_engine.generic_crawler import GenericUniversityCrawler
+
+    crawler = GenericUniversityCrawler(
+        university_id=f"custom-{config_data['id']}",
+        display_name=config_data["name"],
+        list_url=config_data["list_url"],
+        extraction_mode=config_data["extraction_mode"],
+        css_selectors=config_data["css_selectors"],
+        affiliation=config_data["affiliation"] or config_data["university"],
+        api_key=api_key,
+        base_url=base_url,
+    )
+
+    task.message = f"正在爬取 {crawler.display_name}..."
+
+    try:
+        professors_data = crawler.crawl_all(
+            send_progress=lambda m: setattr(task, "message", m),
+            cancel_checker=lambda: task.cancel_requested,
+        )
+    except Exception as e:
+        task.status = TaskStatus.FAILED
+        task.error_message = f"爬取失败: {str(e)}"
+        persist_task(task)
+        return
+
+    if task.cancel_requested:
+        task.status = TaskStatus.CANCELLED
+        persist_task(task)
+        return
+
+    total = len(professors_data)
+    if total == 0:
+        task.status = TaskStatus.FAILED
+        if config_data["extraction_mode"] == "llm":
+            task.error_message = "AI 提取未返回结果，请检查 DeepSeek API Key 是否正确，或切换为 CSS 选择器模式重试"
+        else:
+            task.error_message = "未提取到教授信息，请检查 CSS 选择器配置是否正确"
+        task.message = "爬取失败"
+        persist_task(task)
+        return
+
+    task.total = total
+    task.message = f"共获取 {total} 条记录，正在入库..."
+    new_professor_ids: list[int] = []
+
+    for i, prof_data in enumerate(professors_data):
+        if task.cancel_requested:
+            break
+
+        task.current = i + 1
+        task.message = f"正在保存第 {i + 1}/{total} 位: {prof_data.get('name', '')}"
+
+        try:
+            with db.session() as session:
+                existing = (
+                    session.query(Professor)
+                    .filter(
+                        Professor.user_id == task.user_id,
+                        Professor.name == prof_data["name"],
+                        Professor.affiliation == prof_data.get("affiliation"),
+                    )
+                    .first()
+                )
+                if existing:
+                    task.results.append(
+                        {"name": prof_data["name"], "success": True, "skipped": True}
+                    )
+                    continue
+
+                professor = Professor(
+                    user_id=task.user_id,
+                    name=prof_data["name"],
+                    affiliation=prof_data.get("affiliation"),
+                    email=prof_data.get("email"),
+                    homepage=prof_data.get("homepage"),
+                    research_interests=prof_data.get("research_interests", []),
+                    publications=[],
+                )
+                session.add(professor)
+                session.flush()
+                new_professor_ids.append(professor.id)
+
+            task.success_count += 1
+            task.results.append({"name": prof_data["name"], "success": True, "skipped": False})
+
+        except Exception as e:
+            task.failed_count += 1
+            task.results.append(
+                {"name": prof_data.get("name", "?"), "success": False, "error": str(e)}
+            )
+
+    task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
+    if task.status == TaskStatus.COMPLETED:
+        skipped = sum(1 for r in task.results if r.get("skipped"))
+        task.message = f"完成！新增 {task.success_count} 位，跳过重复 {skipped} 位，失败 {task.failed_count} 位"
+        if new_professor_ids:
+            with db.session() as session:
+                row = (
+                    session.query(UserSettings)
+                    .filter(UserSettings.user_id == task.user_id)
+                    .first()
+                )
+                enrich_flags = flags_from_user_settings_row(row)
+            if any_auto_enrich_substep_enabled(enrich_flags):
+                batch_enrich = create_task(
+                    "batch-professor-enrichment",
+                    f"教授信息增强 ({len(new_professor_ids)} 位)",
+                    task.user_id,
+                    total=len(new_professor_ids),
+                )
+                enqueue_task(
+                    "batch-professor-enrichment",
+                    batch_enrich.task_id,
+                    professor_ids=new_professor_ids,
+                )
+    persist_task(task)
+
+
 def _enrich_professor_core(
     user_id: int,
     professor_id: int,
@@ -1278,7 +1467,7 @@ def _enrich_professor_core(
                     publications[i].update(details)
                 except Exception:
                     pass
-                time.sleep(app_settings.request_delay)
+                threading.Event().wait(timeout=app_settings.request_delay)
 
         with db.session() as session:
             professor = (
@@ -1480,6 +1669,15 @@ def execute_batch_professor_enrichment(task_id: str, professor_ids: List[int]) -
         return
 
     db = get_db()
+    # Hoist UserSettings query out of loop — flags don't change between iterations
+    with db.session() as session:
+        _settings_row = (
+            session.query(UserSettings)
+            .filter(UserSettings.user_id == task.user_id)
+            .first()
+        )
+        _flags = flags_from_user_settings_row(_settings_row)
+
     for i, pid in enumerate(professor_ids):
         if task.cancel_requested:
             task.status = TaskStatus.CANCELLED
@@ -1488,17 +1686,10 @@ def execute_batch_professor_enrichment(task_id: str, professor_ids: List[int]) -
         task.current = i + 1
         task.message = f"正在增强第 {i + 1}/{len(professor_ids)} 位教授..."
         try:
-            with db.session() as session:
-                row = (
-                    session.query(UserSettings)
-                    .filter(UserSettings.user_id == task.user_id)
-                    .first()
-                )
-                flags = flags_from_user_settings_row(row)
             _enrich_professor_core(
                 task.user_id,
                 pid,
-                flags=flags,
+                flags=_flags,
                 progress=lambda m: setattr(task, "message", m),
                 cancel_checker=lambda: task.cancel_requested,
             )
@@ -1986,7 +2177,7 @@ def execute_fill_publications(
                         "error": str(exc),
                     })
 
-                time.sleep(app_settings.request_delay)
+                threading.Event().wait(timeout=app_settings.request_delay)
 
             professor.publications = publications
             flag_modified(professor, "publications")

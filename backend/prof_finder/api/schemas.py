@@ -564,6 +564,86 @@ class UniversityCrawlRequest(BaseModel):
     university_id: str
 
 
+# ============= Crawler Config Schemas =============
+
+
+CSSSelectorFields = Literal[
+    "card", "name", "profile_url", "title", "email",
+    "research_interests", "photo_url", "pagination_next",
+]
+
+
+class CrawlerConfigCreate(BaseModel):
+    """Create a new university crawler configuration."""
+
+    name: str = Field(..., min_length=1, max_length=200)
+    university: str = Field(..., min_length=1, max_length=300)
+    department: Optional[str] = None
+    list_url: str
+    extraction_mode: Literal["css", "llm"] = "css"
+    css_selectors: Optional[dict[str, Optional[str]]] = None
+    affiliation: Optional[str] = None
+
+
+class CrawlerConfigUpdate(BaseModel):
+    """Update a university crawler configuration."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    university: Optional[str] = Field(None, min_length=1, max_length=300)
+    department: Optional[str] = None
+    list_url: Optional[str] = None
+    extraction_mode: Optional[Literal["css", "llm"]] = None
+    css_selectors: Optional[dict[str, Optional[str]]] = None
+    affiliation: Optional[str] = None
+
+
+class CrawlerConfigResponse(BaseModel):
+    """Crawler configuration response."""
+
+    id: int
+    name: str
+    university: str
+    department: Optional[str]
+    list_url: str
+    extraction_mode: str
+    css_selectors: Optional[dict]
+    affiliation: Optional[str]
+    is_builtin: bool
+    builtin_crawler_id: Optional[str]
+    created_at: ApiDateTime
+    updated_at: ApiDateTime
+
+    class Config:
+        from_attributes = True
+
+
+class CrawlerTestRequest(BaseModel):
+    """Test a crawler configuration without saving."""
+
+    list_url: str
+    extraction_mode: Literal["css", "llm"] = "css"
+    css_selectors: Optional[dict[str, Optional[str]]] = None
+    affiliation: Optional[str] = None
+    name: Optional[str] = None
+    university: Optional[str] = None
+    department: Optional[str] = None
+
+
+class CrawlerTestResponse(BaseModel):
+    """Crawler test result."""
+
+    success: bool
+    sample_results: List[dict]
+    total_found: int
+    error_message: Optional[str] = None
+
+
+class CrawlerConfiguredCrawlRequest(BaseModel):
+    """Start a crawl using a saved crawler configuration."""
+
+    config_id: int
+
+
 # ============= Common Schemas =============
 
 

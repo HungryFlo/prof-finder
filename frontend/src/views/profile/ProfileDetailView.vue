@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject, ref, onMounted } from 'vue'
+import { inject, ref, onMounted, defineAsyncComponent } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -18,7 +18,7 @@ import {
   useMessage,
 } from 'naive-ui'
 import { profilesApi } from '@/api/profiles'
-import ProfileChatPanel from '@/components/ProfileChatPanel.vue'
+const ProfileChatPanel = defineAsyncComponent(() => import('@/components/ProfileChatPanel.vue'))
 import { useFormatDate } from '@/composables/useDateLocale'
 import { useApiError } from '@/composables/useApiError'
 import type { Profile, EducationItem, ResearchItem, ProjectItem } from '@/types'

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from ...models.schema import User, UserProfile, Professor, MatchRecord
 from ...matcher.keyword_matcher import KeywordMatcher
+from ...utils.query_cache import get_active_profile
 from ..deps import get_db_session, get_current_user
 from ..schemas import (
     MatchResultResponse,
@@ -82,11 +83,7 @@ async def run_matching(
             detail="MODEL_NOT_DOWNLOADED",
         )
 
-    active_profile = (
-        session.query(UserProfile)
-        .filter(UserProfile.user_id == current_user.id, UserProfile.is_active == True)
-        .first()
-    )
+    active_profile = get_active_profile(session, current_user.id)
     if not active_profile:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -132,11 +129,7 @@ def get_match_results(
 ):
     """Get match results for current active profile."""
     # Get active profile
-    active_profile = (
-        session.query(UserProfile)
-        .filter(UserProfile.user_id == current_user.id, UserProfile.is_active == True)
-        .first()
-    )
+    active_profile = get_active_profile(session, current_user.id)
 
     if not active_profile:
         raise HTTPException(
@@ -218,18 +211,14 @@ def get_match_detail(
         Detailed match result.
     """
     # Get active profile
-    active_profile = (
-        session.query(UserProfile)
-        .filter(UserProfile.user_id == current_user.id, UserProfile.is_active == True)
-        .first()
-    )
-    
+    active_profile = get_active_profile(session, current_user.id)
+
     if not active_profile:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="请先激活一份画像",
         )
-    
+
     # Get match record
     result = (
         session.query(MatchRecord, Professor)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import tempfile
 from pathlib import Path
@@ -91,11 +92,14 @@ def fetch_arxiv_metadata(canonical_id: str, timeout: int = 15) -> Dict[str, Opti
 def download_to_temp_file(url: str, suffix: str = ".pdf", timeout: int = 30) -> Path:
     """Download URL content to a temporary file and return path."""
     fd, temp_path = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)  # Close leaked file descriptor
     Path(temp_path).unlink(missing_ok=True)
     target = Path(temp_path)
-    response = requests.get(url, timeout=timeout)
+    response = requests.get(url, timeout=timeout, stream=True)
     response.raise_for_status()
-    target.write_bytes(response.content)
+    with open(target, "wb") as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            f.write(chunk)
     return target
 
 

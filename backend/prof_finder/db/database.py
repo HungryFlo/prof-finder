@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from ..config import settings
 from ..models.schema import Base, User
 from ..models.background_task import BackgroundTask  # noqa: ensure create_all picks up table
+from ..models.schema import UniversityCrawlerConfig  # noqa: ensure create_all picks up table
 
 
 class Database:

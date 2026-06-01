@@ -36,14 +36,16 @@ const { formatDateTime } = useFormatDate()
 
 const loading = ref(false)
 const professor = ref<Professor | null>(null)
+const cachedId = ref<number | null>(null)
 
 watch(
   () => [props.show, props.professorId] as const,
   async ([show, id]) => {
-    if (show && id) {
+    if (show && id && id !== cachedId.value) {
       loading.value = true
       try {
         professor.value = await professorsApi.get(id)
+        cachedId.value = id
       } catch (error: unknown) {
         handleApiError(error, t('professor.drawerLoadFailed'))
         emit('update:show', false)

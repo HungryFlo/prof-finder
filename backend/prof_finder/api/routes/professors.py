@@ -1,12 +1,14 @@
 """Professor management API routes."""
 
+import asyncio
+import time
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from ...models.schema import User, Professor, SourceInput, UserSettings
+from ...models.schema import User, Professor, SourceInput, UserSettings, UniversityCrawlerConfig
 from ...crawler.scholar import ScholarCrawler
 from ...llm import PaperSummarizer
 from ..deps import get_db_session, get_current_user
@@ -28,6 +30,12 @@ from ..schemas import (
     TaskStartResponse,
     UniversityCrawlerInfo,
     UniversityCrawlRequest,
+    CrawlerConfigCreate,
+    CrawlerConfigUpdate,
+    CrawlerConfigResponse,
+    CrawlerTestRequest,
+    CrawlerTestResponse,
+    CrawlerConfiguredCrawlRequest,
 )
 from ..task_manager import (
     create_task,
@@ -225,31 +233,40 @@ async def add_professor_by_scholar(
     return TaskStartResponse(task_id=task.task_id, message="爬取任务已启动")
 
 
+_scholar_cache: dict = {}  # {query_key: (timestamp, results)}
+_SCHOLAR_CACHE_TTL = 300  # 5 minutes
+
+
 @router.post("/search", response_model=List[ScholarSearchResult])
-def search_scholar(
+async def search_scholar(
     data: ProfessorSearchRequest,
     current_user: User = Depends(get_current_user),
 ):
     """Search Google Scholar for professors.
-    
+
     Args:
         data: Search query and limit.
         current_user: Authenticated user.
-        
+
     Returns:
         List of search results (not saved to database).
     """
+    cache_key = f"{data.query}:{data.limit}"
+    cached = _scholar_cache.get(cache_key)
+    if cached and (time.time() - cached[0]) < _SCHOLAR_CACHE_TTL:
+        return cached[1]
+
     crawler = ScholarCrawler()
-    
+
     try:
-        results = crawler.search_author(data.query, limit=data.limit)
+        results = await asyncio.to_thread(crawler.search_author, data.query, data.limit)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"搜索失败: {str(e)}",
         )
     
-    return [
+    result_list = [
         ScholarSearchResult(
             name=r["name"],
             affiliation=r.get("affiliation"),
@@ -260,6 +277,8 @@ def search_scholar(
         )
         for r in results
     ]
+    _scholar_cache[cache_key] = (time.time(), result_list)
+    return result_list
 
 
 @router.get("/university-crawlers", response_model=List[UniversityCrawlerInfo])
@@ -313,6 +332,236 @@ async def crawl_university(
     enqueue_task("university-crawl", task.task_id, data.university_id)
 
     return TaskStartResponse(task_id=task.task_id, message=f"已启动爬取任务：{display_name}")
+
+
+# ---- Crawler Config CRUD ----
+
+
+@router.get("/crawler-configs", response_model=List[CrawlerConfigResponse])
+def list_crawler_configs(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """List all crawler configs (user-defined + built-in)."""
+    # User-defined configs
+    user_configs = (
+        session.query(UniversityCrawlerConfig)
+        .filter(UniversityCrawlerConfig.user_id == current_user.id)
+        .order_by(UniversityCrawlerConfig.created_at.desc())
+        .all()
+    )
+
+    # Built-in configs from registry
+    from ...crawler.universities.registry import REGISTRY
+
+    builtin_configs = []
+    for uid, crawler_cls in REGISTRY.items():
+        existing = (
+            session.query(UniversityCrawlerConfig)
+            .filter(
+                UniversityCrawlerConfig.user_id == current_user.id,
+                UniversityCrawlerConfig.is_builtin == True,
+                UniversityCrawlerConfig.builtin_crawler_id == uid,
+            )
+            .first()
+        )
+        if not existing:
+            builtin_configs.append(
+                CrawlerConfigResponse(
+                    id=-1,  # sentinel for built-in
+                    name=crawler_cls.display_name,
+                    university=crawler_cls.university,
+                    department=crawler_cls.department,
+                    list_url="",
+                    extraction_mode="css",
+                    css_selectors=None,
+                    affiliation=crawler_cls.university,
+                    is_builtin=True,
+                    builtin_crawler_id=uid,
+                    created_at=utc_now(),
+                    updated_at=utc_now(),
+                )
+            )
+
+    return [CrawlerConfigResponse.model_validate(c) for c in user_configs] + builtin_configs
+
+
+@router.post("/crawler-configs", response_model=CrawlerConfigResponse, status_code=status.HTTP_201_CREATED)
+def create_crawler_config(
+    data: CrawlerConfigCreate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Create a new custom university crawler configuration."""
+    config = UniversityCrawlerConfig(
+        user_id=current_user.id,
+        name=data.name,
+        university=data.university,
+        department=data.department,
+        list_url=data.list_url,
+        extraction_mode=data.extraction_mode,
+        css_selectors=data.css_selectors or {},
+        affiliation=data.affiliation,
+    )
+    session.add(config)
+    session.flush()
+    session.refresh(config)
+    return config
+
+
+@router.put("/crawler-configs/{config_id}", response_model=CrawlerConfigResponse)
+def update_crawler_config(
+    config_id: int,
+    data: CrawlerConfigUpdate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Update an existing crawler configuration."""
+    config = (
+        session.query(UniversityCrawlerConfig)
+        .filter(
+            UniversityCrawlerConfig.id == config_id,
+            UniversityCrawlerConfig.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not config:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="配置不存在")
+
+    if data.name is not None:
+        config.name = data.name
+    if data.university is not None:
+        config.university = data.university
+    if data.department is not None:
+        config.department = data.department
+    if data.list_url is not None:
+        config.list_url = data.list_url
+    if data.extraction_mode is not None:
+        config.extraction_mode = data.extraction_mode
+    if data.css_selectors is not None:
+        config.css_selectors = data.css_selectors
+    if data.affiliation is not None:
+        config.affiliation = data.affiliation
+
+    session.flush()
+    session.refresh(config)
+    return config
+
+
+@router.delete("/crawler-configs/{config_id}", response_model=MessageResponse)
+def delete_crawler_config(
+    config_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Delete a crawler configuration."""
+    config = (
+        session.query(UniversityCrawlerConfig)
+        .filter(
+            UniversityCrawlerConfig.id == config_id,
+            UniversityCrawlerConfig.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not config:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="配置不存在")
+
+    session.delete(config)
+    return MessageResponse(message="爬虫配置已删除")
+
+
+@router.post("/crawler-configs/test", response_model=CrawlerTestResponse)
+async def test_crawler_config(
+    data: CrawlerTestRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Test a crawler configuration by extracting a sample without saving.
+
+    Only crawls the first page and returns up to 5 results for preview.
+    """
+    from ...config import settings as app_settings
+    from ...crawler.crawl4ai_engine.generic_crawler import GenericUniversityCrawler
+
+    # Load user's API key for LLM mode
+    user_settings = (
+        session.query(UserSettings)
+        .filter(UserSettings.user_id == current_user.id)
+        .first()
+    )
+    api_key = (
+        user_settings.deepseek_api_key if user_settings else None
+    ) or app_settings.deepseek_api_key
+    base_url = (
+        user_settings.deepseek_base_url if user_settings else None
+    ) or app_settings.deepseek_base_url
+
+    crawler = GenericUniversityCrawler.from_dict({
+        "name": data.name or "Test",
+        "university": data.university or "",
+        "department": data.department or "",
+        "list_url": data.list_url,
+        "extraction_mode": data.extraction_mode,
+        "css_selectors": data.css_selectors,
+        "affiliation": data.affiliation,
+    })
+    crawler.api_key = api_key
+    crawler.base_url = base_url
+
+    try:
+        results = await asyncio.to_thread(
+            crawler.crawl_all,
+            delay=0,
+        )
+        return CrawlerTestResponse(
+            success=True,
+            sample_results=results[:5],
+            total_found=len(results),
+        )
+    except Exception as e:
+        return CrawlerTestResponse(
+            success=False,
+            sample_results=[],
+            total_found=0,
+            error_message=str(e),
+        )
+
+
+@router.post("/crawl-configured", response_model=TaskStartResponse)
+async def crawl_with_config(
+    data: CrawlerConfiguredCrawlRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Start a crawl using a saved crawler configuration.
+
+    If config_id is negative, falls back to built-in crawlers.
+    """
+    config = (
+        session.query(UniversityCrawlerConfig)
+        .filter(
+            UniversityCrawlerConfig.id == data.config_id,
+            UniversityCrawlerConfig.user_id == current_user.id,
+        )
+        .first()
+    )
+
+    if not config:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="爬虫配置不存在",
+        )
+
+    cleanup_old_tasks()
+    task = create_task(
+        task_type="generic-university-crawl",
+        task_name=f"爬取 {config.name}",
+        user_id=current_user.id,
+        total=0,
+    )
+    enqueue_task("generic-university-crawl", task.task_id, config_id=config.id)
+
+    return TaskStartResponse(task_id=task.task_id, message=f"已启动爬取任务：{config.name}")
 
 
 @router.get("/{professor_id}", response_model=ProfessorResponse)
@@ -909,9 +1158,9 @@ async def refresh_professor(
         )
     
     crawler = ScholarCrawler()
-    
+
     try:
-        author_data = crawler.get_author(professor.google_scholar_id)
+        author_data = await asyncio.to_thread(crawler.get_author, professor.google_scholar_id)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -1,12 +1,20 @@
 import client from './client'
 import type { SourceInput } from '@/types'
 
+export interface SourceInputListResponse {
+  items: SourceInput[]
+  total: number
+  page: number
+  page_size: number
+  pages: number
+}
+
 export const sourceInputsApi = {
   async listByProfessor(professorId: number): Promise<SourceInput[]> {
-    const response = await client.get<SourceInput[]>('/source-inputs', {
-      params: { professor_id: professorId },
+    const response = await client.get<SourceInputListResponse>('/source-inputs', {
+      params: { professor_id: professorId, page_size: 200 },
     })
-    return response.data
+    return response.data.items
   },
 
   async uploadPdf(file: File): Promise<SourceInput> {

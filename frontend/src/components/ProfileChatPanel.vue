@@ -83,19 +83,37 @@ async function sendMessage(text?: string) {
     .map((m) => ({ role: m.role, content: m.content }))
 
   try {
+    // Throttle token updates with requestAnimationFrame
+    let tokenBuffer = ''
+    let rafId: number | null = null
+    const flushTokens = () => {
+      const target = messages.value.find((m) => m.key === assistantKey)
+      if (target && tokenBuffer) {
+        target.content += tokenBuffer
+        tokenBuffer = ''
+        messages.value = [...messages.value]
+      }
+      rafId = null
+    }
+
     await profilesApi.chatStream(
       props.profileId,
       content,
       history,
       (token) => {
         status.value = 'streaming'
-        const target = messages.value.find((m) => m.key === assistantKey)
-        if (target) {
-          target.content += token
-          messages.value = [...messages.value]
+        tokenBuffer += token
+        if (rafId === null) {
+          rafId = requestAnimationFrame(flushTokens)
         }
       },
       () => {
+        // Flush any remaining buffered tokens
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId)
+          rafId = null
+        }
+        flushTokens()
         status.value = 'ready'
         abortController.value = null
       },

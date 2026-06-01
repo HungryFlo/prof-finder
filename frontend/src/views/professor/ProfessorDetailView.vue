@@ -144,7 +144,10 @@ async function fetchData() {
   }
   loading.value = true
   try {
-    const data = await professorsApi.get(professorId)
+    const [data, inputs] = await Promise.all([
+      professorsApi.get(professorId),
+      sourceInputsApi.listByProfessor(professorId).catch(() => []),
+    ])
     professor.value = data
     setBreadcrumbTitle(data.name)
     form.value = {
@@ -159,11 +162,7 @@ async function fetchData() {
       research_interests: [...(data.research_interests || [])],
       manual_notes: data.manual_notes || '',
     }
-    try {
-      sourceInputs.value = await sourceInputsApi.listByProfessor(professorId)
-    } catch {
-      // non-critical
-    }
+    sourceInputs.value = inputs
   } catch (error: unknown) {
     handleApiError(error, t('professor.loadFailed'))
     router.push('/professor')
@@ -203,8 +202,26 @@ async function handleRefreshScholar() {
   try {
     const updated = await professorsApi.refresh(professorId)
     professor.value = updated
+    setBreadcrumbTitle(updated.name)
+    form.value = {
+      name: updated.name,
+      name_locales: {
+        zh: updated.name_locales?.zh ?? '',
+        en: updated.name_locales?.en ?? '',
+      },
+      affiliation: updated.affiliation || '',
+      email: updated.email || '',
+      homepage: updated.homepage || '',
+      research_interests: [...(updated.research_interests || [])],
+      manual_notes: updated.manual_notes || '',
+    }
     message.success(t('professor.scholarSynced'))
-    await fetchData()
+    // Re-fetch only source inputs (professor data already updated from refresh response)
+    try {
+      sourceInputs.value = await sourceInputsApi.listByProfessor(professorId)
+    } catch {
+      // non-critical
+    }
   } catch (error: unknown) {
     handleApiError(error, t('professor.scholarSyncFailed'))
   } finally {

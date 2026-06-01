@@ -10,6 +10,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from ...models.schema import User, UserProfile, UserSettings
 from ...config import settings as app_settings
+from ...utils.query_cache import get_active_profile
 from ..deps import get_db_session, get_current_user
 from ..deps import get_current_user_sse
 from ..schemas import (
@@ -90,11 +91,7 @@ async def start_batch_letters(
     Returns:
         Task ID for progress tracking via SSE.
     """
-    active_profile = (
-        session.query(UserProfile)
-        .filter(UserProfile.user_id == current_user.id, UserProfile.is_active == True)
-        .first()
-    )
+    active_profile = get_active_profile(session, current_user.id)
     if not active_profile:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

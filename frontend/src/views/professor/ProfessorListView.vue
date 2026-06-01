@@ -19,13 +19,18 @@ import {
   NRadio,
   NSpin,
   NEmpty,
+  NTabs,
+  NTabPane,
+  NAlert,
+  NSwitch,
+  NSelect,
   useMessage,
   useDialog,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { professorsApi } from '@/api/professors'
 import { useApiError } from '@/composables/useApiError'
-import type { UniversityCrawlerInfo } from '@/api/professors'
+import type { UniversityCrawlerInfo, CrawlerTestResponse } from '@/api/professors'
 import { useTaskStore } from '@/stores/tasks'
 import ProfessorSummaryDrawer from '@/components/ProfessorSummaryDrawer.vue'
 import type { ProfessorListItem, PaginatedResponse } from '@/types'
@@ -57,6 +62,28 @@ const universityLoading = ref(false)
 const universityCrawlers = ref<UniversityCrawlerInfo[]>([])
 const selectedUniversityId = ref<string>('')
 const crawlersLoading = ref(false)
+const universityModalTab = ref<'builtin' | 'custom'>('builtin')
+
+// Custom crawler form state
+const customCrawlerForm = ref({
+  name: '',
+  university: '',
+  department: '',
+  list_url: '',
+  extraction_mode: 'css' as 'css' | 'llm',
+  affiliation: '',
+  css_card: '',
+  css_name: '',
+  css_profile_url: '',
+  css_title: '',
+  css_email: '',
+  css_research_interests: '',
+  css_pagination_next: '',
+  css_max_pages: '10',
+})
+const customCrawlerTesting = ref(false)
+const customCrawlerSaving = ref(false)
+const testResult = ref<CrawlerTestResponse | null>(null)
 
 const showManualModal = ref(false)
 const manualLoading = ref(false)
@@ -199,6 +226,84 @@ async function handleCrawlUniversity() {
     handleApiError(error, t('professor.startTaskFailed'))
   } finally {
     universityLoading.value = false
+  }
+}
+
+function buildCssSelectors() {
+  const f = customCrawlerForm.value
+  const selectors: Record<string, string | null> = {}
+  if (f.css_card) selectors.card = f.css_card
+  if (f.css_name) selectors.name = f.css_name
+  if (f.css_profile_url) selectors.profile_url = f.css_profile_url
+  if (f.css_title) selectors.title = f.css_title
+  if (f.css_email) selectors.email = f.css_email
+  if (f.css_research_interests) selectors.research_interests = f.css_research_interests
+  if (f.css_pagination_next) selectors.pagination_next = f.css_pagination_next
+  if (f.css_max_pages) selectors.max_pages = f.css_max_pages
+  return selectors
+}
+
+async function handleTestCrawler() {
+  const f = customCrawlerForm.value
+  if (!f.list_url) {
+    message.warning(t('professor.crawlerUrlRequired'))
+    return
+  }
+  if (f.extraction_mode === 'css' && !f.css_name) {
+    message.warning(t('professor.crawlerNameSelectorRequired'))
+    return
+  }
+
+  customCrawlerTesting.value = true
+  testResult.value = null
+  try {
+    testResult.value = await professorsApi.testCrawlerConfig({
+      list_url: f.list_url,
+      extraction_mode: f.extraction_mode,
+      css_selectors: f.extraction_mode === 'css' ? buildCssSelectors() : undefined,
+      affiliation: f.affiliation || f.university || undefined,
+      name: f.name || undefined,
+      university: f.university || undefined,
+      department: f.department || undefined,
+    })
+    if (testResult.value.success) {
+      message.success(t('professor.crawlerTestSuccess', { count: testResult.value.total_found }))
+    } else {
+      message.error(testResult.value.error_message || t('professor.crawlerTestFailed'))
+    }
+  } catch (error: unknown) {
+    handleApiError(error, t('professor.crawlerTestFailed'))
+  } finally {
+    customCrawlerTesting.value = false
+  }
+}
+
+async function handleSaveAndCrawl() {
+  const f = customCrawlerForm.value
+  if (!f.name || !f.university || !f.list_url) {
+    message.warning(t('professor.crawlerRequiredFields'))
+    return
+  }
+
+  customCrawlerSaving.value = true
+  try {
+    const config = await professorsApi.createCrawlerConfig({
+      name: f.name,
+      university: f.university,
+      department: f.department || undefined,
+      list_url: f.list_url,
+      extraction_mode: f.extraction_mode,
+      css_selectors: f.extraction_mode === 'css' ? buildCssSelectors() : undefined,
+      affiliation: f.affiliation || undefined,
+    })
+    const { task_id, message: msg } = await professorsApi.crawlWithConfig(config.id)
+    showUniversityModal.value = false
+    message.success(msg || t('professor.crawlTaskStarted'))
+    taskStore.addTask(task_id, 'generic-university-crawl', t('professor.customCrawlTask'), 0, afterImportTasksComplete)
+  } catch (error: unknown) {
+    handleApiError(error, t('professor.startTaskFailed'))
+  } finally {
+    customCrawlerSaving.value = false
   }
 }
 
@@ -464,39 +569,214 @@ onMounted(() => {
 
     <n-modal
       v-model:show="showUniversityModal"
-      preset="dialog"
+      preset="card"
       :title="$t('professor.univModalTitle')"
-      :positive-text="$t('professor.univModalPositive')"
-      :negative-text="$t('common.cancel')"
-      :positive-button-props="{ loading: universityLoading, disabled: !selectedUniversityId }"
-      @positive-click="handleCrawlUniversity"
-      style="width: 480px"
+      style="width: 640px"
+      :bordered="false"
     >
-      <div style="padding: 8px 0">
-        <p style="color: var(--muted-foreground); margin-bottom: 16px; font-size: 13px">
-          {{ $t('professor.univModalIntro') }}
-        </p>
-        <n-spin :show="crawlersLoading">
-          <div v-if="!crawlersLoading && universityCrawlers.length === 0">
-            <n-empty :description="$t('professor.noUniversityCrawler')" />
-          </div>
-          <n-radio-group
-            v-else
-            v-model:value="selectedUniversityId"
-            style="width: 100%"
-          >
-            <n-space vertical>
-              <n-radio
-                v-for="crawler in universityCrawlers"
-                :key="crawler.university_id"
-                :value="crawler.university_id"
+      <n-tabs v-model:value="universityModalTab" type="line">
+        <!-- Built-in crawlers tab -->
+        <n-tab-pane :name="'builtin'" :tab="$t('professor.crawlerBuiltinTab')">
+          <p style="color: var(--muted-foreground); margin-bottom: 16px; font-size: 13px">
+            {{ $t('professor.univModalIntro') }}
+          </p>
+          <n-spin :show="crawlersLoading">
+            <div v-if="!crawlersLoading && universityCrawlers.length === 0">
+              <n-empty :description="$t('professor.noUniversityCrawler')" />
+            </div>
+            <n-radio-group
+              v-else
+              v-model:value="selectedUniversityId"
+              style="width: 100%"
+            >
+              <n-space vertical>
+                <n-radio
+                  v-for="crawler in universityCrawlers"
+                  :key="crawler.university_id"
+                  :value="crawler.university_id"
+                >
+                  {{ crawler.display_name }}
+                </n-radio>
+              </n-space>
+            </n-radio-group>
+          </n-spin>
+          <div style="margin-top: 16px; text-align: right">
+            <n-space>
+              <n-button @click="showUniversityModal = false">{{ $t('common.cancel') }}</n-button>
+              <n-button
+                type="primary"
+                :loading="universityLoading"
+                :disabled="!selectedUniversityId"
+                @click="handleCrawlUniversity"
               >
-                {{ crawler.display_name }}
-              </n-radio>
+                {{ $t('professor.univModalPositive') }}
+              </n-button>
             </n-space>
-          </n-radio-group>
-        </n-spin>
-      </div>
+          </div>
+        </n-tab-pane>
+
+        <!-- Custom crawler tab -->
+        <n-tab-pane :name="'custom'" :tab="$t('professor.crawlerCustomTab')">
+          <n-form label-placement="top" :show-feedback="false">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px">
+              <n-form-item :label="$t('professor.crawlerName')" required>
+                <n-input
+                  v-model:value="customCrawlerForm.name"
+                  :placeholder="$t('professor.crawlerNamePlaceholder')"
+                />
+              </n-form-item>
+              <n-form-item :label="$t('professor.crawlerUniversity')" required>
+                <n-input
+                  v-model:value="customCrawlerForm.university"
+                  :placeholder="$t('professor.crawlerUniversityPlaceholder')"
+                />
+              </n-form-item>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px">
+              <n-form-item :label="$t('professor.crawlerDepartment')">
+                <n-input
+                  v-model:value="customCrawlerForm.department"
+                  :placeholder="$t('professor.crawlerDepartmentPlaceholder')"
+                />
+              </n-form-item>
+              <n-form-item :label="$t('professor.crawlerAffiliation')">
+                <n-input
+                  v-model:value="customCrawlerForm.affiliation"
+                  :placeholder="$t('professor.crawlerAffiliationPlaceholder')"
+                />
+              </n-form-item>
+            </div>
+            <n-form-item :label="$t('professor.crawlerListUrl')" required>
+              <n-input
+                v-model:value="customCrawlerForm.list_url"
+                placeholder="https://cs.example.edu/faculty"
+              />
+            </n-form-item>
+            <n-form-item :label="$t('professor.crawlerExtractionMode')">
+              <n-radio-group v-model:value="customCrawlerForm.extraction_mode">
+                <n-space>
+                  <n-radio value="css">{{ $t('professor.crawlerModeCss') }}</n-radio>
+                  <n-radio value="llm">{{ $t('professor.crawlerModeLlm') }}</n-radio>
+                </n-space>
+              </n-radio-group>
+            </n-form-item>
+
+            <!-- CSS Selector fields -->
+            <template v-if="customCrawlerForm.extraction_mode === 'css'">
+              <n-alert type="info" style="margin-bottom: 12px" :show-icon="false">
+                {{ $t('professor.cssSelectorsHelp') }}
+              </n-alert>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px">
+                <n-form-item :label="$t('professor.cssCard')">
+                  <n-input
+                    v-model:value="customCrawlerForm.css_card"
+                    placeholder="div.faculty-card"
+                  />
+                </n-form-item>
+                <n-form-item :label="$t('professor.cssName')" required>
+                  <n-input
+                    v-model:value="customCrawlerForm.css_name"
+                    placeholder="h3.name a"
+                  />
+                </n-form-item>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px">
+                <n-form-item :label="$t('professor.cssProfileUrl')">
+                  <n-input
+                    v-model:value="customCrawlerForm.css_profile_url"
+                    placeholder="h3.name a"
+                  />
+                </n-form-item>
+                <n-form-item :label="$t('professor.cssTitle')">
+                  <n-input
+                    v-model:value="customCrawlerForm.css_title"
+                    placeholder="span.title"
+                  />
+                </n-form-item>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px">
+                <n-form-item :label="$t('professor.cssEmail')">
+                  <n-input
+                    v-model:value="customCrawlerForm.css_email"
+                    placeholder='a[href^="mailto:"]'
+                  />
+                </n-form-item>
+                <n-form-item :label="$t('professor.cssResearchInterests')">
+                  <n-input
+                    v-model:value="customCrawlerForm.css_research_interests"
+                    placeholder="span.interests"
+                  />
+                </n-form-item>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px">
+                <n-form-item :label="$t('professor.cssPaginationNext')">
+                  <n-input
+                    v-model:value="customCrawlerForm.css_pagination_next"
+                    placeholder="a.next-page"
+                  />
+                </n-form-item>
+                <n-form-item :label="$t('professor.cssMaxPages')">
+                  <n-input
+                    v-model:value="customCrawlerForm.css_max_pages"
+                    placeholder="10"
+                  />
+                </n-form-item>
+              </div>
+            </template>
+
+            <!-- LLM mode hint -->
+            <template v-else>
+              <n-alert type="info" style="margin-bottom: 12px" :show-icon="false">
+                {{ $t('professor.llmModeHelp') }}
+              </n-alert>
+            </template>
+          </n-form>
+
+          <!-- Test result preview -->
+          <div v-if="testResult" style="margin-top: 12px">
+            <n-alert
+              :type="testResult.success ? 'success' : 'error'"
+              :title="testResult.success
+                ? $t('professor.crawlerTestSuccess', { count: testResult.total_found })
+                : (testResult.error_message || $t('professor.crawlerTestFailed'))"
+              style="margin-bottom: 8px"
+            />
+            <div v-if="testResult.success && testResult.sample_results.length > 0">
+              <p style="font-size: 12px; color: var(--muted-foreground); margin-bottom: 4px">
+                {{ $t('professor.crawlerTestSample') }}
+              </p>
+              <div
+                v-for="(item, idx) in testResult.sample_results"
+                :key="idx"
+                style="padding: 4px 8px; background: var(--code-color); border-radius: 4px; margin-bottom: 4px; font-size: 13px"
+              >
+                <strong>{{ item.name }}</strong>
+                <span v-if="item.affiliation" style="color: var(--muted-foreground)"> — {{ item.affiliation }}</span>
+                <span v-if="item.email" style="color: var(--muted-foreground)"> · {{ item.email }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top: 16px; text-align: right">
+            <n-space>
+              <n-button @click="showUniversityModal = false">{{ $t('common.cancel') }}</n-button>
+              <n-button
+                :loading="customCrawlerTesting"
+                @click="handleTestCrawler"
+              >
+                {{ $t('professor.crawlerTest') }}
+              </n-button>
+              <n-button
+                type="primary"
+                :loading="customCrawlerSaving"
+                @click="handleSaveAndCrawl"
+              >
+                {{ $t('professor.crawlerSaveAndCrawl') }}
+              </n-button>
+            </n-space>
+          </div>
+        </n-tab-pane>
+      </n-tabs>
     </n-modal>
 
     <n-modal

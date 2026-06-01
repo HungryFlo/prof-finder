@@ -23,12 +23,10 @@ export interface DashboardData {
 
 export const dashboardApi = {
   async getData(): Promise<DashboardData> {
-    const [profiles, professorsRes, matchesRes, lettersRes, topMatchesRes, recentLettersRes] =
+    const [profiles, professorsRes, topMatchesRes, recentLettersRes] =
       await Promise.all([
         profilesApi.list(),
         professorsApi.list({ page: 1, page_size: 5 }),
-        matchApi.getResults({ page: 1, page_size: 1 }),
-        lettersApi.list({ page: 1, page_size: 1 }),
         matchApi.getResults({ page: 1, page_size: 5 }),
         lettersApi.list({ page: 1, page_size: 5 }),
       ])
@@ -47,8 +45,8 @@ export const dashboardApi = {
       stats: {
         profileCount: profiles.length,
         professorCount: professorsRes.total,
-        matchCount: matchesRes.total,
-        letterCount: lettersRes.total,
+        matchCount: topMatchesRes.total,
+        letterCount: recentLettersRes.total,
       },
       activeProfile,
       recentProfiles,

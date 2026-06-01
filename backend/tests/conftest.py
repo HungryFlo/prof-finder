@@ -14,6 +14,14 @@ from prof_finder.models.schema import Base, User, UserSettings
 from prof_finder.api.main import create_app
 from prof_finder.api.auth import hash_password
 from prof_finder.api import deps
+from prof_finder.utils.query_cache import clear_active_profile_cache
+
+
+@pytest.fixture(autouse=True)
+def _clear_caches():
+    """Clear module-level caches between tests."""
+    clear_active_profile_cache()
+    yield
 
 
 @pytest.fixture(scope="function")

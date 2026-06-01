@@ -17,6 +17,48 @@ export interface UniversityCrawlerInfo {
   display_name: string
 }
 
+export interface CrawlerConfigResponse {
+  id: number
+  name: string
+  university: string
+  department: string | null
+  list_url: string
+  extraction_mode: 'css' | 'llm'
+  css_selectors: Record<string, string | null> | null
+  affiliation: string | null
+  is_builtin: boolean
+  builtin_crawler_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CrawlerConfigCreate {
+  name: string
+  university: string
+  department?: string | null
+  list_url: string
+  extraction_mode: 'css' | 'llm'
+  css_selectors?: Record<string, string | null> | null
+  affiliation?: string | null
+}
+
+export interface CrawlerTestRequest {
+  list_url: string
+  extraction_mode: 'css' | 'llm'
+  css_selectors?: Record<string, string | null> | null
+  affiliation?: string | null
+  name?: string | null
+  university?: string | null
+  department?: string | null
+}
+
+export interface CrawlerTestResponse {
+  success: boolean
+  sample_results: Record<string, unknown>[]
+  total_found: number
+  error_message: string | null
+}
+
 export interface ProfessorCreate {
   name: string
   name_locales?: Record<string, string>
@@ -187,6 +229,54 @@ export const professorsApi = {
     const response = await client.post<TaskStartResponse>(
       '/professors/batch-refresh',
       { ids },
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
+    )
+    return response.data
+  },
+
+  // ---- Crawler Config CRUD ----
+
+  async getCrawlerConfigs(): Promise<CrawlerConfigResponse[]> {
+    const response = await client.get<CrawlerConfigResponse[]>('/professors/crawler-configs')
+    return response.data
+  },
+
+  async createCrawlerConfig(data: CrawlerConfigCreate): Promise<CrawlerConfigResponse> {
+    const response = await client.post<CrawlerConfigResponse>('/professors/crawler-configs', data)
+    return response.data
+  },
+
+  async updateCrawlerConfig(
+    id: number,
+    data: Partial<CrawlerConfigCreate>
+  ): Promise<CrawlerConfigResponse> {
+    const response = await client.put<CrawlerConfigResponse>(
+      `/professors/crawler-configs/${id}`,
+      data
+    )
+    return response.data
+  },
+
+  async deleteCrawlerConfig(id: number): Promise<{ message: string }> {
+    const response = await client.delete<{ message: string }>(
+      `/professors/crawler-configs/${id}`
+    )
+    return response.data
+  },
+
+  async testCrawlerConfig(data: CrawlerTestRequest): Promise<CrawlerTestResponse> {
+    const response = await client.post<CrawlerTestResponse>(
+      '/professors/crawler-configs/test',
+      data,
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
+    )
+    return response.data
+  },
+
+  async crawlWithConfig(configId: number): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(
+      '/professors/crawl-configured',
+      { config_id: configId },
       { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
     )
     return response.data

@@ -32,8 +32,8 @@ import type { MenuOption } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useTaskStore } from '@/stores/tasks'
+import { useSettingsStore } from '@/stores/settings'
 import { setLocale } from '@/i18n'
-import { settingsApi } from '@/api/settings'
 import TaskPanel from '@/components/TaskPanel.vue'
 import TaskNotificationHost from '@/components/TaskNotificationHost.vue'
 import { useTheme } from '@/composables/useTheme'
@@ -45,6 +45,7 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const taskStore = useTaskStore()
+const settingsStore = useSettingsStore()
 const message = useMessage()
 const { t, locale } = useI18n()
 const { isDark, toggleTheme } = useTheme()
@@ -118,7 +119,7 @@ watch(() => route.path, (newPath, oldPath) => {
 
 async function checkApiConfiguration() {
   try {
-    const settings = await settingsApi.get()
+    const settings = await settingsStore.fetchSettings()
     needsApiConfig.value = !settings.deepseek_api_key_masked
   } catch {
     // Settings errors are handled by pages that need them; avoid blocking layout startup.
@@ -244,7 +245,11 @@ function toggleLang() {
               </n-space>
             </n-space>
           </n-alert>
-          <router-view />
+          <router-view v-slot="{ Component }">
+            <KeepAlive :max="5">
+              <component :is="Component" />
+            </KeepAlive>
+          </router-view>
         </main>
       </n-layout-content>
     </n-layout>

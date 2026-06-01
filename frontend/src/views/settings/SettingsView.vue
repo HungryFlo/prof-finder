@@ -17,7 +17,7 @@ import {
   useMessage,
 } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
-import { settingsApi } from '@/api/settings'
+import { useSettingsStore } from '@/stores/settings'
 import PasswordRequirementCheck from '@/components/PasswordRequirementCheck.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useApiError } from '@/composables/useApiError'
@@ -25,6 +25,7 @@ import { useHelpDrawer } from '@/composables/useHelpDrawer'
 import type { UserSettings } from '@/types'
 
 const authStore = useAuthStore()
+const settingsStore = useSettingsStore()
 const message = useMessage()
 const { t } = useI18n()
 const { handleApiError } = useApiError()
@@ -58,7 +59,7 @@ const passwordForm = ref({
 async function fetchSettings() {
   loading.value = true
   try {
-    settings.value = await settingsApi.get()
+    settings.value = await settingsStore.fetchSettings()
     baseUrlInput.value = settings.value.deepseek_base_url
     delayInput.value = settings.value.request_delay
     enrichFetch.value = settings.value.auto_enrich_on_save_fetch_publication_details !== false
@@ -95,7 +96,7 @@ async function handleSaveSettings() {
       updateData.auto_enrich_on_save_research_profile = enrichProfile.value
     }
 
-    settings.value = await settingsApi.update(updateData)
+    settings.value = await settingsStore.updateSettings(updateData)
     apiKeyInput.value = ''
     enrichFetch.value = settings.value.auto_enrich_on_save_fetch_publication_details !== false
     enrichSummaries.value = settings.value.auto_enrich_on_save_paper_summaries !== false

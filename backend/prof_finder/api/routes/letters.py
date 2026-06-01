@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ...models.schema import User, UserProfile, Professor, MatchRecord, UserSettings
 from ...llm.letter_generator import LetterGenerator
 from ...config import settings as app_settings
+from ...utils.query_cache import get_active_profile
 from ..deps import get_db_session, get_current_user
 from ..schemas import (
     LetterUpdate,
@@ -75,18 +76,14 @@ def list_letters(
         Paginated list of letters.
     """
     # Get active profile
-    active_profile = (
-        session.query(UserProfile)
-        .filter(UserProfile.user_id == current_user.id, UserProfile.is_active == True)
-        .first()
-    )
-    
+    active_profile = get_active_profile(session, current_user.id)
+
     if not active_profile:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="请先激活一份简历",
         )
-    
+
     # Get match records with professors
     query = (
         session.query(MatchRecord, Professor)
@@ -148,11 +145,7 @@ async def generate_letter(
     """
     api_key = get_user_api_key(current_user, session)
 
-    active_profile = (
-        session.query(UserProfile)
-        .filter(UserProfile.user_id == current_user.id, UserProfile.is_active == True)
-        .first()
-    )
+    active_profile = get_active_profile(session, current_user.id)
     if not active_profile:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -206,18 +199,14 @@ def get_letter(
         Letter content.
     """
     # Get active profile
-    active_profile = (
-        session.query(UserProfile)
-        .filter(UserProfile.user_id == current_user.id, UserProfile.is_active == True)
-        .first()
-    )
-    
+    active_profile = get_active_profile(session, current_user.id)
+
     if not active_profile:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="请先激活一份简历",
         )
-    
+
     # Get match record
     result = (
         session.query(MatchRecord, Professor)
@@ -228,15 +217,15 @@ def get_letter(
         )
         .first()
     )
-    
+
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="未找到匹配记录",
         )
-    
+
     match_record, professor = result
-    
+
     return LetterResponse(
         professor_id=professor.id,
         professor_name=professor.name,
@@ -254,22 +243,18 @@ def update_letter(
     session: Session = Depends(get_db_session),
 ):
     """Update a letter (user edits after generation).
-    
+
     Args:
         professor_id: Professor ID.
         data: Updated letter content.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Updated letter.
     """
     # Get active profile
-    active_profile = (
-        session.query(UserProfile)
-        .filter(UserProfile.user_id == current_user.id, UserProfile.is_active == True)
-        .first()
-    )
+    active_profile = get_active_profile(session, current_user.id)
     
     if not active_profile:
         raise HTTPException(

@@ -4,6 +4,7 @@ from ..utils.time import utc_now
 from typing import Optional
 from sqlalchemy import (
     Column,
+    Index,
     Integer,
     String,
     Text,
@@ -120,6 +121,50 @@ class UserProfile(Base):
         return f"<UserProfile(id={self.id}, title='{self.title}', user_id={self.user_id})>"
 
 
+class UniversityCrawlerConfig(Base):
+    """User-defined or built-in university crawler configuration."""
+
+    __tablename__ = "university_crawler_configs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    # Identification
+    name = Column(String(200), nullable=False)  # e.g. "Stanford CS"
+    university = Column(String(300), nullable=False)  # e.g. "Stanford University"
+    department = Column(String(300))  # e.g. "Computer Science"
+
+    # Crawl target
+    list_url = Column(String(1000), nullable=False)  # Professor list page URL
+
+    # Extraction mode: "css" or "llm"
+    extraction_mode = Column(String(10), nullable=False, default="css")
+
+    # CSS selector config (JSON, only used when extraction_mode="css")
+    css_selectors = Column(JSON, default=dict)
+
+    # Affiliation string to assign to all crawled professors
+    affiliation = Column(String(500))
+
+    # Status
+    is_builtin = Column(Boolean, default=False)
+    builtin_crawler_id = Column(String(50))  # e.g. "xjtu-cs" if is_builtin
+
+    # Timestamps
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    # Relationships
+    user = relationship("User")
+
+    __table_args__ = (
+        Index("ix_crawler_config_user", "user_id"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<UniversityCrawlerConfig(id={self.id}, name='{self.name}')>"
+
+
 class Professor(Base):
     """Professor information model. Each user has their own professor pool."""
 
@@ -167,9 +212,10 @@ class Professor(Base):
     match_records = relationship("MatchRecord", back_populates="professor", cascade="all, delete-orphan")
     source_inputs = relationship("SourceInput", back_populates="professor")
 
-    # Unique constraint: same scholar ID per user
+    # Unique constraint: same scholar ID per user + composite index for crawl dedup
     __table_args__ = (
         UniqueConstraint("user_id", "google_scholar_id", name="uq_user_scholar"),
+        Index("ix_professor_user_affiliation", "user_id", "affiliation"),
     )
 
     def __repr__(self) -> str:
@@ -200,9 +246,10 @@ class MatchRecord(Base):
     profile = relationship("UserProfile", back_populates="match_records")
     professor = relationship("Professor", back_populates="match_records")
 
-    # Unique constraint: one match per profile-professor pair
+    # Unique constraint: one match per profile-professor pair + composite index
     __table_args__ = (
         UniqueConstraint("user_profile_id", "professor_id", name="uq_profile_professor"),
+        Index("ix_match_profile_professor", "user_profile_id", "professor_id"),
     )
 
     def __repr__(self) -> str:

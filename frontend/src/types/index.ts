@@ -222,6 +222,7 @@ export type TaskType =
   | 'batch-letters'
   | 'single-crawl'
   | 'university-crawl'
+  | 'generic-university-crawl'
   | 'paper-summary'
   | 'profile-parse'
   | 'profile-generate'

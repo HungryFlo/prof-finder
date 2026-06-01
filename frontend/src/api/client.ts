@@ -2,6 +2,9 @@ import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import router from '@/router'
 
+// Shared promise to deduplicate concurrent token refresh requests
+let refreshPromise: Promise<string> | null = null
+
 const client = axios.create({
   baseURL: '/api',
   timeout: 30000,
@@ -47,21 +50,31 @@ client.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true
 
-      // Try to refresh token
+      // Try to refresh token — deduplicate concurrent refresh requests
       if (authStore.refreshToken) {
         try {
-          const response = await axios.post('/api/auth/refresh', {
-            refresh_token: authStore.refreshToken,
-          })
-          
-          const { access_token, refresh_token } = response.data
-          authStore.setTokens(access_token, refresh_token)
-          
+          if (!refreshPromise) {
+            refreshPromise = axios
+              .post('/api/auth/refresh', {
+                refresh_token: authStore.refreshToken,
+              })
+              .then((res) => {
+                const { access_token, refresh_token } = res.data
+                authStore.setTokens(access_token, refresh_token)
+                return access_token as string
+              })
+              .finally(() => {
+                refreshPromise = null
+              })
+          }
+          const newToken = await refreshPromise
+
           // Retry original request
-          originalRequest.headers.Authorization = `Bearer ${access_token}`
+          originalRequest.headers.Authorization = `Bearer ${newToken}`
           return client(originalRequest)
         } catch {
           // Refresh failed, logout
+          refreshPromise = null
           authStore.logout()
           router.push('/login')
         }
