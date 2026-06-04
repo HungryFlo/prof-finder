@@ -95,6 +95,15 @@ export interface PaperSummary {
   keywords?: string[]
 }
 
+export interface ScholarCandidate {
+  scholar_id: string
+  name: string
+  affiliation?: string
+  score: number
+  email_domain_match: boolean
+  citedby?: number
+}
+
 export interface Professor {
   id: number
   name: string
@@ -116,6 +125,9 @@ export interface Professor {
   research_profile_evidence?: unknown[]
   research_profile_conflicts?: unknown[]
   research_profile_generated_at?: string
+  source?: string
+  enrichment_status?: string
+  scholar_candidates?: ScholarCandidate[]
   created_at: string
   updated_at: string
   enrichment_task_id?: string
@@ -129,6 +141,9 @@ export interface ProfessorListItem {
   research_interests: string[]
   h_index?: number
   publication_count: number
+  source?: string
+  enrichment_status?: string
+  google_scholar_id?: string
   created_at: string
 }
 
@@ -223,6 +238,7 @@ export type TaskType =
   | 'single-crawl'
   | 'university-crawl'
   | 'generic-university-crawl'
+  | 'batch-scholar-match'
   | 'paper-summary'
   | 'profile-parse'
   | 'profile-generate'
@@ -231,6 +247,7 @@ export type TaskType =
   | 'batch-professor-enrichment'
   | 'batch-professor-profiles'
   | 'fill-publications'
+  | 'professor-homepage-crawl'
   | 'batch-refresh'
   | 'profile-refine'
   | 'match'

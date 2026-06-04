@@ -29,6 +29,7 @@ import {
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { professorsApi } from '@/api/professors'
+import { universitiesApi, type University } from '@/api/universities'
 import { useApiError } from '@/composables/useApiError'
 import type { UniversityCrawlerInfo, CrawlerTestResponse } from '@/api/professors'
 import { useTaskStore } from '@/stores/tasks'
@@ -95,8 +96,14 @@ const manualForm = ref({
   research_interests: [] as string[],
 })
 
+// University list for crawler config selector
+const universityList = ref<University[]>([])
+const selectedCrawlerUniversityId = ref<number | null>(null)
+
 const showSummaryDrawer = ref(false)
 const summaryDrawerProfId = ref(0)
+
+const scholarMatchLoadingIds = ref<Set<number>>(new Set())
 
 const searchQuery = ref('')
 const sortBy = ref<string | null>(null)
@@ -167,16 +174,51 @@ const columns = computed<DataTableColumns<ProfessorListItem>>(() => [
   },
   { title: t('professor.hIndex'), key: 'h_index', width: 100, sorter: 'default' },
   {
+    title: 'Scholar',
+    key: 'enrichment_status',
+    width: 120,
+    render(row) {
+      if (row.google_scholar_id) {
+        return h(NTag, { size: 'small', type: 'success' }, { default: () => t('professor.scholarMatched') })
+      }
+      if (row.enrichment_status === 'pending') {
+        return h(NTag, { size: 'small', type: 'info' }, { default: () => t('professor.scholarPending') })
+      }
+      if (row.enrichment_status === 'ambiguous') {
+        return h(NTag, { size: 'small', type: 'warning' }, { default: () => t('professor.scholarAmbiguous') })
+      }
+      if (row.enrichment_status === 'not_found') {
+        return h(NTag, { size: 'small', type: 'default' }, { default: () => t('professor.scholarNotFound') })
+      }
+      return null
+    },
+  },
+  {
     title: t('professor.actions'),
     key: 'actions',
-    width: 240,
+    width: 320,
     render(row) {
+      const matchLoading = scholarMatchLoadingIds.value.has(row.id)
       return h(NSpace, { size: 'small', wrap: true }, () => [
         h(
           NButton,
           { size: 'small', type: 'primary', onClick: () => router.push(`/professor/${row.id}`) },
           { default: () => t('professor.tableDetail') }
         ),
+        !row.google_scholar_id
+          ? h(
+              NButton,
+              {
+                size: 'small',
+                type: 'info',
+                secondary: true,
+                loading: matchLoading,
+                disabled: matchLoading,
+                onClick: () => handleMatchScholar(row),
+              },
+              { default: () => t('professor.searchScholar') }
+            )
+          : null,
         h(
           NPopconfirm,
           { onPositiveClick: () => handleDelete(row.id) },
@@ -196,7 +238,12 @@ async function openUniversityModal() {
   if (universityCrawlers.value.length === 0) {
     crawlersLoading.value = true
     try {
-      universityCrawlers.value = await professorsApi.getUniversityCrawlers()
+      const [crawlers, unis] = await Promise.all([
+        professorsApi.getUniversityCrawlers(),
+        universitiesApi.list().catch(() => []),
+      ])
+      universityCrawlers.value = crawlers
+      universityList.value = unis
       if (universityCrawlers.value.length > 0) {
         const first = universityCrawlers.value[0]
         if (first) {
@@ -294,9 +341,13 @@ async function handleSaveAndCrawl() {
       list_url: f.list_url,
       extraction_mode: f.extraction_mode,
       css_selectors: f.extraction_mode === 'css' ? buildCssSelectors() : undefined,
-      affiliation: f.affiliation || undefined,
+      affiliation: f.affiliation || f.university || undefined,
+      university_id: selectedCrawlerUniversityId.value || undefined,
     })
-    const { task_id, message: msg } = await professorsApi.crawlWithConfig(config.id)
+    const { task_id, message: msg } = await professorsApi.crawlWithConfig(
+      config.id,
+      testResult.value?.cache_key || undefined,
+    )
     showUniversityModal.value = false
     message.success(msg || t('professor.crawlTaskStarted'))
     taskStore.addTask(task_id, 'generic-university-crawl', t('professor.customCrawlTask'), 0, afterImportTasksComplete)
@@ -456,6 +507,32 @@ async function handleBatchGenerateProfiles() {
   }
 }
 
+async function handleMatchScholar(row: ProfessorListItem) {
+  if (scholarMatchLoadingIds.value.has(row.id)) return
+
+  const next = new Set(scholarMatchLoadingIds.value)
+  next.add(row.id)
+  scholarMatchLoadingIds.value = next
+
+  try {
+    const { task_id, message: msg } = await professorsApi.matchScholar(row.id)
+    message.success(msg || t('professor.searchScholarStarted', { name: row.name }))
+    taskStore.addTask(
+      task_id,
+      'batch-scholar-match',
+      t('professor.searchScholarTask', { name: row.name }),
+      1,
+      afterImportTasksComplete,
+    )
+  } catch (error: unknown) {
+    handleApiError(error, t('professor.searchScholarFailed'))
+  } finally {
+    const done = new Set(scholarMatchLoadingIds.value)
+    done.delete(row.id)
+    scholarMatchLoadingIds.value = done
+  }
+}
+
 async function handleDelete(id: number) {
   try {
     await professorsApi.delete(id)
@@ -548,7 +625,7 @@ onMounted(() => {
         :loading="loading"
         :row-key="(row: ProfessorListItem) => row.id"
         v-model:checked-row-keys="selectedRowKeys"
-        :scroll-x="1180"
+        :scroll-x="1260"
         :sort-by="sortBy"
         :sort-order="sortOrder === 'asc' ? 'ascend' : 'descend'"
         @update:sorter="handleSorterChange"
@@ -646,6 +723,14 @@ onMounted(() => {
                 />
               </n-form-item>
             </div>
+            <n-form-item :label="$t('professor.crawlerUniversitySelect')">
+              <n-select
+                v-model:value="selectedCrawlerUniversityId"
+                :placeholder="$t('professor.crawlerUniversitySelectDesc')"
+                :options="universityList.map(u => ({ label: u.full_name, value: u.id }))"
+                clearable
+              />
+            </n-form-item>
             <n-form-item :label="$t('professor.crawlerListUrl')" required>
               <n-input
                 v-model:value="customCrawlerForm.list_url"

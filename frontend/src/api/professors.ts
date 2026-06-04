@@ -28,6 +28,7 @@ export interface CrawlerConfigResponse {
   affiliation: string | null
   is_builtin: boolean
   builtin_crawler_id: string | null
+  university_id: number | null
   created_at: string
   updated_at: string
 }
@@ -40,6 +41,7 @@ export interface CrawlerConfigCreate {
   extraction_mode: 'css' | 'llm'
   css_selectors?: Record<string, string | null> | null
   affiliation?: string | null
+  university_id?: number | null
 }
 
 export interface CrawlerTestRequest {
@@ -57,6 +59,7 @@ export interface CrawlerTestResponse {
   sample_results: Record<string, unknown>[]
   total_found: number
   error_message: string | null
+  cache_key: string | null
 }
 
 export interface ProfessorCreate {
@@ -225,6 +228,15 @@ export const professorsApi = {
     return response.data
   },
 
+  async crawlHomepage(id: number): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(
+      `/professors/${id}/crawl-homepage`,
+      {},
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
+    )
+    return response.data
+  },
+
   async batchRefresh(ids: number[]): Promise<TaskStartResponse> {
     const response = await client.post<TaskStartResponse>(
       '/professors/batch-refresh',
@@ -273,10 +285,39 @@ export const professorsApi = {
     return response.data
   },
 
-  async crawlWithConfig(configId: number): Promise<TaskStartResponse> {
+  async crawlWithConfig(configId: number, cacheKey?: string): Promise<TaskStartResponse> {
     const response = await client.post<TaskStartResponse>(
       '/professors/crawl-configured',
-      { config_id: configId },
+      { config_id: configId, cache_key: cacheKey || undefined },
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
+    )
+    return response.data
+  },
+
+  // ---- Scholar candidate confirmation ----
+
+  async confirmScholar(professorId: number, scholarId: string): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(
+      '/professors/confirm-scholar',
+      { professor_id: professorId, scholar_id: scholarId },
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
+    )
+    return response.data
+  },
+
+  async setScholarId(professorId: number, url: string): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(
+      `/professors/${professorId}/set-scholar`,
+      { url },
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
+    )
+    return response.data
+  },
+
+  async matchScholar(professorId: number): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(
+      `/professors/${professorId}/match-scholar`,
+      {},
       { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
     )
     return response.data

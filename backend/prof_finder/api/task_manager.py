@@ -6,11 +6,14 @@ is stored both in-memory (for fast SSE reads) and in the ``background_tasks``
 DB table (for persistence across restarts).
 """
 
+import logging
 import threading
 import time
 import re
 import uuid
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from ..utils.time import as_utc, utc_now
 from dataclasses import dataclass, field
@@ -39,7 +42,7 @@ class TaskState:
     """State of a background task."""
 
     task_id: str
-    task_type: str  # batch-crawl | batch-letters | single-crawl | match | single-letter | paper-summary | profile-parse | profile-generate | professor-profile | professor-enrichment | batch-professor-enrichment | fill-publications | batch-refresh | profile-refine
+    task_type: str  # batch-crawl | batch-letters | single-crawl | match | single-letter | paper-summary | profile-parse | profile-generate | professor-profile | professor-enrichment | batch-professor-enrichment | batch-scholar-match | generic-university-crawl | fill-publications | professor-homepage-crawl | batch-refresh | profile-refine
     task_name: str
     user_id: int
     status: TaskStatus
@@ -773,25 +776,32 @@ def execute_single_crawl(task_id: str, scholar_url: str) -> None:
                 .first()
             )
             if existing:
-                task.status = TaskStatus.FAILED
-                task.error_message = "该教授已存在"
-                persist_task(task)
-                return
+                # Professor already linked — update Scholar data in place
+                professor = existing
+                professor.affiliation = author_data.get("affiliation") or professor.affiliation
+                professor.email = author_data.get("email") or professor.email
+                professor.homepage = author_data.get("homepage") or professor.homepage
+                professor.google_scholar_url = scholar_url
+                professor.research_interests = author_data.get("interests") or professor.research_interests
+                professor.publications = author_data.get("publications") or professor.publications
+                professor.h_index = author_data.get("h_index") or professor.h_index
+                professor.total_citations = author_data.get("citations") or professor.total_citations
+            else:
+                professor = Professor(
+                    user_id=task.user_id,
+                    name=author_data["name"],
+                    affiliation=author_data.get("affiliation"),
+                    email=author_data.get("email"),
+                    homepage=author_data.get("homepage"),
+                    google_scholar_id=author_data["scholar_id"],
+                    google_scholar_url=scholar_url,
+                    research_interests=author_data.get("interests", []),
+                    publications=author_data.get("publications", []),
+                    h_index=author_data.get("h_index"),
+                    total_citations=author_data.get("citations"),
+                )
+                session.add(professor)
 
-            professor = Professor(
-                user_id=task.user_id,
-                name=author_data["name"],
-                affiliation=author_data.get("affiliation"),
-                email=author_data.get("email"),
-                homepage=author_data.get("homepage"),
-                google_scholar_id=author_data["scholar_id"],
-                google_scholar_url=scholar_url,
-                research_interests=author_data.get("interests", []),
-                publications=author_data.get("publications", []),
-                h_index=author_data.get("h_index"),
-                total_citations=author_data.get("citations"),
-            )
-            session.add(professor)
             session.flush()
             enrichment_professor_id = professor.id
             settings_row = (
@@ -1131,6 +1141,16 @@ def execute_university_crawl(task_id: str, university_id: str) -> None:
     task.message = f"共获取 {total} 条记录，正在入库..."
     new_professor_ids: List[int] = []
 
+    from ..models.schema import University
+    from ..utils.professor_dedup import find_matching_professor
+
+    with db.session() as session:
+        user_universities = (
+            session.query(University)
+            .filter(University.user_id == task.user_id)
+            .all()
+        )
+
     for i, prof_data in enumerate(professors_data):
         if task.cancel_requested:
             break
@@ -1140,14 +1160,13 @@ def execute_university_crawl(task_id: str, university_id: str) -> None:
 
         try:
             with db.session() as session:
-                existing = (
-                    session.query(Professor)
-                    .filter(
-                        Professor.user_id == task.user_id,
-                        Professor.name == prof_data["name"],
-                        Professor.affiliation == prof_data.get("affiliation"),
-                    )
-                    .first()
+                affiliation_val = prof_data.get("affiliation")
+                existing = find_matching_professor(
+                    session,
+                    task.user_id,
+                    prof_data["name"],
+                    affiliation_val,
+                    universities=user_universities,
                 )
                 if existing:
                     task.results.append(
@@ -1158,7 +1177,7 @@ def execute_university_crawl(task_id: str, university_id: str) -> None:
                 professor = Professor(
                     user_id=task.user_id,
                     name=prof_data["name"],
-                    affiliation=prof_data.get("affiliation"),
+                    affiliation=affiliation_val or None,
                     email=prof_data.get("email"),
                     homepage=prof_data.get("homepage"),
                     research_interests=prof_data.get("research_interests", []),
@@ -1182,38 +1201,238 @@ def execute_university_crawl(task_id: str, university_id: str) -> None:
         skipped = sum(1 for r in task.results if r.get("skipped"))
         task.message = f"完成！新增 {task.success_count} 位，跳过重复 {skipped} 位，失败 {task.failed_count} 位"
         if new_professor_ids:
-            with db.session() as session:
-                row = (
-                    session.query(UserSettings)
-                    .filter(UserSettings.user_id == task.user_id)
-                    .first()
-                )
-                enrich_flags = flags_from_user_settings_row(row)
-            if any_auto_enrich_substep_enabled(enrich_flags):
-                batch_enrich = create_task(
-                    "batch-professor-enrichment",
-                    f"教授信息增强 ({len(new_professor_ids)} 位)",
-                    task.user_id,
-                    total=len(new_professor_ids),
-                )
-                enqueue_task(
-                    "batch-professor-enrichment",
-                    batch_enrich.task_id,
-                    professor_ids=new_professor_ids,
-                )
+            _enqueue_batch_professor_enrichment_if_enabled(
+                task.user_id, new_professor_ids
+            )
     persist_task(task)
 
 
+def _mark_pending_scholar_professors_not_found(
+    user_id: int, professor_ids: List[int]
+) -> int:
+    """After a cancelled batch-scholar-match, clear leftover ``pending`` statuses."""
+    if not professor_ids:
+        return 0
+    from ..db.database import get_db
+    from ..models.schema import Professor
+
+    db = get_db()
+    with db.session() as session:
+        count = (
+            session.query(Professor)
+            .filter(
+                Professor.user_id == user_id,
+                Professor.id.in_(professor_ids),
+                Professor.enrichment_status == "pending",
+            )
+            .update(
+                {Professor.enrichment_status: "not_found"},
+                synchronize_session=False,
+            )
+        )
+    return count
+
+
+def _enqueue_batch_professor_enrichment_if_enabled(user_id: int, professor_ids: List[int]) -> None:
+    """Chain batch enrichment when user auto-enrich flags are on."""
+    if not professor_ids:
+        return
+    from ..db.database import get_db
+    from ..models.schema import UserSettings
+
+    db = get_db()
+    with db.session() as session:
+        row = (
+            session.query(UserSettings)
+            .filter(UserSettings.user_id == user_id)
+            .first()
+        )
+        enrich_flags = flags_from_user_settings_row(row)
+    if not any_auto_enrich_substep_enabled(enrich_flags):
+        return
+    batch_enrich = create_task(
+        "batch-professor-enrichment",
+        f"教授信息增强 ({len(professor_ids)} 位)",
+        user_id,
+        total=len(professor_ids),
+    )
+    enqueue_task(
+        "batch-professor-enrichment",
+        batch_enrich.task_id,
+        professor_ids=professor_ids,
+    )
+
+
+@register_task("batch-scholar-match")
+def execute_batch_scholar_match(
+    task_id: str,
+    professor_ids: List[int],
+    university_variants: List[str],
+    department_affiliation: str | None = None,
+) -> None:
+    """Match school-crawled professors to Google Scholar profiles (scholarly)."""
+    from ..config import settings as app_settings
+    from ..db.database import get_db
+    from ..models.schema import Professor, UserSettings
+    from ..crawler.scholar import ScholarCrawler
+    from ..crawler.scholar_matcher import match_professor_scholar
+
+    task = get_task(task_id)
+    if not task:
+        return
+    task.status = TaskStatus.RUNNING
+    task.total = len(professor_ids) if professor_ids else 1
+    persist_task(task)
+
+    if not professor_ids:
+        task.status = TaskStatus.COMPLETED
+        task.message = "无教授需要匹配 Scholar"
+        persist_task(task)
+        return
+
+    db = get_db()
+    with db.session() as session:
+        row = (
+            session.query(UserSettings)
+            .filter(UserSettings.user_id == task.user_id)
+            .first()
+        )
+        request_delay = (
+            row.request_delay if row and row.request_delay else app_settings.request_delay
+        )
+
+    scholar_crawler = ScholarCrawler()
+    matched_ids: List[int] = []
+
+    def _finish_cancelled() -> None:
+        cleared = _mark_pending_scholar_professors_not_found(
+            task.user_id, professor_ids
+        )
+        task.status = TaskStatus.CANCELLED
+        task.message = (
+            f"Scholar 匹配已取消（{cleared} 位未完成的教授已标记为未找到）"
+            if cleared
+            else "Scholar 匹配已取消"
+        )
+        persist_task(task)
+
+    for i, pid in enumerate(professor_ids):
+        if task.cancel_requested:
+            _finish_cancelled()
+            return
+
+        task.current = i + 1
+
+        with db.session() as session:
+            professor = (
+                session.query(Professor)
+                .filter(
+                    Professor.id == pid,
+                    Professor.user_id == task.user_id,
+                )
+                .first()
+            )
+            if not professor:
+                task.failed_count += 1
+                task.results.append(
+                    {"professor_id": pid, "success": False, "error": "教授不存在"}
+                )
+                continue
+            prof_name = professor.name
+            crawled_email = professor.email
+
+        task.message = (
+            f"正在搜索 {prof_name} 的 Google Scholar 主页 "
+            f"({i + 1}/{len(professor_ids)})"
+        )
+
+        try:
+            match_result = match_professor_scholar(
+                chinese_name=prof_name,
+                crawled_email=crawled_email,
+                university_variants=university_variants,
+                department_affiliation=department_affiliation,
+                scholar_crawler=scholar_crawler,
+                request_delay=request_delay,
+                cancel_checker=lambda: task.cancel_requested,
+            )
+        except Exception as e:
+            logger.warning("Scholar matching failed for %s (id=%s): %s", prof_name, pid, e)
+            match_result = {"status": "not_found", "scholar_id": None, "candidates": []}
+
+        with db.session() as session:
+            professor = (
+                session.query(Professor)
+                .filter(
+                    Professor.id == pid,
+                    Professor.user_id == task.user_id,
+                )
+                .first()
+            )
+            if not professor:
+                continue
+
+            if match_result.get("status") == "matched":
+                professor.google_scholar_id = match_result["scholar_id"]
+                professor.google_scholar_url = (
+                    f"https://scholar.google.com/citations?user={match_result['scholar_id']}"
+                )
+                professor.enrichment_status = "matched"
+                matched_ids.append(pid)
+            elif match_result.get("status") == "ambiguous":
+                professor.enrichment_status = "ambiguous"
+                professor.scholar_candidates = match_result.get("candidates", [])
+            else:
+                professor.enrichment_status = "not_found"
+
+        task.success_count += 1
+        result_entry: dict = {
+            "professor_id": pid,
+            "name": prof_name,
+            "success": True,
+            "scholar_status": match_result.get("status"),
+        }
+        if match_result.get("scholar_id"):
+            result_entry["scholar_id"] = match_result["scholar_id"]
+        task.results.append(result_entry)
+
+        if (
+            not task.cancel_requested
+            and i < len(professor_ids) - 1
+            and request_delay > 0
+        ):
+            time.sleep(request_delay)
+
+    if task.cancel_requested:
+        _finish_cancelled()
+        return
+
+    matched = sum(1 for r in task.results if r.get("scholar_status") == "matched")
+    ambiguous = sum(1 for r in task.results if r.get("scholar_status") == "ambiguous")
+    task.status = TaskStatus.COMPLETED
+    task.message = (
+        f"Scholar 匹配完成：自动匹配 {matched} 位，待确认 {ambiguous} 位，"
+        f"未找到 {task.success_count - matched - ambiguous} 位，失败 {task.failed_count} 位"
+    )
+    persist_task(task)
+
+    _enqueue_batch_professor_enrichment_if_enabled(task.user_id, matched_ids)
+
+
 @register_task("generic-university-crawl")
-def execute_generic_university_crawl(task_id: str, config_id: int) -> None:
+def execute_generic_university_crawl(task_id: str, config_id: int, cache_key: str | None = None) -> None:
     """Crawl professors using a user-defined UniversityCrawlerConfig.
 
-    Loads the config from DB, runs GenericUniversityCrawler, persists professors,
-    then chains enrichment if configured.
+    Loads the config from DB, runs GenericUniversityCrawler, persists professors.
+    When the config is linked to a University with name variants, enqueues a
+    separate ``batch-scholar-match`` task for Google Scholar linking.
+
+    If *cache_key* is provided and the test crawl cache is still valid, the
+    cached results are used instead of re-crawling the website.
     """
     from ..config import settings as app_settings
     from ..db.database import get_db
-    from ..models.schema import Professor, UserSettings, UniversityCrawlerConfig
+    from ..models.schema import Professor, UserSettings, UniversityCrawlerConfig, University
 
     task = get_task(task_id)
     if not task:
@@ -1249,7 +1468,21 @@ def execute_generic_university_crawl(task_id: str, config_id: int) -> None:
             "extraction_mode": config_row.extraction_mode,
             "css_selectors": config_row.css_selectors or {},
             "affiliation": config_row.affiliation,
+            "university_id": config_row.university_id,
         }
+
+        # Load university name variants if linked
+        university_variants: list[str] = []
+        university_full_name: str | None = None
+        if config_row.university_id:
+            uni = (
+                session.query(University)
+                .filter(University.id == config_row.university_id)
+                .first()
+            )
+            if uni:
+                university_variants = list(uni.name_variants or [])
+                university_full_name = uni.full_name
 
         # Get API key for LLM mode
         user_settings = (
@@ -1263,33 +1496,52 @@ def execute_generic_university_crawl(task_id: str, config_id: int) -> None:
         base_url = (
             user_settings.deepseek_base_url if user_settings else None
         ) or app_settings.deepseek_base_url
+        model = (
+            user_settings.deepseek_model if user_settings else None
+        ) or app_settings.deepseek_model
+        request_delay = float(
+            user_settings.request_delay if user_settings and user_settings.request_delay is not None
+            else app_settings.request_delay
+        )
 
     # Import and create crawler
     from ..crawler.crawl4ai_engine.generic_crawler import GenericUniversityCrawler
 
-    crawler = GenericUniversityCrawler(
-        university_id=f"custom-{config_data['id']}",
-        display_name=config_data["name"],
-        list_url=config_data["list_url"],
-        extraction_mode=config_data["extraction_mode"],
-        css_selectors=config_data["css_selectors"],
-        affiliation=config_data["affiliation"] or config_data["university"],
-        api_key=api_key,
-        base_url=base_url,
-    )
+    # Try to reuse test crawl cache to avoid re-fetching pages
+    professors_data: list[dict] | None = None
+    if cache_key:
+        from .routes.professors import get_cached_test_results
+        cached = get_cached_test_results(cache_key)
+        if cached is not None:
+            professors_data = cached
+            task.message = f"复用测试爬取结果（{len(cached)} 条），正在处理..."
 
-    task.message = f"正在爬取 {crawler.display_name}..."
-
-    try:
-        professors_data = crawler.crawl_all(
-            send_progress=lambda m: setattr(task, "message", m),
-            cancel_checker=lambda: task.cancel_requested,
+    if professors_data is None:
+        crawler = GenericUniversityCrawler(
+            university_id=f"custom-{config_data['id']}",
+            display_name=config_data["name"],
+            list_url=config_data["list_url"],
+            extraction_mode=config_data["extraction_mode"],
+            css_selectors=config_data["css_selectors"],
+            affiliation=config_data["affiliation"] or config_data["university"],
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
         )
-    except Exception as e:
-        task.status = TaskStatus.FAILED
-        task.error_message = f"爬取失败: {str(e)}"
-        persist_task(task)
-        return
+
+        task.message = f"正在爬取 {crawler.display_name}..."
+
+        try:
+            professors_data = crawler.crawl_all(
+                delay=request_delay,
+                send_progress=lambda m: setattr(task, "message", m),
+                cancel_checker=lambda: task.cancel_requested,
+            )
+        except Exception as e:
+            task.status = TaskStatus.FAILED
+            task.error_message = f"爬取失败: {str(e)}"
+            persist_task(task)
+            return
 
     if task.cancel_requested:
         task.status = TaskStatus.CANCELLED
@@ -1307,80 +1559,108 @@ def execute_generic_university_crawl(task_id: str, config_id: int) -> None:
         persist_task(task)
         return
 
+    do_scholar_match = bool(university_variants)
+    logger.info(
+        "Scholar matching decision: do_scholar_match=%s, university_variants=%s (university_id=%s)",
+        do_scholar_match, university_variants, config_data["university_id"],
+    )
     task.total = total
-    task.message = f"共获取 {total} 条记录，正在入库..."
+    if do_scholar_match:
+        task.message = f"共获取 {total} 条记录，正在入库（Scholar 匹配将另起任务）..."
+    else:
+        if not config_data["university_id"]:
+            skip_reason = "爬虫配置未关联大学，已跳过 Google Scholar 匹配。请在设置中将爬虫配置关联到一个大学"
+        else:
+            skip_reason = "关联大学缺少名称变体（name_variants），已跳过 Google Scholar 匹配。请编辑大学信息补充名称变体"
+        logger.warning("%s (config_id=%s)", skip_reason, config_data["id"])
+        task.message = f"共获取 {total} 条记录，正在入库...（注意：{skip_reason}）"
+
     new_professor_ids: list[int] = []
+    department_affiliation = config_data["affiliation"]
+
+    from ..utils.professor_dedup import find_matching_professor
+
+    with db.session() as session:
+        crawl_universities = (
+            session.query(University)
+            .filter(University.user_id == task.user_id)
+            .all()
+        )
 
     for i, prof_data in enumerate(professors_data):
         if task.cancel_requested:
             break
 
         task.current = i + 1
-        task.message = f"正在保存第 {i + 1}/{total} 位: {prof_data.get('name', '')}"
+        prof_name = prof_data.get("name", "")
+        task.message = f"正在处理第 {i + 1}/{total} 位: {prof_name}"
 
         try:
             with db.session() as session:
-                existing = (
-                    session.query(Professor)
-                    .filter(
-                        Professor.user_id == task.user_id,
-                        Professor.name == prof_data["name"],
-                        Professor.affiliation == prof_data.get("affiliation"),
-                    )
-                    .first()
+                affiliation_val = prof_data.get("affiliation")
+                existing = find_matching_professor(
+                    session,
+                    task.user_id,
+                    prof_name,
+                    affiliation_val,
+                    university_variants=university_variants,
+                    university_full_name=university_full_name,
+                    department_affiliation=department_affiliation,
+                    universities=crawl_universities,
                 )
                 if existing:
                     task.results.append(
-                        {"name": prof_data["name"], "success": True, "skipped": True}
+                        {"name": prof_name, "success": True, "skipped": True}
                     )
                     continue
 
+            with db.session() as session:
                 professor = Professor(
                     user_id=task.user_id,
-                    name=prof_data["name"],
+                    name=prof_name,
                     affiliation=prof_data.get("affiliation"),
                     email=prof_data.get("email"),
                     homepage=prof_data.get("homepage"),
                     research_interests=prof_data.get("research_interests", []),
+                    manual_notes=prof_data.get("manual_notes"),
                     publications=[],
+                    source="school_crawler",
+                    enrichment_status="pending" if do_scholar_match else None,
                 )
                 session.add(professor)
                 session.flush()
                 new_professor_ids.append(professor.id)
 
             task.success_count += 1
-            task.results.append({"name": prof_data["name"], "success": True, "skipped": False})
+            task.results.append({"name": prof_name, "success": True, "skipped": False})
 
         except Exception as e:
             task.failed_count += 1
             task.results.append(
-                {"name": prof_data.get("name", "?"), "success": False, "error": str(e)}
+                {"name": prof_name, "success": False, "error": str(e)}
             )
 
     task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
     if task.status == TaskStatus.COMPLETED:
         skipped = sum(1 for r in task.results if r.get("skipped"))
-        task.message = f"完成！新增 {task.success_count} 位，跳过重复 {skipped} 位，失败 {task.failed_count} 位"
-        if new_professor_ids:
-            with db.session() as session:
-                row = (
-                    session.query(UserSettings)
-                    .filter(UserSettings.user_id == task.user_id)
-                    .first()
-                )
-                enrich_flags = flags_from_user_settings_row(row)
-            if any_auto_enrich_substep_enabled(enrich_flags):
-                batch_enrich = create_task(
-                    "batch-professor-enrichment",
-                    f"教授信息增强 ({len(new_professor_ids)} 位)",
-                    task.user_id,
-                    total=len(new_professor_ids),
-                )
-                enqueue_task(
-                    "batch-professor-enrichment",
-                    batch_enrich.task_id,
-                    professor_ids=new_professor_ids,
-                )
+        task.message = (
+            f"完成！新增 {task.success_count} 位，跳过重复 {skipped} 位，失败 {task.failed_count} 位"
+        )
+        if do_scholar_match and new_professor_ids:
+            scholar_task = create_task(
+                "batch-scholar-match",
+                f"Scholar 匹配 ({len(new_professor_ids)} 位)",
+                task.user_id,
+                total=len(new_professor_ids),
+            )
+            enqueue_task(
+                "batch-scholar-match",
+                scholar_task.task_id,
+                professor_ids=new_professor_ids,
+                university_variants=university_variants,
+                department_affiliation=department_affiliation,
+            )
+            task.message += f"，已启动 Scholar 匹配任务（{len(new_professor_ids)} 位）"
     persist_task(task)
 
 
@@ -2096,6 +2376,123 @@ def execute_batch_professor_profiles(
     task.status = TaskStatus.COMPLETED
     task.message = f"教授科研画像批量生成完成：成功 {task.success_count}，失败 {task.failed_count}"
     persist_task(task)
+
+
+@register_task("professor-homepage-crawl")
+def execute_professor_homepage_crawl(
+    task_id: str,
+    professor_id: int,
+    session_factory: Optional[Callable[[], Any]] = None,
+) -> None:
+    """Crawl a professor's homepage URL and merge extracted fields."""
+    from ..config import settings as app_settings
+    from ..db.database import get_db
+    from ..models.schema import Professor, UserSettings
+    from ..crawler.crawl4ai_engine.profile_extractor import extract_professor_profile
+    from ..utils.profile_merge import apply_profile_merge_to_professor
+
+    task = get_task(task_id)
+    if not task:
+        return
+    task.status = TaskStatus.RUNNING
+    task.total = 1
+    task.current = 0
+    task.message = "正在爬取个人主页..."
+    persist_task(task)
+
+    if session_factory is None:
+        session_context = get_db().session
+    else:
+
+        def session_context():
+            return _session_scope(session_factory)
+
+    try:
+        with session_context() as session:
+            user_settings = (
+                session.query(UserSettings)
+                .filter(UserSettings.user_id == task.user_id)
+                .first()
+            )
+            api_key = (
+                user_settings.deepseek_api_key if user_settings else None
+            ) or app_settings.deepseek_api_key
+            base_url = (
+                user_settings.deepseek_base_url if user_settings else None
+            ) or app_settings.deepseek_base_url
+            model = (
+                user_settings.deepseek_model if user_settings else None
+            ) or app_settings.deepseek_model
+
+            professor = (
+                session.query(Professor)
+                .filter(Professor.id == professor_id, Professor.user_id == task.user_id)
+                .first()
+            )
+            if not professor:
+                task.status = TaskStatus.FAILED
+                task.error_message = "教授不存在或无权限"
+                persist_task(task)
+                return
+
+            homepage = (professor.homepage or "").strip()
+            if not homepage:
+                task.status = TaskStatus.FAILED
+                task.error_message = "未设置个人主页 URL"
+                persist_task(task)
+                return
+
+            prof_name = professor.name
+            affiliation = professor.affiliation or ""
+
+        extracted = extract_professor_profile(
+            homepage,
+            name=prof_name,
+            affiliation=affiliation,
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            send_progress=lambda m: setattr(task, "message", m),
+            cancel_checker=lambda: task.cancel_requested,
+        )
+
+        if task.cancel_requested:
+            task.status = TaskStatus.CANCELLED
+            persist_task(task)
+            return
+
+        with session_context() as session:
+            professor = (
+                session.query(Professor)
+                .filter(Professor.id == professor_id, Professor.user_id == task.user_id)
+                .first()
+            )
+            if not professor:
+                task.status = TaskStatus.FAILED
+                task.error_message = "教授不存在或无权限"
+                persist_task(task)
+                return
+
+            if extracted:
+                apply_profile_merge_to_professor(professor, extracted)
+                professor.embedding = None
+            else:
+                task.status = TaskStatus.FAILED
+                task.error_message = "未能从个人主页提取信息"
+                persist_task(task)
+                return
+
+        task.current = 1
+        task.success_count = 1
+        task.status = TaskStatus.COMPLETED
+        task.message = f"个人主页爬取完成：{prof_name}"
+        task.results.append({"success": True, "professor_id": professor_id, "name": prof_name})
+        persist_task(task)
+    except Exception as exc:
+        task.status = TaskStatus.FAILED
+        task.error_message = f"个人主页爬取失败: {str(exc)}"
+        task.message = "个人主页爬取失败"
+        persist_task(task)
 
 
 @register_task("fill-publications")

@@ -316,6 +316,10 @@ class ProfessorResponse(BaseModel):
     research_profile_evidence: Optional[List[Any]] = None
     research_profile_conflicts: Optional[List[Any]] = None
     research_profile_generated_at: Optional[ApiDateTime] = None
+    # Source tracking
+    source: Optional[str] = None
+    enrichment_status: Optional[str] = None
+    scholar_candidates: Optional[List[dict]] = None
     created_at: ApiDateTime
     updated_at: ApiDateTime
     enrichment_task_id: Optional[str] = None
@@ -334,10 +338,22 @@ class ProfessorListResponse(BaseModel):
     research_interests: List[str]
     h_index: Optional[int]
     publication_count: int
+    source: Optional[str] = None
+    enrichment_status: Optional[str] = None
+    google_scholar_id: Optional[str] = None
     created_at: ApiDateTime
 
     class Config:
         from_attributes = True
+
+
+class ProfessorNameCollision(BaseModel):
+    """Same-name professors at the same university (possible duplicates)."""
+
+    display_name: str
+    professor_ids: List[int]
+    affiliations: List[str]
+    reason: str = "same_name_same_university"
 
 
 class ScholarSearchResult(BaseModel):
@@ -583,6 +599,7 @@ class CrawlerConfigCreate(BaseModel):
     extraction_mode: Literal["css", "llm"] = "css"
     css_selectors: Optional[dict[str, Optional[str]]] = None
     affiliation: Optional[str] = None
+    university_id: Optional[int] = None  # Link to University for Scholar matching
 
 
 class CrawlerConfigUpdate(BaseModel):
@@ -595,6 +612,7 @@ class CrawlerConfigUpdate(BaseModel):
     extraction_mode: Optional[Literal["css", "llm"]] = None
     css_selectors: Optional[dict[str, Optional[str]]] = None
     affiliation: Optional[str] = None
+    university_id: Optional[int] = None
 
 
 class CrawlerConfigResponse(BaseModel):
@@ -610,6 +628,7 @@ class CrawlerConfigResponse(BaseModel):
     affiliation: Optional[str]
     is_builtin: bool
     builtin_crawler_id: Optional[str]
+    university_id: Optional[int] = None
     created_at: ApiDateTime
     updated_at: ApiDateTime
 
@@ -636,12 +655,50 @@ class CrawlerTestResponse(BaseModel):
     sample_results: List[dict]
     total_found: int
     error_message: Optional[str] = None
+    cache_key: Optional[str] = None
 
 
 class CrawlerConfiguredCrawlRequest(BaseModel):
     """Start a crawl using a saved crawler configuration."""
 
     config_id: int
+    cache_key: Optional[str] = None
+
+
+# ============= University Schemas =============
+
+
+class UniversityCreate(BaseModel):
+    """Create a new university with LLM-generated name variants."""
+
+    full_name: str = Field(..., min_length=1, max_length=300)
+
+
+class UniversityUpdate(BaseModel):
+    """Update a university."""
+
+    full_name: Optional[str] = Field(None, min_length=1, max_length=300)
+    name_variants: Optional[List[str]] = None
+
+
+class UniversityResponse(BaseModel):
+    """University response."""
+
+    id: int
+    full_name: str
+    name_variants: List[str]
+    created_at: ApiDateTime
+    updated_at: ApiDateTime
+
+    class Config:
+        from_attributes = True
+
+
+class ScholarCandidateConfirm(BaseModel):
+    """Confirm a scholar candidate for a school-crawled professor."""
+
+    professor_id: int
+    scholar_id: str
 
 
 # ============= Common Schemas =============

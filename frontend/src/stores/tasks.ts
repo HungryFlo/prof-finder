@@ -95,14 +95,22 @@ export const useTaskStore = defineStore('tasks', () => {
         return t('task.modelDownloadCompleted')
       case 'fill-publications':
         return t('task.abstractsFetched')
+      case 'professor-homepage-crawl':
+        return t('task.homepageCrawlFinished')
       case 'paper-summary':
         return t('task.paperSummariesFinished')
       case 'single-letter':
       case 'batch-letters':
         return t('task.letterGenerationFinished')
       case 'university-crawl':
+      case 'generic-university-crawl':
       case 'batch-crawl':
         return t('task.universityImportFinished', {
+          ok: result?.success_count ?? 0,
+          fail: result?.failed_count ?? 0,
+        })
+      case 'batch-scholar-match':
+        return t('task.scholarMatchFinished', {
           ok: result?.success_count ?? 0,
           fail: result?.failed_count ?? 0,
         })

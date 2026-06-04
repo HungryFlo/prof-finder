@@ -17,6 +17,7 @@ class Settings:
     # DeepSeek API
     deepseek_api_key: str
     deepseek_base_url: str
+    deepseek_model: str
 
     # Database
     database_path: str
@@ -59,6 +60,7 @@ class Settings:
         return cls(
             deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", ""),
             deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
+            deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
             database_path=os.getenv("DATABASE_PATH", default_database_path),
             request_delay=int(os.getenv("REQUEST_DELAY", "3")),
             scholarly_proxy=os.getenv("SCHOLARLY_PROXY") or None,

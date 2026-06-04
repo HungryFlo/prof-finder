@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, inject, onMounted, ref } from 'vue'
+import { computed, h, inject, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -16,8 +16,11 @@ import {
   NPopconfirm,
   NSpace,
   NSpin,
+  NTooltip,
   NTag,
   NDataTable,
+  NRadioGroup,
+  NRadio,
   useMessage,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
@@ -40,7 +43,13 @@ const setBreadcrumbTitle = inject<(title: string) => void>('setBreadcrumbTitle',
 
 const { formatDateTime } = useFormatDate()
 
-const professorId = Number(route.params.id)
+function parseProfessorId(raw: string | string[] | undefined): number | null {
+  const s = Array.isArray(raw) ? raw[0] : raw
+  const id = Number(s)
+  return Number.isFinite(id) && id > 0 ? id : null
+}
+
+const professorId = computed(() => parseProfessorId(route.params.id))
 
 const loading = ref(false)
 const saving = ref(false)
@@ -53,14 +62,22 @@ const form = ref({
   affiliation: '',
   email: '',
   homepage: '',
+  google_scholar_url: '',
   research_interests: [] as string[],
   manual_notes: '',
 })
 
 const refreshLoading = ref(false)
 const fillPublicationsLoading = ref(false)
+const crawlHomepageLoading = ref(false)
 const summarizeLoading = ref(false)
 const generateProfileLoading = ref(false)
+
+// Scholar candidate confirmation
+const selectedCandidateId = ref<string>('')
+const confirmScholarLoading = ref(false)
+
+const applyScholarLoading = ref(false)
 
 const publications = computed<Publication[]>(() => {
   return (professor.value?.publications || []) as Publication[]
@@ -137,16 +154,19 @@ const publicationColumns = computed<DataTableColumns<Publication>>(() => [
 ])
 
 async function fetchData() {
-  if (!professorId) {
-    message.error(t('professor.invalidId'))
-    router.push('/professor')
+  const id = professorId.value
+  if (id == null) {
+    if (route.name === 'ProfessorDetail') {
+      message.error(t('professor.invalidId'))
+      router.push('/professor')
+    }
     return
   }
   loading.value = true
   try {
     const [data, inputs] = await Promise.all([
-      professorsApi.get(professorId),
-      sourceInputsApi.listByProfessor(professorId).catch(() => []),
+      professorsApi.get(id),
+      sourceInputsApi.listByProfessor(id).catch(() => []),
     ])
     professor.value = data
     setBreadcrumbTitle(data.name)
@@ -159,6 +179,7 @@ async function fetchData() {
       affiliation: data.affiliation || '',
       email: data.email || '',
       homepage: data.homepage || '',
+      google_scholar_url: data.google_scholar_url || '',
       research_interests: [...(data.research_interests || [])],
       manual_notes: data.manual_notes || '',
     }
@@ -171,6 +192,51 @@ async function fetchData() {
   }
 }
 
+function normalizeScholarUrl(url: string): string {
+  return url.trim()
+}
+
+function scholarUrlChanged(): boolean {
+  const next = normalizeScholarUrl(form.value.google_scholar_url)
+  const prev = normalizeScholarUrl(professor.value?.google_scholar_url || '')
+  return next !== prev
+}
+
+async function applyScholarUrlIfChanged(): Promise<void> {
+  const url = normalizeScholarUrl(form.value.google_scholar_url)
+  if (!url || !scholarUrlChanged() || !professor.value) return
+
+  const { task_id } = await professorsApi.setScholarId(professor.value.id, url)
+  message.success(t('professor.setScholarSuccess'))
+  taskStore.addTask(
+    task_id,
+    'single-crawl',
+    t('professor.importProfessorTask'),
+    1,
+    () => fetchData(),
+  )
+}
+
+async function handleApplyScholarUrl() {
+  const url = normalizeScholarUrl(form.value.google_scholar_url)
+  if (!url) {
+    message.warning(t('professor.scholarUrlRequired'))
+    return
+  }
+  if (!scholarUrlChanged()) {
+    message.info(t('professor.scholarUrlUnchanged'))
+    return
+  }
+  applyScholarLoading.value = true
+  try {
+    await applyScholarUrlIfChanged()
+  } catch (error: unknown) {
+    handleApiError(error, t('professor.startTaskFailed'))
+  } finally {
+    applyScholarLoading.value = false
+  }
+}
+
 async function handleSave() {
   saving.value = true
   try {
@@ -179,7 +245,7 @@ async function handleSave() {
     const e = form.value.name_locales.en?.trim()
     if (z) nl.zh = z
     if (e) nl.en = e
-    const updated = await professorsApi.update(professorId, {
+    const updated = await professorsApi.update(professorId.value, {
       name: form.value.name,
       name_locales: nl,
       affiliation: form.value.affiliation || undefined,
@@ -189,6 +255,9 @@ async function handleSave() {
       manual_notes: form.value.manual_notes || undefined,
     })
     professor.value = updated
+    if (normalizeScholarUrl(form.value.google_scholar_url) && scholarUrlChanged()) {
+      await applyScholarUrlIfChanged()
+    }
     message.success(t('profile.saveSuccess'))
   } catch (error: unknown) {
     handleApiError(error, t('profile.saveFailed'))
@@ -200,7 +269,7 @@ async function handleSave() {
 async function handleRefreshScholar() {
   refreshLoading.value = true
   try {
-    const updated = await professorsApi.refresh(professorId)
+    const updated = await professorsApi.refresh(professorId.value)
     professor.value = updated
     setBreadcrumbTitle(updated.name)
     form.value = {
@@ -212,13 +281,14 @@ async function handleRefreshScholar() {
       affiliation: updated.affiliation || '',
       email: updated.email || '',
       homepage: updated.homepage || '',
+      google_scholar_url: updated.google_scholar_url || '',
       research_interests: [...(updated.research_interests || [])],
       manual_notes: updated.manual_notes || '',
     }
     message.success(t('professor.scholarSynced'))
     // Re-fetch only source inputs (professor data already updated from refresh response)
     try {
-      sourceInputs.value = await sourceInputsApi.listByProfessor(professorId)
+      sourceInputs.value = await sourceInputsApi.listByProfessor(professorId.value)
     } catch {
       // non-critical
     }
@@ -229,12 +299,41 @@ async function handleRefreshScholar() {
   }
 }
 
+const hasHomepageUrl = computed(() => Boolean(form.value.homepage?.trim()))
+
+async function handleCrawlHomepage() {
+  if (!professor.value || !professorId.value) return
+  if (!hasHomepageUrl.value) {
+    message.warning(t('professor.crawlHomepageNoUrl'))
+    return
+  }
+
+  crawlHomepageLoading.value = true
+  try {
+    const { task_id } = await professorsApi.crawlHomepage(professorId.value)
+    message.success(t('professor.crawlHomepageStarted'))
+    taskStore.addTask(
+      task_id,
+      'professor-homepage-crawl',
+      t('professor.crawlHomepageTask', { name: professor.value.name }),
+      1,
+      () => {
+        fetchData()
+      },
+    )
+  } catch (error: unknown) {
+    handleApiError(error, t('professor.startTaskFailed'))
+  } finally {
+    crawlHomepageLoading.value = false
+  }
+}
+
 async function handleFillPublications() {
-  if (!professor.value || !professorId) return
+  if (!professor.value || !professorId.value) return
 
   fillPublicationsLoading.value = true
   try {
-    const { task_id, total } = await professorsApi.startFillPublications(professorId)
+    const { task_id, total } = await professorsApi.startFillPublications(professorId.value)
     message.success(t('professor.abstractsTaskStarted'))
     taskStore.addTask(
       task_id,
@@ -253,7 +352,7 @@ async function handleFillPublications() {
 }
 
 async function handleSummarizeSources() {
-  if (!professor.value || !professorId) return
+  if (!professor.value || !professorId.value) return
 
   const summarizedIds = new Set(
     paperSummaries.value
@@ -271,7 +370,7 @@ async function handleSummarizeSources() {
 
   summarizeLoading.value = true
   try {
-    const { task_id } = await professorsApi.startPaperSummary(professorId, pendingIds)
+    const { task_id } = await professorsApi.startPaperSummary(professorId.value, pendingIds)
     message.success(t('professor.paperSummaryTaskStarted'))
     taskStore.addTask(
       task_id,
@@ -290,11 +389,11 @@ async function handleSummarizeSources() {
 }
 
 async function handleGenerateProfile() {
-  if (!professor.value || !professorId) return
+  if (!professor.value || !professorId.value) return
 
   generateProfileLoading.value = true
   try {
-    const { task_id, message: msg } = await professorsApi.generateProfile(professorId)
+    const { task_id, message: msg } = await professorsApi.generateProfile(professorId.value)
     message.success(msg || t('professor.generateProfileStarting'))
     taskStore.addTask(
       task_id,
@@ -316,7 +415,30 @@ function formatJsonNote(note: unknown): string {
   return typeof note === 'string' ? note : JSON.stringify(note)
 }
 
-onMounted(fetchData)
+async function handleConfirmScholar() {
+  if (!selectedCandidateId.value || !professor.value) return
+  confirmScholarLoading.value = true
+  try {
+    const { task_id } = await professorsApi.confirmScholar(professor.value.id, selectedCandidateId.value)
+    message.success(t('professor.confirmScholarSuccess'))
+    taskStore.addTask(task_id, 'single-crawl', t('professor.importProfessorTask'), 1, () => fetchData())
+  } catch (error: unknown) {
+    handleApiError(error, t('professor.startTaskFailed'))
+  } finally {
+    confirmScholarLoading.value = false
+  }
+}
+
+watch(
+  () => [route.name, route.params.id] as const,
+  ([name]) => {
+    if (name !== 'ProfessorDetail') return
+    professor.value = null
+    selectedCandidateId.value = ''
+    fetchData()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -349,7 +471,52 @@ onMounted(fetchData)
             <n-input v-model:value="form.email" />
           </n-form-item>
           <n-form-item :label="$t('professor.homepage')">
-            <n-input v-model:value="form.homepage" />
+            <n-space vertical style="width: 100%">
+              <n-input v-model:value="form.homepage" />
+              <n-tooltip :disabled="hasHomepageUrl">
+                <template #trigger>
+                  <n-button
+                    size="small"
+                    secondary
+                    type="primary"
+                    :disabled="!hasHomepageUrl"
+                    :loading="crawlHomepageLoading"
+                    @click="handleCrawlHomepage"
+                  >
+                    {{ $t('professor.crawlHomepage') }}
+                  </n-button>
+                </template>
+                {{ $t('professor.crawlHomepageNoUrl') }}
+              </n-tooltip>
+            </n-space>
+          </n-form-item>
+          <n-form-item :label="$t('professor.scholarFormLabel')">
+            <n-space vertical style="width: 100%">
+              <n-input
+                v-model:value="form.google_scholar_url"
+                :placeholder="$t('professor.setScholarUrlPlaceholder')"
+              />
+              <n-space>
+                <n-button
+                  size="small"
+                  type="primary"
+                  secondary
+                  :loading="applyScholarLoading"
+                  @click="handleApplyScholarUrl"
+                >
+                  {{ $t('professor.applyScholarUrl') }}
+                </n-button>
+                <a
+                  v-if="form.google_scholar_url"
+                  :href="form.google_scholar_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="font-size: 13px"
+                >
+                  {{ $t('professor.scholarHome') }}
+                </a>
+              </n-space>
+            </n-space>
           </n-form-item>
           <n-form-item :label="$t('professor.researchInterests')">
             <n-dynamic-tags v-model:value="form.research_interests" />
@@ -363,6 +530,53 @@ onMounted(fetchData)
             />
           </n-form-item>
         </n-form>
+      </n-card>
+
+      <!-- Scholar candidates (for school-crawled professors with ambiguous matches) -->
+      <n-card
+        v-if="professor.enrichment_status === 'ambiguous' && professor.scholar_candidates?.length"
+        :title="$t('professor.scholarCandidates')"
+      >
+        <p style="color: var(--muted-foreground); margin-bottom: 12px; font-size: 13px">
+          {{ $t('professor.scholarCandidatesDesc') }}
+        </p>
+        <n-radio-group v-model:value="selectedCandidateId" style="width: 100%">
+          <n-space vertical>
+            <div
+              v-for="c in professor.scholar_candidates"
+              :key="c.scholar_id"
+              style="
+                padding: 12px;
+                border: 1px solid var(--n-border-color);
+                border-radius: 6px;
+                cursor: pointer;
+              "
+              :style="selectedCandidateId === c.scholar_id ? 'border-color: var(--primary-color)' : ''"
+              @click="selectedCandidateId = c.scholar_id"
+            >
+              <n-radio :value="c.scholar_id">
+                <strong>{{ c.name }}</strong>
+              </n-radio>
+              <div style="margin-left: 24px; margin-top: 4px; font-size: 13px; color: var(--muted-foreground)">
+                <span v-if="c.affiliation">{{ c.affiliation }}</span>
+                <span v-if="c.citedby"> · {{ $t('professor.scholarCandidateCitations') }}: {{ c.citedby }}</span>
+                <n-tag v-if="c.email_domain_match" size="tiny" type="success" style="margin-left: 8px">
+                  {{ $t('professor.scholarCandidateEmailMatch') }}
+                </n-tag>
+              </div>
+            </div>
+          </n-space>
+        </n-radio-group>
+        <n-space style="margin-top: 16px">
+          <n-button
+            type="primary"
+            :disabled="!selectedCandidateId"
+            :loading="confirmScholarLoading"
+            @click="handleConfirmScholar"
+          >
+            {{ $t('professor.confirmScholar') }}
+          </n-button>
+        </n-space>
       </n-card>
 
       <SourceInputPanel v-model="sourceInputs">
@@ -384,7 +598,10 @@ onMounted(fetchData)
       <n-card :title="$t('professor.publicationsCardTitle')">
         <template #header-extra>
           <n-space>
-            <n-popconfirm @positive-click="handleRefreshScholar">
+            <n-popconfirm
+              v-if="professor.google_scholar_id"
+              @positive-click="handleRefreshScholar"
+            >
               <template #trigger>
                 <n-button size="small" :loading="refreshLoading">
                   {{ $t('professor.scholarSyncButton') }}

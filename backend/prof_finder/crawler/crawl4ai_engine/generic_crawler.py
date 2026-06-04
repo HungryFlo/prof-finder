@@ -11,6 +11,7 @@ from typing import Callable, Optional
 
 from .css_extractor import extract_professors_css
 from .llm_extractor import extract_professors_llm
+from .profile_extractor import enrich_profiles_for_batch
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ class GenericUniversityCrawler:
         *,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
+        model: Optional[str] = None,
     ):
         """Initialize the generic crawler.
 
@@ -45,6 +47,7 @@ class GenericUniversityCrawler:
             affiliation: Affiliation string to assign to professors.
             api_key: DeepSeek API key (for LLM mode).
             base_url: DeepSeek base URL (for LLM mode).
+            model: LLM model name (for LLM mode). Defaults to app config.
         """
         self.university_id = university_id
         self.display_name = display_name
@@ -54,6 +57,7 @@ class GenericUniversityCrawler:
         self.affiliation = affiliation
         self.api_key = api_key
         self.base_url = base_url
+        self.model = model
 
     def crawl_all(
         self,
@@ -93,6 +97,7 @@ class GenericUniversityCrawler:
                 affiliation,
                 api_key=self.api_key,
                 base_url=self.base_url,
+                model=self.model,
                 send_progress=send_progress,
                 cancel_checker=cancel_checker,
             )
@@ -100,8 +105,19 @@ class GenericUniversityCrawler:
             logger.error("Unknown extraction mode: %s", self.extraction_mode)
             return []
 
-        # Normalize results to match the expected professor data format
-        return self._normalize_results(raw_results)
+        normalized = self._normalize_results(raw_results)
+        if not normalized:
+            return normalized
+
+        return enrich_profiles_for_batch(
+            normalized,
+            delay=delay,
+            api_key=self.api_key,
+            base_url=self.base_url,
+            model=self.model,
+            send_progress=send_progress,
+            cancel_checker=cancel_checker,
+        )
 
     def _normalize_results(self, raw: list[dict]) -> list[dict]:
         """Normalize raw extraction results to a consistent format."""
@@ -127,6 +143,7 @@ class GenericUniversityCrawler:
         *,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> GenericUniversityCrawler:
         """Create a crawler from a UniversityCrawlerConfig database row.
 
@@ -134,6 +151,7 @@ class GenericUniversityCrawler:
             config_row: UniversityCrawlerConfig SQLAlchemy model instance.
             api_key: DeepSeek API key for LLM mode.
             base_url: DeepSeek base URL for LLM mode.
+            model: LLM model name for LLM mode.
         """
         return cls(
             university_id=f"custom-{config_row.id}",
@@ -144,6 +162,7 @@ class GenericUniversityCrawler:
             affiliation=config_row.affiliation or config_row.university,
             api_key=api_key,
             base_url=base_url,
+            model=model,
         )
 
     @classmethod

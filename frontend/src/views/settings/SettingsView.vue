@@ -14,6 +14,13 @@ import {
   NAlert,
   NCollapse,
   NCollapseItem,
+  NList,
+  NListItem,
+  NTag,
+  NEmpty,
+  NPopconfirm,
+  NSpin,
+  NModal,
   useMessage,
 } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
@@ -22,6 +29,8 @@ import PasswordRequirementCheck from '@/components/PasswordRequirementCheck.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useApiError } from '@/composables/useApiError'
 import { useHelpDrawer } from '@/composables/useHelpDrawer'
+import { universitiesApi } from '@/api/universities'
+import type { University } from '@/api/universities'
 import type { UserSettings } from '@/types'
 
 const authStore = useAuthStore()
@@ -55,6 +64,70 @@ const passwordForm = ref({
   newPassword: '',
   confirmPassword: '',
 })
+
+// University management
+const universities = ref<University[]>([])
+const universitiesLoading = ref(false)
+const showAddUniversityModal = ref(false)
+const addUniversityLoading = ref(false)
+const newUniversityName = ref('')
+const editingVariants = ref<{ id: number; variants: string[] } | null>(null)
+
+async function fetchUniversities() {
+  universitiesLoading.value = true
+  try {
+    universities.value = await universitiesApi.list()
+  } catch {
+    // silent
+  } finally {
+    universitiesLoading.value = false
+  }
+}
+
+async function handleAddUniversity() {
+  if (!newUniversityName.value.trim()) return
+  addUniversityLoading.value = true
+  try {
+    const uni = await universitiesApi.create({ full_name: newUniversityName.value.trim() })
+    universities.value.unshift(uni)
+    showAddUniversityModal.value = false
+    newUniversityName.value = ''
+    message.success(t('university.addSuccess'))
+  } catch (error: unknown) {
+    handleApiError(error, t('university.addFailed'))
+  } finally {
+    addUniversityLoading.value = false
+  }
+}
+
+async function handleDeleteUniversity(id: number) {
+  try {
+    await universitiesApi.delete(id)
+    universities.value = universities.value.filter((u) => u.id !== id)
+    message.success(t('university.deleteSuccess'))
+  } catch (error: unknown) {
+    handleApiError(error, t('university.deleteFailed'))
+  }
+}
+
+function startEditVariants(uni: University) {
+  editingVariants.value = { id: uni.id, variants: [...(uni.name_variants || [])] }
+}
+
+async function saveVariants() {
+  if (!editingVariants.value) return
+  try {
+    const updated = await universitiesApi.update(editingVariants.value.id, {
+      name_variants: editingVariants.value.variants,
+    })
+    const idx = universities.value.findIndex((u) => u.id === updated.id)
+    if (idx >= 0) universities.value[idx] = updated
+    editingVariants.value = null
+    message.success(t('university.updateSuccess'))
+  } catch (error: unknown) {
+    handleApiError(error, t('university.updateFailed'))
+  }
+}
 
 async function fetchSettings() {
   loading.value = true
@@ -141,6 +214,7 @@ async function handleChangePassword() {
 
 onMounted(() => {
   fetchSettings()
+  fetchUniversities()
 })
 </script>
 
@@ -229,6 +303,60 @@ onMounted(() => {
         </n-gi>
       </n-grid>
 
+      <n-card :title="t('settings.universityManagement')">
+        <template #header-extra>
+          <n-button type="primary" size="small" @click="showAddUniversityModal = true">
+            {{ t('university.add') }}
+          </n-button>
+        </template>
+        <n-spin :show="universitiesLoading">
+          <n-list v-if="universities.length" bordered>
+            <n-list-item v-for="uni in universities" :key="uni.id">
+              <n-space vertical style="width: 100%">
+                <div style="display: flex; align-items: center; justify-content: space-between">
+                  <strong>{{ uni.full_name }}</strong>
+                  <n-space size="small">
+                    <n-button size="tiny" @click="startEditVariants(uni)">
+                      {{ t('professor.edit') }}
+                    </n-button>
+                    <n-popconfirm @positive-click="handleDeleteUniversity(uni.id)">
+                      <template #trigger>
+                        <n-button size="tiny" type="error">{{ t('professor.delete') }}</n-button>
+                      </template>
+                      {{ t('university.deleteConfirm') }}
+                    </n-popconfirm>
+                  </n-space>
+                </div>
+                <div v-if="editingVariants?.id === uni.id" style="margin-top: 8px">
+                  <n-form-item :label="t('university.nameVariants')" label-placement="top">
+                    <n-dynamic-tags v-model:value="editingVariants.variants" />
+                  </n-form-item>
+                  <n-space>
+                    <n-button size="small" type="primary" @click="saveVariants">
+                      {{ t('professor.save') }}
+                    </n-button>
+                    <n-button size="small" @click="editingVariants = null">
+                      {{ t('common.cancel') }}
+                    </n-button>
+                  </n-space>
+                </div>
+                <div v-else>
+                  <n-space v-if="uni.name_variants?.length" size="small" wrap>
+                    <n-tag v-for="v in uni.name_variants" :key="v" size="small" type="info">
+                      {{ v }}
+                    </n-tag>
+                  </n-space>
+                  <span v-else style="color: var(--muted-foreground); font-size: 12px">
+                    {{ t('university.nameVariantsDesc') }}
+                  </span>
+                </div>
+              </n-space>
+            </n-list-item>
+          </n-list>
+          <n-empty v-else :description="t('university.noUniversities')" />
+        </n-spin>
+      </n-card>
+
       <n-card :title="t('settings.changePassword')">
         <n-form label-placement="left" label-width="120">
           <n-form-item :label="t('auth.currentPassword')">
@@ -266,6 +394,27 @@ onMounted(() => {
         </n-form>
       </n-card>
     </n-space>
+
+    <n-modal
+      v-model:show="showAddUniversityModal"
+      preset="dialog"
+      :title="t('university.add')"
+      :positive-text="t('university.add')"
+      :negative-text="t('common.cancel')"
+      :positive-button-props="{ loading: addUniversityLoading }"
+      @positive-click="handleAddUniversity"
+      style="width: 480px"
+    >
+      <n-form-item :label="t('university.fullName')" label-placement="top">
+        <n-input
+          v-model:value="newUniversityName"
+          :placeholder="t('university.fullNamePlaceholder')"
+        />
+      </n-form-item>
+      <p style="color: var(--muted-foreground); font-size: 12px; margin: 0">
+        {{ t('university.generatingVariants') }}
+      </p>
+    </n-modal>
   </div>
 </template>
 

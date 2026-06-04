@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Optional
 
@@ -25,6 +26,8 @@ class CrawlResult:
 
 # JavaScript code that clicks through common tab/navigation elements
 # to trigger AJAX content loading on Chinese university pages.
+# NOTE: no `break` — we click ALL matching groups so that pages with
+# multiple tab layers (e.g. category tabs + title tabs) get fully loaded.
 _TAB_CLICK_JS = """
 await new Promise(r => setTimeout(r, 3000));
 const tabSelectors = [
@@ -41,10 +44,64 @@ for (const sel of tabSelectors) {
             await new Promise(r => setTimeout(r, 1000));
         }
         await new Promise(r => setTimeout(r, 2000));
-        break;
     }
 }
 """
+
+# Thread-local storage for per-thread browser instance reuse.
+# Each Huey worker thread gets its own Playwright browser that persists
+# across multiple crawl_url_full calls, avoiding the ~2s startup cost
+# per invocation.
+_thread_local = threading.local()
+
+
+def _get_cached_crawler():
+    """Return a cached AsyncWebCrawler for the current thread, or None."""
+    return getattr(_thread_local, "crawler", None)
+
+
+def _set_cached_crawler(crawler) -> None:
+    """Cache an AsyncWebCrawler for the current thread."""
+    _thread_local.crawler = crawler
+
+
+def _clear_cached_crawler() -> None:
+    """Clear the cached crawler for the current thread."""
+    _thread_local.crawler = None
+
+
+async def _get_or_create_crawler():
+    """Get the cached AsyncWebCrawler or create a new one.
+
+    The crawler is cached per-thread so that pagination-heavy crawls
+    (CSS mode) reuse the same browser instance instead of paying the
+    Playwright startup cost on every page.
+    """
+    from crawl4ai import AsyncWebCrawler, BrowserConfig
+
+    cached = _get_cached_crawler()
+    if cached is not None:
+        return cached
+
+    browser_config = BrowserConfig(
+        headless=True,
+        verbose=False,
+    )
+    crawler = AsyncWebCrawler(config=browser_config)
+    await crawler.__aenter__()
+    _set_cached_crawler(crawler)
+    return crawler
+
+
+async def _cleanup_crawler() -> None:
+    """Clean up the cached browser for the current thread."""
+    cached = _get_cached_crawler()
+    if cached is not None:
+        try:
+            await cached.__aexit__(None, None, None)
+        except Exception:
+            pass
+        _clear_cached_crawler()
 
 
 def crawl_url(
@@ -126,15 +183,10 @@ async def _async_crawl(
 ) -> CrawlResult:
     """Async implementation of URL crawling using crawl4ai."""
     try:
-        from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+        from crawl4ai import CrawlerRunConfig
     except ImportError:
         logger.warning("crawl4ai not installed, falling back to empty result")
         return CrawlResult()
-
-    browser_config = BrowserConfig(
-        headless=True,
-        verbose=False,
-    )
 
     # Combine auto_tab_click with custom js_code
     combined_js = ""
@@ -161,7 +213,9 @@ async def _async_crawl(
     run_config = CrawlerRunConfig(**run_kwargs)
 
     try:
-        async with AsyncWebCrawler(config=browser_config) as crawler:
+        # Reuse the per-thread browser if available; otherwise create a new one.
+        crawler = await _get_or_create_crawler()
+        try:
             result = await crawler.arun(url=url, config=run_config)
             if result and result.success:
                 return CrawlResult(
@@ -171,6 +225,10 @@ async def _async_crawl(
                 )
             logger.warning("crawl4ai failed for %s: %s", url, getattr(result, "error_message", "unknown"))
             return CrawlResult()
+        finally:
+            # Always clean up the browser after this event loop finishes,
+            # since asyncio.run() creates a new loop each time.
+            await _cleanup_crawler()
     except Exception:
         logger.exception("crawl4ai error for %s", url)
         return CrawlResult()

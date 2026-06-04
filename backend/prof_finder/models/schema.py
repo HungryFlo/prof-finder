@@ -53,6 +53,7 @@ class UserSettings(Base):
     # API configuration
     deepseek_api_key = Column(String(255))  # Encrypted in production
     deepseek_base_url = Column(String(500), default="https://api.deepseek.com/v1")
+    deepseek_model = Column(String(100), default="deepseek-chat")
 
     # Crawler settings
     request_delay = Column(Integer, default=3)
@@ -121,6 +122,32 @@ class UserProfile(Base):
         return f"<UserProfile(id={self.id}, title='{self.title}', user_id={self.user_id})>"
 
 
+class University(Base):
+    """University entity — reusable across multiple crawler configs for the same school."""
+
+    __tablename__ = "universities"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    full_name = Column(String(300), nullable=False)  # e.g. "西安交通大学"
+    name_variants = Column(JSON, default=list)  # ["XJTU", "Xi'an Jiaotong University", "西交"]
+
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    # Relationships
+    user = relationship("User")
+    crawler_configs = relationship("UniversityCrawlerConfig", back_populates="university_ref")
+
+    __table_args__ = (
+        Index("ix_university_user", "user_id"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<University(id={self.id}, full_name='{self.full_name}')>"
+
+
 class UniversityCrawlerConfig(Base):
     """User-defined or built-in university crawler configuration."""
 
@@ -150,12 +177,16 @@ class UniversityCrawlerConfig(Base):
     is_builtin = Column(Boolean, default=False)
     builtin_crawler_id = Column(String(50))  # e.g. "xjtu-cs" if is_builtin
 
+    # Link to University for reusable name variants
+    university_id = Column(Integer, ForeignKey("universities.id"), nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
     user = relationship("User")
+    university_ref = relationship("University", back_populates="crawler_configs")
 
     __table_args__ = (
         Index("ix_crawler_config_user", "user_id"),
@@ -183,6 +214,11 @@ class Professor(Base):
     # Google Scholar data
     google_scholar_id = Column(String(50))
     google_scholar_url = Column(String(500))
+
+    # Source tracking for school-crawler professors
+    source = Column(String(20), default="manual")  # "school_crawler" | "google_scholar" | "manual"
+    enrichment_status = Column(String(20))  # "pending" | "matched" | "not_found" | "ambiguous" | "user_confirmed"
+    scholar_candidates = Column(JSON, nullable=True)  # [{scholar_id, name, affiliation, score, email_domain_match}]
     
     # Academic data
     research_interests = Column(JSON, default=list)  # ["NLP", "Machine Learning"]

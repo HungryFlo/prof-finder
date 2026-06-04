@@ -1,6 +1,8 @@
 """Professor management API routes."""
 
 import asyncio
+import hashlib
+import json
 import time
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -8,7 +10,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from ...models.schema import User, Professor, SourceInput, UserSettings, UniversityCrawlerConfig
+from ...models.schema import User, Professor, SourceInput, UserSettings, University, UniversityCrawlerConfig
 from ...crawler.scholar import ScholarCrawler
 from ...llm import PaperSummarizer
 from ..deps import get_db_session, get_current_user
@@ -19,6 +21,7 @@ from ..schemas import (
     ProfessorSearchRequest,
     ProfessorResponse,
     ProfessorListResponse,
+    ProfessorNameCollision,
     ScholarSearchResult,
     ProfessorEditPreviewRequest,
     ProfessorEditApplyRequest,
@@ -36,6 +39,7 @@ from ..schemas import (
     CrawlerTestRequest,
     CrawlerTestResponse,
     CrawlerConfiguredCrawlRequest,
+    ScholarCandidateConfirm,
 )
 from ..task_manager import (
     create_task,
@@ -48,8 +52,15 @@ from ..enrichment_prefs import (
     flags_from_user_settings_row,
     planned_enrichment_step_count_for_professor,
 )
+from ...utils.scholar_match_context import resolve_scholar_match_params
 
 router = APIRouter(prefix="/professors", tags=["教授管理"])
+
+# Cache for test crawl results, keyed by config hash.
+# Allows formal crawl to reuse test results without re-fetching pages.
+# Structure: {config_hash: {"results": [...], "timestamp": float}}
+_test_crawl_cache: dict[str, dict] = {}
+_TEST_CRAWL_CACHE_TTL = 1800  # 30 minutes
 
 _PROFESSOR_SORT_COLUMNS = {
     "name": Professor.name,
@@ -68,6 +79,9 @@ def get_professor_list_response(professor: Professor) -> dict:
         "research_interests": professor.research_interests or [],
         "h_index": professor.h_index,
         "publication_count": len(professor.publications or []),
+        "source": professor.source,
+        "enrichment_status": professor.enrichment_status,
+        "google_scholar_id": professor.google_scholar_id,
         "created_at": professor.created_at,
     }
 
@@ -141,6 +155,33 @@ def list_affiliations(
         .all()
     )
     return sorted({r[0] for r in rows if r[0]})
+
+
+@router.get("/name-collisions", response_model=List[ProfessorNameCollision])
+def list_professor_name_collisions(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """List groups of professors with the same name at the same university.
+
+    Uses university name variants (and pinyin for Chinese/English names) to
+    cluster likely duplicates for manual review.
+    """
+    from ...utils.professor_dedup import find_name_collision_groups
+
+    professors = (
+        session.query(Professor)
+        .filter(Professor.user_id == current_user.id)
+        .order_by(Professor.name)
+        .all()
+    )
+    universities = (
+        session.query(University)
+        .filter(University.user_id == current_user.id)
+        .all()
+    )
+    groups = find_name_collision_groups(professors, universities)
+    return [ProfessorNameCollision(**g) for g in groups]
 
 
 @router.post("", response_model=ProfessorResponse, status_code=status.HTTP_201_CREATED)
@@ -392,7 +433,38 @@ def create_crawler_config(
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
 ):
-    """Create a new custom university crawler configuration."""
+    """Create a new custom university crawler configuration.
+
+    If ``university_id`` is not provided, automatically finds or creates a
+    University record from the ``university`` text field so that Scholar
+    matching can work out of the box.
+    """
+    university_id = data.university_id
+
+    # Auto-link to a University record when not explicitly provided
+    if not university_id and data.university:
+        uni = (
+            session.query(University)
+            .filter(
+                University.user_id == current_user.id,
+                University.full_name == data.university,
+            )
+            .first()
+        )
+        if not uni:
+            uni = University(
+                user_id=current_user.id,
+                full_name=data.university,
+                name_variants=[],
+            )
+            session.add(uni)
+            session.flush()
+        university_id = uni.id
+
+        # Generate name variants in background if missing
+        if not uni.name_variants:
+            _generate_variants_background(uni.id, data.university)
+
     config = UniversityCrawlerConfig(
         user_id=current_user.id,
         name=data.name,
@@ -402,11 +474,37 @@ def create_crawler_config(
         extraction_mode=data.extraction_mode,
         css_selectors=data.css_selectors or {},
         affiliation=data.affiliation,
+        university_id=university_id,
     )
     session.add(config)
     session.flush()
     session.refresh(config)
     return config
+
+
+def _generate_variants_background(university_id: int, full_name: str):
+    """Generate university name variants via LLM in a background thread."""
+    import threading
+    from ...db.database import get_db
+    from .universities import _generate_name_variants
+
+    def _run():
+        try:
+            loop = asyncio.new_event_loop()
+            variants = loop.run_until_complete(_generate_name_variants(full_name))
+            loop.close()
+
+            if variants:
+                db = get_db()
+                with db.session() as session:
+                    uni = session.query(University).filter(University.id == university_id).first()
+                    if uni:
+                        uni.name_variants = variants
+                        session.commit()
+        except Exception:
+            pass  # best-effort; variants can be set manually later
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 @router.put("/crawler-configs/{config_id}", response_model=CrawlerConfigResponse)
@@ -442,6 +540,8 @@ def update_crawler_config(
         config.css_selectors = data.css_selectors
     if data.affiliation is not None:
         config.affiliation = data.affiliation
+    if data.university_id is not None:
+        config.university_id = data.university_id
 
     session.flush()
     session.refresh(config)
@@ -470,6 +570,30 @@ def delete_crawler_config(
     return MessageResponse(message="爬虫配置已删除")
 
 
+def _compute_crawl_cache_key(user_id: int, list_url: str, extraction_mode: str,
+                              css_selectors: dict | None, affiliation: str | None) -> str:
+    """Compute a deterministic cache key from crawl parameters."""
+    raw = json.dumps({
+        "user_id": user_id,
+        "list_url": list_url,
+        "extraction_mode": extraction_mode,
+        "css_selectors": css_selectors or {},
+        "affiliation": affiliation or "",
+    }, sort_keys=True)
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
+def get_cached_test_results(cache_key: str) -> list[dict] | None:
+    """Return cached test crawl results if still valid, else None."""
+    entry = _test_crawl_cache.get(cache_key)
+    if not entry:
+        return None
+    if time.time() - entry["timestamp"] > _TEST_CRAWL_CACHE_TTL:
+        del _test_crawl_cache[cache_key]
+        return None
+    return entry["results"]
+
+
 @router.post("/crawler-configs/test", response_model=CrawlerTestResponse)
 async def test_crawler_config(
     data: CrawlerTestRequest,
@@ -495,6 +619,9 @@ async def test_crawler_config(
     base_url = (
         user_settings.deepseek_base_url if user_settings else None
     ) or app_settings.deepseek_base_url
+    model = (
+        user_settings.deepseek_model if user_settings else None
+    ) or app_settings.deepseek_model
 
     crawler = GenericUniversityCrawler.from_dict({
         "name": data.name or "Test",
@@ -507,16 +634,27 @@ async def test_crawler_config(
     })
     crawler.api_key = api_key
     crawler.base_url = base_url
+    crawler.model = model
 
     try:
         results = await asyncio.to_thread(
             crawler.crawl_all,
             delay=0,
         )
+        # Cache the full results so formal crawl can reuse them
+        cache_key = _compute_crawl_cache_key(
+            current_user.id, data.list_url, data.extraction_mode,
+            data.css_selectors, data.affiliation,
+        )
+        _test_crawl_cache[cache_key] = {
+            "results": results,
+            "timestamp": time.time(),
+        }
         return CrawlerTestResponse(
             success=True,
             sample_results=results[:5],
             total_found=len(results),
+            cache_key=cache_key,
         )
     except Exception as e:
         return CrawlerTestResponse(
@@ -559,7 +697,10 @@ async def crawl_with_config(
         user_id=current_user.id,
         total=0,
     )
-    enqueue_task("generic-university-crawl", task.task_id, config_id=config.id)
+    enqueue_task(
+        "generic-university-crawl", task.task_id,
+        config_id=config.id, cache_key=data.cache_key,
+    )
 
     return TaskStartResponse(task_id=task.task_id, message=f"已启动爬取任务：{config.name}")
 
@@ -928,6 +1069,46 @@ async def generate_professor_profile(
     return TaskStartResponse(task_id=task.task_id, message="教授科研画像生成任务已启动")
 
 
+@router.post("/{professor_id}/crawl-homepage", response_model=TaskStartResponse)
+async def crawl_professor_homepage(
+    professor_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Start a background task to crawl the professor's homepage and merge fields."""
+    professor = (
+        session.query(Professor)
+        .filter(Professor.id == professor_id, Professor.user_id == current_user.id)
+        .first()
+    )
+    if not professor:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="教授不存在")
+
+    if not (professor.homepage or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请先填写个人主页 URL",
+        )
+
+    cleanup_old_tasks()
+    task = create_task(
+        task_type="professor-homepage-crawl",
+        task_name=f"爬取个人主页 · {professor.name}",
+        user_id=current_user.id,
+        total=1,
+    )
+    enqueue_task(
+        "professor-homepage-crawl",
+        task.task_id,
+        professor_id=professor_id,
+    )
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message=f"已启动个人主页爬取：{professor.name}",
+        total=1,
+    )
+
+
 @router.post("/{professor_id}/fill-publications", response_model=TaskStartResponse)
 async def fill_publications(
     professor_id: int,
@@ -1123,6 +1304,65 @@ def delete_professor(
     return MessageResponse(message="教授已删除")
 
 
+@router.post("/{professor_id}/match-scholar", response_model=TaskStartResponse)
+def match_professor_scholar(
+    professor_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Search Google Scholar for one professor and link their profile when confident."""
+    professor = (
+        session.query(Professor)
+        .filter(
+            Professor.id == professor_id,
+            Professor.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not professor:
+        raise HTTPException(status_code=404, detail="教授不存在")
+
+    if professor.google_scholar_id:
+        raise HTTPException(status_code=400, detail="该教授已关联 Google Scholar")
+
+    universities = (
+        session.query(University)
+        .filter(University.user_id == current_user.id)
+        .all()
+    )
+    university_variants, department_affiliation = resolve_scholar_match_params(
+        professor, universities
+    )
+    if not university_variants and not department_affiliation:
+        raise HTTPException(
+            status_code=400,
+            detail="请填写教授单位，或在设置中配置大学名称变体",
+        )
+
+    professor.enrichment_status = "pending"
+    professor.scholar_candidates = None
+
+    task = create_task(
+        "batch-scholar-match",
+        f"Scholar 匹配: {professor.name}",
+        current_user.id,
+        total=1,
+    )
+    enqueue_task(
+        "batch-scholar-match",
+        task.task_id,
+        professor_ids=[professor.id],
+        university_variants=university_variants,
+        department_affiliation=department_affiliation,
+    )
+
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message=f"已开始为 {professor.name} 搜索 Google Scholar",
+        total=1,
+    )
+
+
 @router.post("/{professor_id}/refresh", response_model=ProfessorResponse)
 async def refresh_professor(
     professor_id: int,
@@ -1235,3 +1475,102 @@ def batch_delete_professors(
     )
     
     return MessageResponse(message=f"已删除 {deleted_count} 位教授")
+
+
+@router.post("/confirm-scholar", response_model=TaskStartResponse)
+def confirm_scholar_candidate(
+    body: ScholarCandidateConfirm,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Confirm a scholar candidate for a school-crawled professor.
+
+    Sets the google_scholar_id and triggers a full Scholar crawl + enrichment.
+    """
+    professor = (
+        session.query(Professor)
+        .filter(
+            Professor.id == body.professor_id,
+            Professor.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not professor:
+        raise HTTPException(status_code=404, detail="教授不存在")
+
+    professor.google_scholar_id = body.scholar_id
+    professor.google_scholar_url = (
+        f"https://scholar.google.com/citations?user={body.scholar_id}"
+    )
+    professor.enrichment_status = "user_confirmed"
+    professor.source = "school_crawler"
+
+    # Create a single-crawl task to fetch full Scholar data
+    task = create_task(
+        "single-crawl",
+        f"爬取教授 Scholar 主页: {professor.name}",
+        current_user.id,
+        total=1,
+    )
+    enqueue_task(
+        "single-crawl",
+        task.task_id,
+        scholar_url=professor.google_scholar_url,
+    )
+
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message=f"已确认 Scholar 关联，正在爬取 {professor.name} 的完整信息...",
+        total=1,
+    )
+
+
+@router.post("/{professor_id}/set-scholar", response_model=TaskStartResponse)
+def set_scholar_id_manually(
+    professor_id: int,
+    body: ProfessorScholarAdd,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Manually set a Scholar ID for a professor (by URL or ID).
+
+    Triggers a full Scholar crawl + enrichment.
+    """
+    professor = (
+        session.query(Professor)
+        .filter(
+            Professor.id == professor_id,
+            Professor.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not professor:
+        raise HTTPException(status_code=404, detail="教授不存在")
+
+    try:
+        scholar_id = extract_scholar_id_from_url(body.url)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="无法从 URL 中提取 Scholar ID")
+
+    professor.google_scholar_id = scholar_id
+    professor.google_scholar_url = body.url
+    professor.enrichment_status = "user_confirmed"
+    professor.scholar_candidates = None
+
+    task = create_task(
+        "single-crawl",
+        f"爬取教授 Scholar 主页: {professor.name}",
+        current_user.id,
+        total=1,
+    )
+    enqueue_task(
+        "single-crawl",
+        task.task_id,
+        scholar_url=body.url,
+    )
+
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message=f"已设置 Scholar ID，正在爬取 {professor.name} 的完整信息...",
+        total=1,
+    )

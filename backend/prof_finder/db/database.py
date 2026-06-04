@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 
 from ..config import settings
-from ..models.schema import Base, User
+from ..models.schema import Base, User, University  # noqa: ensure create_all picks up table
 from ..models.background_task import BackgroundTask  # noqa: ensure create_all picks up table
 from ..models.schema import UniversityCrawlerConfig  # noqa: ensure create_all picks up table
 
@@ -111,6 +111,34 @@ class Database:
                 conn.execute(text("ALTER TABLE professors ADD COLUMN name_locales JSON"))
                 conn.commit()
 
+            # Add source-tracking columns for school-crawler Scholar matching
+            prof_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(professors)"))}
+            if "source" not in prof_cols:
+                conn.execute(text("ALTER TABLE professors ADD COLUMN source VARCHAR(20) DEFAULT 'manual'"))
+                conn.commit()
+            if "enrichment_status" not in prof_cols:
+                conn.execute(text("ALTER TABLE professors ADD COLUMN enrichment_status VARCHAR(20)"))
+                conn.commit()
+            if "scholar_candidates" not in prof_cols:
+                conn.execute(text("ALTER TABLE professors ADD COLUMN scholar_candidates JSON"))
+                conn.commit()
+
+            # Add university_id to university_crawler_configs
+            config_table_exists = conn.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='university_crawler_configs'"
+                )
+            ).fetchone()
+            if config_table_exists:
+                cfg_cols = {
+                    row[1] for row in conn.execute(text("PRAGMA table_info(university_crawler_configs)"))
+                }
+                if "university_id" not in cfg_cols:
+                    conn.execute(
+                        text("ALTER TABLE university_crawler_configs ADD COLUMN university_id INTEGER REFERENCES universities(id)")
+                    )
+                    conn.commit()
+
             # Backfill source_inputs incremental columns for existing deployments.
             source_table_exists = conn.execute(
                 text(
@@ -167,6 +195,19 @@ class Database:
                             )
                         )
                         conn.commit()
+
+                # Add deepseek_model column if missing (configurable LLM model)
+                settings_cols = {
+                    row[1]
+                    for row in conn.execute(text("PRAGMA table_info(user_settings)"))
+                }
+                if "deepseek_model" not in settings_cols:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE user_settings ADD COLUMN deepseek_model VARCHAR(100) DEFAULT 'deepseek-chat'"
+                        )
+                    )
+                    conn.commit()
 
             # Add background_tasks.enqueue_args / enqueue_kwargs columns
             # (huey-task-queue migration)

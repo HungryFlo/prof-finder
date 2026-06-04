@@ -11,6 +11,7 @@ import json
 import logging
 import re
 from typing import Callable, Optional
+from urllib.parse import urljoin
 
 from .engine import crawl_url_full
 
@@ -19,6 +20,10 @@ logger = logging.getLogger(__name__)
 # Max characters of page content to send to LLM
 _MAX_CONTENT_CHARS = 200000
 
+# LLM retry configuration
+_LLM_MAX_RETRIES = 3
+_LLM_RETRY_BASE_DELAY = 2.0  # seconds, doubles each retry
+
 
 def extract_professors_llm(
     url: str,
@@ -26,6 +31,7 @@ def extract_professors_llm(
     *,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
+    model: Optional[str] = None,
     send_progress: Optional[Callable[[str], None]] = None,
     cancel_checker: Optional[Callable[[], bool]] = None,
 ) -> list[dict]:
@@ -39,6 +45,7 @@ def extract_professors_llm(
         affiliation: Default affiliation for extracted professors.
         api_key: DeepSeek API key. If None, uses app settings.
         base_url: DeepSeek base URL. If None, uses app settings.
+        model: LLM model name. If None, uses app settings or "deepseek-chat".
         send_progress: Optional callback for progress messages.
         cancel_checker: Optional callback that returns True to abort.
 
@@ -83,7 +90,7 @@ def extract_professors_llm(
     if send_progress:
         send_progress("正在使用 AI 分析页面内容...")
 
-    professors = _llm_extract(content, affiliation, api_key=api_key, base_url=base_url)
+    professors = _llm_extract(content, affiliation, api_key=api_key, base_url=base_url, model=model)
 
     if send_progress:
         send_progress(f"AI 提取完成，共识别 {len(professors)} 位教授")
@@ -127,8 +134,10 @@ def _clean_html_for_llm(html: str) -> str:
         tag.decompose()
 
     # Try to find the main content area
+    # NOTE: avoid overly broad matches like "body" — they match <body> and
+    # effectively disable filtering.
     main_content = (
-        soup.find("div", class_=re.compile(r"content|main|body|teacher|faculty|staff", re.I))
+        soup.find("div", class_=re.compile(r"teacher|faculty|staff|faculty-list|teacher-list", re.I))
         or soup.find("main")
         or soup.find("article")
         or soup.body
@@ -139,9 +148,13 @@ def _clean_html_for_llm(html: str) -> str:
     else:
         text = str(soup)
 
-    # Truncate if too long
+    # Truncate if too long — try to cut at a tag boundary
     if len(text) > _MAX_CONTENT_CHARS:
         text = text[:_MAX_CONTENT_CHARS]
+        # Try to cut at the last complete closing tag to avoid broken HTML
+        last_close = text.rfind(">")
+        if last_close > _MAX_CONTENT_CHARS * 0.9:
+            text = text[: last_close + 1]
 
     return text
 
@@ -152,11 +165,12 @@ def _llm_extract(
     *,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> list[dict]:
     """Use LLM to extract professor data from page content.
 
     Sends the content to DeepSeek with a structured prompt and parses the
-    JSON response.
+    JSON response.  Retries up to 3 times on transient failures.
     """
     from ...config import settings as app_settings
 
@@ -164,6 +178,8 @@ def _llm_extract(
         api_key = app_settings.deepseek_api_key
     if not base_url:
         base_url = app_settings.deepseek_base_url
+    if not model:
+        model = getattr(app_settings, "deepseek_model", None) or "deepseek-chat"
 
     if not api_key:
         logger.error("No DeepSeek API key configured for LLM extraction")
@@ -174,52 +190,110 @@ def _llm_extract(
     max_input = _MAX_CONTENT_CHARS
     truncated = content[:max_input]
 
-    prompt = f"""从以下网页 HTML 中提取所有教授/教师的信息，返回 JSON 数�。
+    prompt = f"""从以下网页 HTML 中提取所有教授/教师的信息，返回 JSON 数组。
 默认机构：{affiliation if affiliation else "未知"}
 JSON 格式：[{{"name":"姓名","affiliation":"机构","url":"链接或null","email":"邮箱或null","homepage":"主页或null","research_interests":[]}}]
 只输出 JSON 数组，无其他文字。注意提取中文姓名（2-4字）。
+
+示例：
+输入 HTML 片段：
+<div class="teacher-card">
+  <h3><a href="/teacher/zhangsan">张三</a></h3>
+  <p>教授 · zhangsan@example.edu.cn</p>
+  <p>研究方向：机器学习、自然语言处理</p>
+</div>
+<div class="teacher-card">
+  <h3>李四</h3>
+  <p>副教授</p>
+</div>
+
+输出：
+[{{"name":"张三","affiliation":"默认机构","url":"/teacher/zhangsan","email":"zhangsan@example.edu.cn","homepage":null,"research_interests":["机器学习","自然语言处理"]}},{{"name":"李四","affiliation":"默认机构","url":null,"email":null,"homepage":null,"research_interests":[]}}]
+
+注意：
+- 如果页面是表格形式，逐行提取每一行的教师信息。
+- 如果姓名和职称在同一元素中（如"张三 教授"），拆分后分别填入对应字段。
+- research_interests 应为字符串数组，如果无法提取则为空数组 []。
+- url 字段可以是相对路径，保留原样即可。
 
 HTML 内容：
 {truncated}
 """
 
-    try:
-        import httpx
-        from openai import OpenAI
+    import time
+    import httpx
+    from openai import OpenAI, APIConnectionError, APITimeoutError, RateLimitError, APIStatusError
 
-        client = OpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            timeout=httpx.Timeout(120.0, connect=30.0),
-        )
-        response = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=65536,
-        )
+    last_error: Optional[Exception] = None
 
-        content_text = response.choices[0].message.content or ""
-        professors = _parse_llm_response(content_text)
+    for attempt in range(_LLM_MAX_RETRIES):
+        try:
+            client = OpenAI(
+                api_key=api_key,
+                base_url=base_url,
+                timeout=httpx.Timeout(120.0, connect=30.0),
+            )
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=65536,
+            )
 
-        # Ensure all entries have required fields
-        for prof in professors:
-            if not prof.get("affiliation"):
-                prof["affiliation"] = affiliation
-            if not isinstance(prof.get("research_interests"), list):
-                prof["research_interests"] = []
+            content_text = response.choices[0].message.content or ""
+            professors = _parse_llm_response(content_text)
 
-        return [p for p in professors if p.get("name")]
+            # Ensure all entries have required fields
+            for prof in professors:
+                if not prof.get("affiliation"):
+                    prof["affiliation"] = affiliation
+                if not isinstance(prof.get("research_interests"), list):
+                    prof["research_interests"] = []
 
-    except Exception as exc:
-        error_msg = str(exc)
-        if "401" in error_msg or "authentication" in error_msg.lower() or "invalid" in error_msg.lower():
-            logger.error("LLM extraction failed: API key 无效，请在设置中检查 DeepSeek API Key")
-        elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
-            logger.error("LLM extraction failed: 请求超时，请检查网络连接或稍后重试")
-        else:
-            logger.exception("LLM extraction failed")
-        return []
+            return [p for p in professors if p.get("name")]
+
+        except (APIConnectionError, APITimeoutError, RateLimitError) as exc:
+            # Transient errors — retry with backoff
+            last_error = exc
+            if attempt < _LLM_MAX_RETRIES - 1:
+                delay = _LLM_RETRY_BASE_DELAY * (2 ** attempt)
+                logger.warning(
+                    "LLM extraction attempt %d/%d failed (transient): %s — retrying in %.1fs",
+                    attempt + 1, _LLM_MAX_RETRIES, exc, delay,
+                )
+                time.sleep(delay)
+                continue
+            # Final attempt failed
+            logger.error("LLM extraction failed after %d attempts: %s", _LLM_MAX_RETRIES, exc)
+
+        except APIStatusError as exc:
+            if exc.status_code in (401, 403):
+                logger.error("LLM extraction failed: API key 无效，请在设置中检查 DeepSeek API Key")
+                return []  # No point retrying auth errors
+            if exc.status_code == 429:
+                last_error = exc
+                if attempt < _LLM_MAX_RETRIES - 1:
+                    delay = _LLM_RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.warning("LLM rate limited, retrying in %.1fs", delay)
+                    time.sleep(delay)
+                    continue
+            logger.error("LLM extraction failed with HTTP %d: %s", exc.status_code, exc)
+            return []
+
+        except Exception as exc:
+            error_msg = str(exc)
+            if "401" in error_msg or "authentication" in error_msg.lower() or "invalid" in error_msg.lower():
+                logger.error("LLM extraction failed: API key 无效，请在设置中检查 DeepSeek API Key")
+            elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                logger.error("LLM extraction failed: 请求超时，请检查网络连接或稍后重试")
+            else:
+                logger.exception("LLM extraction failed")
+            return []
+
+    # All retries exhausted
+    if last_error:
+        logger.error("LLM extraction failed after %d retries: %s", _LLM_MAX_RETRIES, last_error)
+    return []
 
 
 def _parse_llm_response(content: str) -> list[dict]:
@@ -253,6 +327,14 @@ def _parse_llm_response(content: str) -> list[dict]:
         logger.warning("LLM response parsed but is not a list")
         return []
     except json.JSONDecodeError:
+        # Try to fix common LLM JSON errors: trailing commas
+        try:
+            fixed = re.sub(r",\s*([}\]])", r"\1", json_str)
+            result = json.loads(fixed)
+            if isinstance(result, list):
+                return result
+        except json.JSONDecodeError:
+            pass
         logger.warning("Failed to parse LLM JSON response")
         return []
 
@@ -274,6 +356,48 @@ def _has_no_professor_data(html: str) -> bool:
         return True
     html_lower = html.lower()
     return not any(kw in html_lower for kw in _PROFESSOR_KEYWORDS)
+
+
+def _extract_balanced_braces(text: str, start_pos: int) -> Optional[str]:
+    """Extract a balanced {...} block starting at the given position.
+
+    Returns the content between the outermost braces (exclusive), or None
+    if no balanced block is found.
+    """
+    if start_pos >= len(text) or text[start_pos] != "{":
+        return None
+
+    depth = 0
+    in_string = False
+    escape_next = False
+
+    for i in range(start_pos, len(text)):
+        ch = text[i]
+
+        if escape_next:
+            escape_next = False
+            continue
+
+        if ch == "\\":
+            escape_next = True
+            continue
+
+        if ch == '"':
+            in_string = not in_string
+            continue
+
+        if in_string:
+            continue
+
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                # Return content between { and }
+                return text[start_pos + 1 : i]
+
+    return None
 
 
 def _try_ajax_endpoints(page_url: str, html: str) -> str:
@@ -299,7 +423,7 @@ def _try_ajax_endpoints(page_url: str, html: str) -> str:
         js_vars[match.group(1)] = match.group(2)
 
     # Step 2: Find AJAX URLs and their data parameters
-    ajax_configs = []  # list of (url, params_dict)
+    ajax_configs = []  # list of (url, params_dict, method)
 
     # Pattern 1: jQuery $.ajax — find url and data in the same block
     # Use a broader match: find $.ajax({ and extract url/data/type before the
@@ -317,26 +441,29 @@ def _try_ajax_endpoints(page_url: str, html: str) -> str:
             continue
         ajax_url = url_match.group(1)
 
-        # Extract data parameters — find the data: { ... } block
-        data_match = re.search(r'data\s*:\s*\{(.*?)\}', block, re.S)
+        # Extract data parameters — use balanced brace matching for robustness
+        # against nested objects
+        data_match = re.search(r'data\s*:\s*\{', block)
         params = {}
         if data_match:
-            data_str = data_match.group(1)
-            # Parse key:value pairs (handles 'val', "val", and varName)
-            for param_match in re.finditer(
-                r"(\w+)\s*:\s*(?:'([^']*)'|\"([^\"]*)\"|(\w+))", data_str
-            ):
-                key = param_match.group(1)
-                value = (
-                    param_match.group(2)
-                    or param_match.group(3)
-                    or param_match.group(4)
-                    or ""
-                )
-                # Resolve JS variable references
-                if value in js_vars:
-                    value = js_vars[value]
-                params[key] = value
+            brace_start = data_match.end() - 1  # position of '{'
+            data_str = _extract_balanced_braces(block, brace_start)
+            if data_str:
+                # Parse key:value pairs (handles 'val', "val", and varName)
+                for param_match in re.finditer(
+                    r"(\w+)\s*:\s*(?:'([^']*)'|\"([^\"]*)\"|(\w+))", data_str
+                ):
+                    key = param_match.group(1)
+                    value = (
+                        param_match.group(2)
+                        or param_match.group(3)
+                        or param_match.group(4)
+                        or ""
+                    )
+                    # Resolve JS variable references
+                    if value in js_vars:
+                        value = js_vars[value]
+                    params[key] = value
 
         # Extract method
         method_match = re.search(r"type\s*:\s*['\"](\w+)['\"]", block)
