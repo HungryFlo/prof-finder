@@ -26,7 +26,7 @@ Prof-Finder 的 Web 前端为用户提供登录后的简历、教授、匹配、
 
 ### Requirement: Authentication Pages
 
-系统 SHALL 提供登录和注册页面。
+系统 SHALL 提供登录和注册页面，使用共享的密码校验组件。
 
 #### Scenario: Login page
 - **WHEN** 用户访问 `/login`
@@ -36,7 +36,14 @@ Prof-Finder 的 Web 前端为用户提供登录后的简历、教授、匹配、
 #### Scenario: Register page
 - **WHEN** 用户访问 `/register`
 - **THEN** 显示注册表单（用户名、密码、确认密码）
+- **AND** 使用共享的 `PasswordRequirementCheck` 组件显示实时密码校验
 - **AND** 注册成功后跳转到登录页
+
+#### Scenario: Force change password page
+- **WHEN** 用户访问 `/change-password`
+- **THEN** 显示密码修改表单（当前密码、新密码、确认密码）
+- **AND** 使用共享的 `PasswordRequirementCheck` 组件显示实时密码校验
+- **AND** 修改成功后跳转到首页
 
 #### Scenario: Route guard
 - **WHEN** 未登录用户访问受保护页面
@@ -47,7 +54,7 @@ Prof-Finder 的 Web 前端为用户提供登录后的简历、教授、匹配、
 
 ### Requirement: Main Layout
 
-系统 SHALL 提供统一的主布局。
+系统 SHALL 提供统一的主布局，首页为 Dashboard。
 
 #### Scenario: Layout structure
 - **WHEN** 用户登录后访问任意页面
@@ -59,18 +66,16 @@ Prof-Finder 的 Web 前端为用户提供登录后的简历、教授、匹配、
 #### Scenario: Navigation menu
 - **WHEN** 显示侧边栏
 - **THEN** 包含以下菜单项：
+  - 首页（Dashboard）
   - 简历管理
   - 教授管理
   - 匹配结果
-  - 联络邮件
   - 设置
   - 用户管理（仅管理员可见）
 
-#### Scenario: User dropdown
-- **WHEN** 点击用户头像
-- **THEN** 显示下拉菜单：设置、登出
-
----
+#### Scenario: Default route
+- **WHEN** 用户访问 `/`
+- **THEN** 显示 Dashboard 页面（不再重定向到 `/profile`）
 
 ### Requirement: Profile Management Page
 
@@ -163,17 +168,15 @@ Prof-Finder 的 Web 前端为用户提供登录后的简历、教授、匹配、
 - **THEN** 打开 Modal 选择目标院校
 - **AND** 提交后创建异步爬取任务
 
----
-
 ### Requirement: Match Results Page
 
-系统 SHALL 提供匹配结果页面。
+系统 SHALL 提供匹配结果页面，集成邮件查看与编辑功能。
 
 #### Scenario: Match results list
 - **WHEN** 用户访问 `/match`
 - **THEN** 显示当前激活简历的匹配结果
 - **AND** 按匹配度排序
-- **AND** 每项显示：排名、教授姓名、机构、匹配度、匹配标签
+- **AND** 每项显示：排名、教授姓名、机构、匹配度、匹配标签、邮件状态
 
 #### Scenario: Run matching
 - **WHEN** 用户点击「运行匹配」
@@ -184,58 +187,50 @@ Prof-Finder 的 Web 前端为用户提供登录后的简历、教授、匹配、
 - **WHEN** 没有激活的简历
 - **THEN** 显示提示：请先激活一份简历
 
-#### Scenario: Match detail
+#### Scenario: Match detail with letter editing
 - **WHEN** 用户点击某匹配结果的「详情」
-- **THEN** 显示匹配原因分析
-- **AND** 显示共同研究方向、技能匹配等
+- **THEN** 显示加宽的详情弹窗（900px）
+- **AND** 上半部分显示匹配原因分析、研究方向、技能匹配
+- **AND** 下半部分显示邮件编辑区域：
+  - 若已生成邮件：显示可编辑 textarea 和「复制到剪贴板」「保存邮件」「重新生成」按钮
+  - 若未生成邮件：显示「生成邮件」按钮
 
-#### Scenario: Generate letter shortcut
-- **WHEN** 用户点击匹配结果的「生成邮件」
+#### Scenario: Generate letter from detail modal
+- **WHEN** 用户在详情弹窗中点击「生成邮件」
 - **THEN** 为该教授生成联络邮件
-- **AND** 跳转到邮件详情
+- **AND** 生成完成后在弹窗内显示邮件内容
+
+#### Scenario: Edit and save letter in detail modal
+- **WHEN** 用户在详情弹窗中编辑邮件内容并点击「保存邮件」
+- **THEN** 保存修改后的邮件内容
+- **AND** 显示成功提示
+
+#### Scenario: Copy letter to clipboard
+- **WHEN** 用户在详情弹窗中点击「复制到剪贴板」
+- **THEN** 将邮件内容复制到剪贴板
+- **AND** 显示成功提示
 
 #### Scenario: Export results
 - **WHEN** 用户点击「导出 CSV」
 - **THEN** 下载包含匹配结果的 CSV 文件
 
----
-
-### Requirement: Letter Management Page
-
-系统 SHALL 提供邮件管理页面。
-
-#### Scenario: Letter list
-- **WHEN** 用户访问 `/letter`
-- **THEN** 显示邮件列表
-- **AND** 表格列：教授姓名、状态（已生成/未生成）、生成时间、操作
-
-#### Scenario: Generate letter
-- **WHEN** 用户点击「生成」
-- **THEN** 调用 LLM 生成邮件
-- **AND** 显示 loading 状态
-- **AND** 完成后更新列表
-
-#### Scenario: Batch generate
-- **WHEN** 用户点击「批量生成」
-- **THEN** 打开 Modal 选择 Top N
-- **AND** 为前 N 名匹配的教授生成邮件
-
-#### Scenario: Letter detail
-- **WHEN** 用户点击「查看」
-- **THEN** 打开邮件详情 Modal
-- **AND** 显示可编辑的邮件内容
-- **AND** 支持「复制」、「保存」操作
-
-#### Scenario: Copy to clipboard
-- **WHEN** 用户点击「复制」
-- **THEN** 将邮件内容复制到剪贴板
-- **AND** 显示成功提示
+#### Scenario: Letter language selector
+- **WHEN** 用户在 Match 页面 header 选择邮件语言（zh/en）
+- **THEN** 后续邮件生成使用所选语言
+- **AND** 与界面语言（vue-i18n）无关
 
 ---
 
 ### Requirement: Settings Page
 
-系统 SHALL 提供设置页面。
+系统 SHALL 提供设置页面，使用网格布局优化空间利用。
+
+#### Scenario: Settings layout
+- **WHEN** 用户访问 `/settings`
+- **THEN** 显示设置页面：
+  - 上半部分：API 配置卡片和自动化设置卡片并排显示（2 列网格布局）
+  - 下半部分：修改密码卡片全宽显示
+- **AND** 窄屏（< 900px）时自动回退为单列堆叠
 
 #### Scenario: Settings sections
 - **WHEN** 用户访问 `/settings`
@@ -253,8 +248,6 @@ Prof-Finder 的 Web 前端为用户提供登录后的简历、教授、匹配、
 - **WHEN** 用户填写 API Key 并保存
 - **THEN** 保存到用户设置
 - **AND** 显示脱敏后的 Key
-
----
 
 ### Requirement: Admin User Management
 
@@ -441,12 +434,18 @@ Prof-Finder 的 Web 前端为用户提供登录后的简历、教授、匹配、
 
 ### Requirement: Profile AI Chat Panel
 
-The system SHALL provide an embedded chat interface on the profile detail page for AI-guided profile refinement.
+The system SHALL provide an enhanced embedded chat interface on the profile detail page for AI-guided profile refinement, with quick suggestions, scroll-to-bottom, and message actions.
 
 #### Scenario: Open chat panel
 - **WHEN** the user clicks "AI 优化" on the profile detail page
 - **THEN** a chat panel expands below the academic profile section
 - **AND** the AI automatically sends an opening question based on profile gaps
+
+#### Scenario: Quick suggestions in empty state
+- **WHEN** the chat panel is opened and no messages exist yet
+- **THEN** display a row of suggestion pills below the empty state
+- **AND** suggestions include context-aware prompts (e.g., "介绍你的研究经历", "你的核心技能是什么", "你的学术目标是什么")
+- **AND** clicking a suggestion sends it as a user message
 
 #### Scenario: Chat message exchange
 - **WHEN** the user types a message and presses send (or Enter)
@@ -454,6 +453,21 @@ The system SHALL provide an embedded chat interface on the profile detail page f
 - **AND** a loading indicator shows while waiting for the AI reply
 - **AND** the AI reply appears (left-aligned, AI label)
 - **AND** the input is cleared for the next message
+
+#### Scenario: Scroll to bottom button
+- **WHEN** the user scrolls up during a long conversation
+- **THEN** a floating "scroll to bottom" button appears
+- **AND** clicking it scrolls the conversation to the latest message
+
+#### Scenario: Copy AI response
+- **WHEN** the user clicks the "复制" action button below an AI message
+- **THEN** the AI response content is copied to the clipboard
+- **AND** a success message is shown
+
+#### Scenario: Regenerate AI response
+- **WHEN** the user clicks the "重新生成" action button below an AI message
+- **THEN** the last user message is re-sent
+- **AND** a new AI response is generated and displayed
 
 #### Scenario: Trigger profile refinement
 - **WHEN** the user clicks "优化画像" in the chat panel header
@@ -558,4 +572,93 @@ The Web frontend SHALL present a cohesive visual system across Naive UI and Tail
 - **THEN** the document has a non-empty `meta name="description"`
 - **AND** Open Graph `og:title` and `og:description` reflect the product
 - **AND** the favicon is not the default Vite logo; it represents Prof-Finder with a simple branded mark
+
+### Requirement: Breadcrumb Navigation
+
+系统 SHALL 在主内容区顶部提供面包屑导航。
+
+#### Scenario: Breadcrumb on list pages
+- **WHEN** 用户访问列表页面（Profile、Professor、Match、Settings 等）
+- **THEN** 页面顶部显示面包屑：首页 > {当前页面名称}
+- **AND** 「首页」可点击跳转到 Dashboard
+- **AND** 当前页面名称不可点击
+
+#### Scenario: Breadcrumb on detail pages
+- **WHEN** 用户访问详情页面（Profile Detail、Professor Detail）
+- **THEN** 页面顶部显示面包屑：首页 > {列表页面名称} > {当前项目名称}
+- **AND** 「首页」和列表页面名称可点击跳转
+- **AND** 当前项目名称不可点击
+
+#### Scenario: Breadcrumb i18n
+- **WHEN** 用户切换界面语言
+- **THEN** 面包屑标签同步切换语言
+
+#### Scenario: Breadcrumb on Dashboard
+- **WHEN** 用户访问 Dashboard 首页
+- **THEN** 不显示面包屑（或仅显示不可点击的「首页」）
+
+---
+
+### Requirement: Dark Mode Toggle
+
+系统 SHALL 提供深色模式切换功能。
+
+#### Scenario: Toggle dark mode
+- **WHEN** 用户点击 Header 中的深色模式切换按钮
+- **THEN** 在 light 和 dark 主题间切换
+- **AND** 按钮图标在太阳（light 模式）和月亮（dark 模式）间切换
+
+#### Scenario: Dark mode persistence
+- **WHEN** 用户切换深色模式后刷新页面
+- **THEN** 主题偏好保持（localStorage）
+
+#### Scenario: Dark mode initialization
+- **WHEN** 用户首次访问或 localStorage 无主题偏好
+- **THEN** 默认使用 light 模式
+
+#### Scenario: CSS variables in dark mode
+- **WHEN** 深色模式激活
+- **THEN** HTML root 添加 `.dark` class
+- **AND** CSS 变量切换为深色值
+- **AND** Naive UI 组件使用 `darkTheme` 渲染
+
+---
+
+### Requirement: Dashboard Page
+
+系统 SHALL 提供首页仪表盘，展示系统概览和快速操作入口。
+
+#### Scenario: Dashboard display
+- **WHEN** 用户访问 `/`（首页）
+- **THEN** 显示仪表盘页面，包含：
+  - 欢迎区域：显示当前用户名和随机激励话语
+  - 统计卡片：Profile 数量、Professor 数量、Match 结果数、已生成 Letter 数
+  - 快速操作：创建 Profile、添加 Professor、运行 Match 的快捷按钮
+  - 最近活动：最近更新的 Profile 和最近添加的 Professor 各 5 条
+
+#### Scenario: Motivational quotes
+- **WHEN** 用户访问 Dashboard
+- **THEN** 显示一条随机激励话语
+- **AND** 话语随 vue-i18n 语言切换（中文/英文各有 8-10 条）
+- **AND** 每次访问随机选择一条
+
+#### Scenario: Quick actions
+- **WHEN** 用户点击快速操作中的「创建 Profile」
+- **THEN** 跳转到 Profile 管理页面并打开创建 Modal
+
+#### Scenario: Quick action - Add Professor
+- **WHEN** 用户点击快速操作中的「添加 Professor」
+- **THEN** 跳转到 Professor 管理页面
+
+#### Scenario: Quick action - Run Match
+- **WHEN** 用户点击快速操作中的「运行匹配」
+- **THEN** 跳转到 Match 结果页面
+
+#### Scenario: Statistics cards
+- **WHEN** Dashboard 加载完成
+- **THEN** 调用统计 API 获取各项数据
+- **AND** 以数字形式展示在统计卡片中
+- **AND** 卡片可点击跳转到对应列表页
+
+---
 

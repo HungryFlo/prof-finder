@@ -1,11 +1,12 @@
 # professor-matching Specification
 
 ## Purpose
-TBD - created by archiving change add-semantic-matching. Update Purpose after archive.
+
+定义学生画像与教授之间的语义匹配能力：使用本地 sentence-transformer 嵌入（`Qwen/Qwen3-Embedding-0.6B`，经 ModelScope 首次下载）计算余弦相似度，结合生成式学术/科研画像文本，输出 0–100 分匹配结果与可读原因，并缓存教授向量以避免重复编码。
 ## Requirements
 ### Requirement: Semantic Similarity Scoring
 The system SHALL compute match scores between a user profile and a professor using
-cosine similarity of sentence-transformer embeddings (allenai-specter model), producing
+cosine similarity of sentence-transformer embeddings (`Qwen/Qwen3-Embedding-0.6B`, ModelScope), producing
 a float score in the range 0–100 that reflects semantic relatedness rather than exact
 keyword overlap. When generated student or professor profile fields are available, the
 system SHALL use them as the primary text for embedding construction.
@@ -30,14 +31,19 @@ system SHALL use them as the primary text for embedding construction.
 - **WHEN** any profile is matched against any professor
 - **THEN** the returned score SHALL be in the range [0, 100] inclusive
 
+#### Scenario: Auto-enriched professor text
+- **WHEN** a professor was recently added or refreshed through the system's default import flows
+- **THEN** the system SHALL have attempted to populate English `paper_summaries` (when Scholar-backed publications exist) and a research profile before the user initiates matching
+- **AND** semantic scoring SHALL use those fields when present according to existing embedding construction rules
+
 ### Requirement: Professor Embedding Caching
 The system SHALL compute and persist a vector embedding for each professor in the
 database so that repeated match runs do not re-encode professor data.
 
 #### Scenario: Embedding computed on first match run
 - **WHEN** a professor has no stored embedding and a match task is executed
-- **THEN** the system SHALL compute the professor's embedding using allenai-specter
-  and persist it to the `professors.embedding` column before scoring
+- **THEN** the system SHALL compute the professor's embedding using the configured
+  Qwen3 embedding model and persist it to the `professors.embedding` column before scoring
 
 #### Scenario: Cached embedding reused on subsequent runs
 - **WHEN** a professor already has a stored embedding and a new match task is executed

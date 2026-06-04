@@ -1,7 +1,8 @@
 # rest-api Specification
 
 ## Purpose
-TBD - created by archiving change add-vue-web-frontend. Update Purpose after archive.
+
+定义面向 Vue 前端的 FastAPI REST 接口（学生画像、教授、匹配、邮件、设置、任务进度等），包括认证保护、分页/筛选约定及与 Huey 后台任务协作的异步操作契约。
 ## Requirements
 ### Requirement: Profile API
 
@@ -60,6 +61,13 @@ TBD - created by archiving change add-vue-web-frontend. Update Purpose after arc
 - **THEN** 返回当前用户的教授列表
 - **AND** 支持分页参数 `?page=1&page_size=20`
 - **AND** 支持筛选参数 `?affiliation=xxx&interest=xxx`
+- **AND** 支持搜索参数 `?search=xxx`（按姓名和机构模糊匹配）
+- **AND** 支持排序参数 `?sort_by=name|affiliation|h_index|updated_at&sort_order=asc|desc`
+
+#### Scenario: List affiliations
+- **WHEN** GET `/api/professors/affiliations`
+- **THEN** 返回当前用户所有教授的去重机构列表
+- **AND** 排除空值
 
 #### Scenario: Add professor manually
 - **WHEN** POST `/api/professors` with JSON body
@@ -112,8 +120,11 @@ TBD - created by archiving change add-vue-web-frontend. Update Purpose after arc
 #### Scenario: Get match results
 - **WHEN** GET `/api/match/results`
 - **THEN** 返回当前激活简历的匹配结果
-- **AND** 按匹配分数降序排列
-- **AND** 支持分页和筛选
+- **AND** 支持分页参数 `?page=1&page_size=20`
+- **AND** 支持筛选参数 `?min_score=70`
+- **AND** 支持搜索参数 `?search=xxx`（按教授姓名模糊匹配）
+- **AND** 支持排序参数 `?sort_by=score|professor_name|professor_affiliation&sort_order=asc|desc`
+- **AND** 默认按匹配分数降序排列
 
 #### Scenario: Get single match detail
 - **WHEN** GET `/api/match/results/{professor_id}`
@@ -129,8 +140,6 @@ TBD - created by archiving change add-vue-web-frontend. Update Purpose after arc
 - **WHEN** POST `/api/match/run`
 - **AND** 没有教授数据
 - **THEN** 返回错误：请先添加教授
-
----
 
 ### Requirement: Letter API
 
@@ -185,6 +194,9 @@ TBD - created by archiving change add-vue-web-frontend. Update Purpose after arc
   - `deepseek_api_key`: DeepSeek API Key
   - `deepseek_base_url`: API Base URL
   - `request_delay`: 爬虫请求延时（秒）
+  - `auto_enrich_on_save_fetch_publication_details`: 是否自动执行出版物详情拉取子步
+  - `auto_enrich_on_save_paper_summaries`: 是否自动执行论文摘要子步
+  - `auto_enrich_on_save_research_profile`: 是否自动执行科研画像子步
 
 ---
 
@@ -359,4 +371,70 @@ The system SHALL provide REST API endpoints for AI interviewer chat and profile 
 #### Scenario: LLM unavailable
 - **WHEN** the LLM API key is not configured or the API is unreachable
 - **THEN** returns 503 error with a descriptive message
+
+### Requirement: Professor auto-enrichment task metadata on write
+
+当接口在写入或 Scholar 同步后启动 `professor-enrichment` 任务时，系统 SHALL 在响应中同时提供任务总子步数，供客户端进度条使用。
+
+#### Scenario: Manual create returns total when task starts
+- **WHEN** POST 手动创建教授 **且** 根据用户设置将执行至少一个自动 enrichment 子步
+- **THEN** 响应包含 `enrichment_task_id`
+- **AND** 响应包含 `enrichment_task_total`，其值等于该任务计划的子步数
+
+#### Scenario: No task when all sub-steps disabled or planned count zero
+- **WHEN** 用户关闭所有自动 enrichment 子步 **或** 按规则计算出计划子步数为 0
+- **THEN** 响应不包含 `enrichment_task_id`（或为空）
+- **AND** 不包含 `enrichment_task_total`（或为空）
+
+#### Scenario: Scholar refresh returns total when task starts
+- **WHEN** POST 刷新单个教授 Scholar **且** 启动自动 enrichment
+- **THEN** 响应同时包含 `enrichment_task_id` 与 `enrichment_task_total`
+
+### Requirement: DBLP professor API
+
+系统 SHALL 通过 DBLP 官方 API 补充教授档案，并与 Google Scholar 数据合并存储。
+
+#### Scenario: Search DBLP authors
+
+- **WHEN** POST `/api/professors/dblp/search` with `{ "query": "...", "limit": N }`
+- **THEN** 调用 DBLP author search API
+- **AND** 返回作者列表（name、pid、url、affiliations）
+
+#### Scenario: Add professor by DBLP URL
+
+- **WHEN** POST `/api/professors/dblp` with `{ "url": "https://dblp.org/pid/..." }`
+- **THEN** 启动 `single-dblp-crawl` 任务
+- **AND** 将 DBLP 论文合并入 `publications`（`source=dblp`）
+
+#### Scenario: Match external profiles
+
+- **WHEN** POST `/api/professors/{id}/match-external`
+- **THEN** 对未关联 Scholar 的教授启动 Scholar 匹配任务
+- **AND** 对未关联 DBLP 的教授启动 DBLP 匹配任务
+
+#### Scenario: Refresh external data in batch
+
+- **WHEN** POST `/api/professors/batch-refresh-external` with professor ids
+- **THEN** 按教授已有链接分别刷新 Scholar 与 DBLP 源数据
+- **AND** 分源更新 `publications`，互不覆盖另一数据源条目
+
+### Requirement: Dashboard API
+
+系统 SHALL 提供 Dashboard 数据聚合 API。
+
+#### Scenario: Get dashboard statistics
+- **WHEN** GET `/api/dashboard/stats`
+- **AND** 用户已认证
+- **THEN** 返回当前用户的统计数据：
+  - `profile_count`: 简历数量
+  - `professor_count`: 教授数量
+  - `match_count`: 匹配结果数量
+  - `letter_count`: 已生成邮件数量
+
+#### Scenario: Get recent activity
+- **WHEN** GET `/api/dashboard/recent`
+- **AND** 用户已认证
+- **THEN** 返回最近活动数据：
+  - `recent_profiles`: 最近更新的 5 条简历（id, title, updated_at）
+  - `recent_professors`: 最近添加的 5 条教授（id, name, affiliation, created_at）
 

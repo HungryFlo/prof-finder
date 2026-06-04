@@ -1,7 +1,8 @@
 # professor-profile Specification
 
 ## Purpose
-TBD - created by archiving change add-professor-research-profiles. Update Purpose after archive.
+
+定义教授科研画像生成：从论文摘要、研究方向、手动备注等证据构建分析结果与可读研究画像，供匹配嵌入、详情展示与邮件生成优先引用；画像变更时须使语义嵌入缓存失效。
 ## Requirements
 ### Requirement: Professor Research Source Bundle
 The system SHALL assemble a professor research source bundle from stored professor information before generating a research profile.
@@ -59,6 +60,15 @@ The system SHALL build and save a readable professor research profile from struc
 
 The system SHALL store optional explicit `name_locales` on `Professor` (`zh` / `en`) for letters; crawler-created professors remain with empty `name_locales` until the user edits them.
 
+#### Scenario: User sets bilingual display names
+- **WHEN** a user edits a professor and provides `name_locales` for `zh` and/or `en`
+- **THEN** the system persists those values on the professor record
+- **AND** letter generation may use the locale appropriate to the selected letter language
+
+#### Scenario: Crawler-created professor has empty locales
+- **WHEN** a professor is created by a crawler without locale-specific names
+- **THEN** `name_locales` remains empty until the user edits the professor
+
 ### Requirement: Professor Research Profile Downstream Usage
 The system SHALL use generated professor research profile fields to improve matching and letter generation when they are available.
 
@@ -74,6 +84,12 @@ The system SHALL use generated professor research profile fields to improve matc
 #### Scenario: Professors without generated profiles remain usable
 - **WHEN** a professor does not have generated research profile content
 - **THEN** matching and letter generation continue to use existing professor fields
+
+#### Scenario: Auto-generation after professor create or Scholar refresh
+- **WHEN** a professor is created through Scholar crawl, university crawl, manual API create, or Scholar data is refreshed for an existing professor
+- **THEN** the system SHALL run the professor research profile generation pipeline as soon as practicable after persistence
+- **AND** if evidence is insufficient, the pipeline SHALL complete with explicit insufficient-evidence markers per existing sparse-data rules
+- **AND** manually added PDF/ArXiv paper summaries remain available to the analyzer when not removed by a Scholar refresh ruleset
 
 ### Requirement: Paper summarization for research profiles
 

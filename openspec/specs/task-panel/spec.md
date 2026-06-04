@@ -1,7 +1,8 @@
 # task-panel Specification
 
 ## Purpose
-TBD - created by archiving change add-background-task-panel. Update Purpose after archive.
+
+定义 Web 端任务面板 UX 与行为：在界面中展示进行中的后台任务（爬取、解析、匹配、邮件生成等）、进度与结果摘要，并与 SSE 进度端点及任务列表 API 对齐。
 ## Requirements
 ### Requirement: Background Task Execution
 系统 SHALL 将所有长任务（批量爬取、批量邮件生成、单个教授爬取、运行匹配、生成单封邮件、Web 简历解析）在 asyncio 后台协程中执行，执行生命周期与 SSE 连接解耦。

@@ -25,6 +25,8 @@
   - Requests (HTTP客户端)
   - Scholarly (Google Scholar数据抓取，pip install)
 - **LLM Integration**: DeepSeek API
+- **Semantic Matching**: `sentence-transformers` + `Qwen/Qwen3-Embedding-0.6B`（首次经 [ModelScope](https://www.modelscope.cn) 下载至本地 `models/qwen3-embedding-0.6b`）
+- **Task Queue**: Huey (`SqliteHuey`，队列库默认 `data/huey_tasks.db`）
 - **Environment Management**: python-dotenv
 
 ### Data Processing
@@ -237,7 +239,17 @@ docs: update README with installation steps
 **Google Scholar (Scholarly)**
 - 用途: 获取教授论文、引用数据
 - 集成方式: PyPI `scholarly` 包（见 `pyproject.toml`）
-- 注意事项: 可能需要代理或延时避免被限制
+- 注意事项: 可能需要代理或延时避免被限制；用户须自行遵守 Google 与各站点服务条款
+
+**DBLP**
+- 用途: 稳定的 CS 论文书目与作者主页数据
+- 集成方式: 公开 API / 作者 PID 页面
+
+**语义嵌入模型（Qwen3-Embedding-0.6B）**
+- 用途: 学生画像与教授之间的向量相似度匹配
+- 下载: `modelscope.snapshot_download("Qwen/Qwen3-Embedding-0.6B")` 至数据目录下 `models/qwen3-embedding-0.6b`
+- 体积: 约 1.2 GB（因版本与缓存而异，以实际下载为准）
+- 自检: `python scripts/check_modelscope.py` 或 `bash scripts/check_modelscope.sh`
 
 ### External Data Sources
 - **大学官网**: 教授列表页面（用户提供URL）
@@ -264,14 +276,20 @@ SCHOLARLY_PROXY=
 REQUEST_DELAY=3
 ADMIN_USERNAME=root
 ADMIN_PASSWORD=root123
+JWT_SECRET_KEY=your_stable_secret_here
 ```
+
+### Legal and Responsible Use
+
+- 爬虫与第三方数据（Google Scholar、院校网站、DBLP 等）仅供个人学术申请辅助；部署者须遵守各平台 ToS、版权与 robots 规则，并合理设置 `REQUEST_DELAY`。
+- LLM 生成的套磁信与画像内容仅供参考，发送前须人工审阅；项目作者不对滥用爬取或误导性邮件承担责任。
 
 ## Extensibility Considerations
 
 ### 第一版（MVP）范围
 - ✅ 支持LaTeX/Markdown简历解析
-- ✅ Google Scholar教授信息爬取（用户提供链接）
-- ✅ 基于关键词的简单匹配算法
+- ✅ Google Scholar / DBLP 教授信息获取
+- ✅ 基于 Qwen3 嵌入的语义匹配（向量余弦相似度 + 教授嵌入缓存）
 - ✅ DeepSeek API生成联络邮件
 - ✅ CLI命令行交互
 - ✅ SQLite本地存储
@@ -281,8 +299,8 @@ ADMIN_PASSWORD=root123
 - ✅ 前端界面多语言（vue-i18n，如中英切换）
 
 ### 后续扩展方向
-- 🔄 大学官网爬虫适配器（插件化设计）
-- 🔄 更复杂的匹配算法（TF-IDF、向量相似度）
+- 🔄 更多大学官网爬虫适配器（插件化设计）
+- 🔄 匹配链路增强（rerank、多信号融合等）
 - 🔄 支持PDF/DOCX简历格式
 - 🔄 批量导出联络邮件（Markdown/PDF）
 - 🔄 教授数据定期更新机制

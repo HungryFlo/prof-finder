@@ -243,6 +243,11 @@ reference/
 # Claude Code
 .claude/
 
+# Cursor
+.cursor/
+
+AGENTS.md
+
 # Node
 node_modules/
 dist/

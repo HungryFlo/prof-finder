@@ -96,7 +96,7 @@ Prof-Finder 是一款**在本机运行**的研究生导师匹配助手。你的�
 ### 第五步：运行匹配
 
 1. 点击左侧「匹配结果」。
-2. 首次使用需下载约 400 MB 的嵌入模型（需联网，下载完成后自动启用）。
+2. 首次使用需从 [ModelScope](https://www.modelscope.cn/models/Qwen/Qwen3-Embedding-0.6B) 下载嵌入模型 **Qwen/Qwen3-Embedding-0.6B**（约 1.2 GB，需能访问 `www.modelscope.cn`；保存于数据目录下 `models/qwen3-embedding-0.6b`，下载完成后自动启用）。可用 `bash scripts/check_modelscope.sh` 自检网络。
 3. 确认已有激活画像和至少一位教授后，点击「运行匹配」。
 4. 匹配完成后，按匹配度排序的教授列表会显示在页面上。
 
@@ -134,6 +134,7 @@ Prof-Finder 是一款**在本机运行**的研究生导师匹配助手。你的�
 | 浏览器未自动打开 | 手动访问终端/控制台输出的本地地址。 |
 | 匹配按钮无法点击 | 先下载嵌入模型；确保有已激活的画像和至少一位教授。 |
 | Scholar 爬取失败 | 检查网络连接；在「设置」中增大请求延时；稍后重试。 |
+| 嵌入模型下载失败 | 确认能访问 `www.modelscope.cn`；运行 `bash scripts/check_modelscope.sh` 排查代理/DNS；便携版检查数据目录磁盘空间。 |
 | 如何彻底卸载？ | 关闭应用后运行便携包内的卸载脚本，输入 `DELETE` 确认。仅删除解压文件夹不会清除用户数据。 |
 | LLM 功能不可用 | 检查「设置」中是否已配置 DeepSeek API Key，且账户有余额。 |
 
@@ -165,7 +166,7 @@ See `README-PORTABLE.txt` inside the extracted package for the full guide.
 2. **Configure API Key** — Settings → paste your DeepSeek API Key → Save.
 3. **Build a profile** — Student Profiles → Upload resume (`.md`, `.tex`, `.txt`). Enable LLM extraction. Activate one profile for matching.
 4. **Add professors** — Professors → Add via Google Scholar URL (recommended), university batch crawl, or manual entry. Track progress in the task panel.
-5. **Run matching** — Match Results → download the embedding model on first use (~400 MB, requires internet) → Run Match.
+5. **Run matching** — Match Results → on first use, download **Qwen/Qwen3-Embedding-0.6B** from ModelScope (~1.2 GB; requires access to `www.modelscope.cn`) → Run Match.
 6. **Generate letters** — Open a professor from match results → Generate letter → **Review and edit before sending**.
 
 Click **Help** in the top-right corner of the app for the full in-app guide.
@@ -198,6 +199,7 @@ Features that require an API Key: resume LLM parsing, professor research profile
 | Browser didn't open | Manually visit the local URL shown in the terminal/console. |
 | Match button disabled | Download the embedding model first; ensure an active profile and at least one professor exist. |
 | Scholar crawl failed | Check your network; increase request delay in Settings; retry later. |
+| Embedding model download failed | Ensure `www.modelscope.cn` is reachable; run `bash scripts/check_modelscope.sh`; check disk space in your data directory. |
 | How to fully uninstall? | Close the app, run the uninstall script in the package, type `DELETE` to confirm. |
 | LLM features not working | Verify your DeepSeek API Key in Settings and check account balance. |
 
@@ -223,8 +225,8 @@ Features that require an API Key: resume LLM parsing, professor research profile
 git clone https://github.com/HungryFlo/prof-finder.git
 cd prof-finder
 
-# 激活 conda 环境
-source activate prof-finder
+# 激活 conda 环境（环境名 prof-finder，见项目说明）
+conda activate prof-finder
 
 # 安装后端依赖
 poetry install
@@ -284,9 +286,21 @@ REQUEST_DELAY=3  # 请求间隔（秒），避免被封
 ADMIN_USERNAME=root
 ADMIN_PASSWORD=root123
 
-# JWT 配置（可选，自动生成）
-# JWT_SECRET_KEY=your_secret_key
+# JWT 配置（生产/长期运行建议显式设置，否则每次重启会轮换密钥并使已登录会话失效）
+JWT_SECRET_KEY=your_stable_secret_here
 ```
+
+#### 部署与安全提示
+
+- **默认仅本机使用**：服务默认监听本地地址；若绑定 `0.0.0.0` 暴露到局域网或公网，请立即修改默认管理员密码，并为每位用户配置独立账号。
+- **首次登录**：使用默认 `root` / `root123` 后系统会强制修改密码。
+- **开放注册**：Web 端允许自行注册；请勿在不可信网络环境中长期开放实例。
+- **API Key**：DeepSeek Key 保存在本地 SQLite；请勿将数据库目录或 `.env` 提交到版本库或分享给他人。
+
+#### 合规与免责声明
+
+- 爬取 Google Scholar、院校网站、DBLP 等数据时，请遵守各平台服务条款、版权与 robots 规则，并合理设置 `REQUEST_DELAY`。
+- AI 生成的套磁信与画像仅供参考，发送前须人工审阅；作者不对滥用爬取或误导性邮件承担责任。
 
 ### CLI 使用方法
 
@@ -448,7 +462,7 @@ cd frontend && npm run dev
 
 ## License
 
-MIT License
+本项目采用 [MIT License](LICENSE) 开源。
 
 ## 继续优化的方向
 

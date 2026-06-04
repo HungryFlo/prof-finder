@@ -2,7 +2,8 @@
 name = "prof-finder"
 version = "0.1.0"
 description = "A tool to help students find potential PhD/MPhil supervisors"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["lanxin-yi <2721783085@qq.com>", "HungryFlo <youhaofeiyang@foxmail.com>"]
+license = "MIT"
 readme = "README.md"
 packages = [{include = "prof_finder", from = "backend"}]
 

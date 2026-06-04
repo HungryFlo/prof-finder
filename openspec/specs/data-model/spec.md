@@ -1,7 +1,8 @@
 # data-model Specification
 
 ## Purpose
-TBD - created by archiving change add-project-foundation. Update Purpose after archive.
+
+定义 Prof-Finder 的持久化数据模型（用户、学生画像、教授、匹配结果、后台任务、用户设置等）及多用户数据隔离约定，作为 CLI、REST API 与后台任务实现的结构基础。
 ## Requirements
 ### Requirement: User Model
 
@@ -91,11 +92,13 @@ TBD - created by archiving change add-project-foundation. Update Purpose after a
   - `manual_notes`: 用户手工备注（可选）
   - `created_at`: 创建时间
   - `updated_at`: 更新时间
+- **AND** 在爬取入库完成后，系统 SHALL 尽快自动填充英文 `paper_summaries`（可标记 `source_type` 为 `scholar_pub` 等）并生成 `research_profile` 相关字段（在 API/CLI 语义下为异步或同步 pipeline，见 rest-api / cli）
 
 #### Scenario: Store manually added professor
 - **WHEN** 用户手动添加教授
 - **THEN** 至少需要 `name` 字段，其他字段可选
 - **AND** 教授关联到当前用户
+- **AND** 创建完成后系统 SHALL 触发科研画像生成 pipeline（在数据稀疏时按 professor-profile 规范输出不足证据标记）
 
 #### Scenario: Update professor data by manual edit
 - **WHEN** 用户在教授编辑流程中手动修改字段
@@ -113,6 +116,12 @@ TBD - created by archiving change add-project-foundation. Update Purpose after a
 - **AND** 每条总结包含 `title`、`summary`、`keywords` 与来源关联信息
 - **AND** 后续匹配流程可读取这些总结内容
 
+#### Scenario: Persist paper summaries from Scholar publications
+- **WHEN** 系统自动 enrichment pipeline 处理带有 Google Scholar 出版物列表的教授
+- **THEN** 系统 SHALL 将前 N 篇（配置上限）出版物的英文摘要写入 `paper_summaries`
+- **AND** 每条记录 SHALL 可区分来源（例如 `source_type: scholar_pub` 与可选 `scholar_author_pub_id`）
+- **AND** 该行为与 PDF/ArXiv 来源的摘要条目在结构上兼容，供匹配与画像共用
+
 #### Scenario: LLM-generated paper summary
 - **WHEN** 来源输入可提供论文文本内容
 - **THEN** 系统优先使用 LLM 生成 `summary` 与 `keywords`
@@ -123,6 +132,8 @@ TBD - created by archiving change add-project-foundation. Update Purpose after a
 - **AND** 教授有 Google Scholar 链接
 - **THEN** 重新爬取数据并更新记录
 - **AND** 刷新 `updated_at` 时间戳
+- **AND** 系统 SHALL 移除现有 `paper_summaries` 中来自 Scholar 自动摘要的条目（例如 `source_type` 为 `scholar_pub`），SHALL NOT 删除来自 PDF/ArXiv 来源输入的条目
+- **AND** 更新完成后 SHALL 再次运行自动 enrichment 以重建 Scholar 衍生摘要与科研画像
 
 #### Scenario: User-isolated professor pool
 - **WHEN** 用户 A 添加教授
@@ -221,4 +232,45 @@ TBD - created by archiving change add-project-foundation. Update Purpose after a
 - **WHEN** 未来新增个人信息修改页面
 - **THEN** 该页面可直接复用 `SourceInput` 模型与处理流程
 - **AND** 不需要新增一套独立的 PDF/ArXiv 输入数据结构
+
+### Requirement: UserSettings auto-enrichment columns
+
+`user_settings` 表 SHALL 持久化三个布尔列，用于控制写入或 Scholar 同步后的自动教授 enrichment 子步。
+
+#### Scenario: New columns exist after migration
+- **WHEN** 应用在已有数据库上启动并完成迁移
+- **THEN** `user_settings` 包含 `auto_enrich_on_save_fetch_publication_details`、`auto_enrich_on_save_paper_summaries`、`auto_enrich_on_save_research_profile` 列
+- **AND** 现有行的默认值为 true（与历史行为一致）
+
+### Requirement: BackgroundTask Table
+
+系统 SHALL 使用 `background_tasks` 表持久化后台任务状态。
+
+#### Scenario: BackgroundTask schema
+- **WHEN** 数据库初始化
+- **THEN** 创建 `background_tasks` 表，包含以下列：
+  - `id` INTEGER PRIMARY KEY AUTOINCREMENT
+  - `task_id` VARCHAR(36) UNIQUE NOT NULL（UUID）
+  - `task_type` VARCHAR(50) NOT NULL
+  - `task_name` VARCHAR(200) NOT NULL
+  - `user_id` INTEGER NOT NULL REFERENCES users(id)
+  - `status` VARCHAR(20) NOT NULL DEFAULT 'pending'
+  - `total` INTEGER NOT NULL DEFAULT 0
+  - `current` INTEGER NOT NULL DEFAULT 0
+  - `success_count` INTEGER NOT NULL DEFAULT 0
+  - `failed_count` INTEGER NOT NULL DEFAULT 0
+  - `message` TEXT DEFAULT ''
+  - `error_message` TEXT DEFAULT ''
+  - `results` JSON DEFAULT '[]'
+  - `cancel_requested` BOOLEAN DEFAULT FALSE
+  - `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
+  - `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP
+
+#### Scenario: Task ID uniqueness
+- **WHEN** 创建新任务
+- **THEN** `task_id` 使用 UUID4 生成，确保全局唯一
+
+#### Scenario: Cascade on user delete
+- **WHEN** 用户被删除
+- **THEN** 关联的 `background_tasks` 行由外键约束处理（或手动清理）
 

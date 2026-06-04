@@ -1,9 +1,5 @@
-# user-settings Specification
+## MODIFIED Requirements
 
-## Purpose
-
-定义每用户个性化设置：DeepSeek API Key 与 Base URL、爬虫请求延时、教授自动增强开关、LLM 输出语言等；设置保存在本地数据库，读取接口仅返回脱敏后的 API Key。
-## Requirements
 ### Requirement: UserSettings Model
 
 系统 SHALL 定义 UserSettings 模型存储用户个性化配置。
@@ -67,4 +63,3 @@
 #### Scenario: Settings per user
 - **WHEN** 用户请求设置
 - **THEN** 仅返回当前用户的设置
-

@@ -1,7 +1,8 @@
 # student-profile Specification
 
 ## Purpose
-TBD - created by archiving change add-student-profile-materials. Update Purpose after archive.
+
+定义多材料学生学术画像：从简历、研究兴趣、个人陈述等多源文本经分析—构建两阶段 LLM 流程生成结构化画像，供语义匹配与套磁信生成使用；支持 Web 上传、手动字段与画像激活状态。
 ## Requirements
 ### Requirement: Multi-Material Student Profile Intake
 The system SHALL allow Web users to create a student academic profile from multiple text-based materials and direct manual text in a single profile generation request.

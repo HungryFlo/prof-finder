@@ -1,7 +1,8 @@
 # auth Specification
 
 ## Purpose
-TBD - created by archiving change add-vue-web-frontend. Update Purpose after archive.
+
+定义 Web 多用户认证：注册与登录、JWT 访问/刷新令牌、首次登录与管理员重置后的强制改密，以及管理员对用户密码的重置能力。面向本地部署场景，凭据保存在用户自选的 SQLite 数据库中。
 ## Requirements
 ### Requirement: User Registration
 
@@ -11,7 +12,7 @@ TBD - created by archiving change add-vue-web-frontend. Update Purpose after arc
 - **WHEN** 用户提交有效的用户名和密码
 - **AND** 用户名未被占用
 - **THEN** 创建新用户账户
-- **AND** 密码以 bcrypt 哈希存储
+- **AND** 密码以带随机盐的 SHA-256 单向哈希存储（`salt$hash` 格式）
 - **AND** 返回成功响应
 
 #### Scenario: Username already exists

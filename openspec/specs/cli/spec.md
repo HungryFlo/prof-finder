@@ -1,7 +1,8 @@
 # cli Specification
 
 ## Purpose
-TBD - created by archiving change add-project-foundation. Update Purpose after archive.
+
+定义 `prof-finder` 命令行入口及子命令（简历上传、教授管理、匹配、邮件生成等），供脚本化与无 Web 界面场景使用；与 Web API 共享同一数据模型与业务逻辑。
 ## Requirements
 ### Requirement: Application Entry Point
 
@@ -98,13 +99,13 @@ TBD - created by archiving change add-project-foundation. Update Purpose after a
 - **THEN** 系统从 Google Scholar 爬取教授信息
 - **AND** 显示爬取结果供用户确认
 - **AND** 保存到数据库
+- **AND** 保存完成后 SHALL 同步运行与 Web 端一致的 enrichment pipeline（论文摘要上限与画像生成），完成后方可返回提示
 
 #### Scenario: Add manually
 - **WHEN** 用户执行 `prof-finder professor add --name "Dr. Smith" --affiliation "Stanford CS"`
 - **THEN** 保存基本信息到数据库
 - **AND** 提示用户可补充 Google Scholar 链接以获取更多数据
-
----
+- **AND** SHALL 在保存后同步运行科研画像生成 pipeline（基于已有字段，可为稀疏证据输出）
 
 ### Requirement: Professor List Command
 

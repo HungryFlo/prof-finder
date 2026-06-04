@@ -1,7 +1,8 @@
 # resume-parser Specification
 
 ## Purpose
-TBD - created by archiving change add-project-foundation. Update Purpose after archive.
+
+定义简历与相关学术文本的解析能力：统一解析器接口，支持 Markdown/LaTeX/纯文本，可选 DeepSeek LLM 语义提取，并在失败时回退到规则/正则解析。
 ## Requirements
 ### Requirement: Parser Interface
 
