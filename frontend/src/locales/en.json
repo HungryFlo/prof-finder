@@ -629,26 +629,14 @@
     "apiKeyHint": "Please configure your DeepSeek API Key in Settings and retry"
   },
   "source": {
-    "title": "Source Input (PDF / ArXiv)",
-    "uploadPdf": "Upload PDF",
+    "title": "Source Input (ArXiv)",
     "addArxiv": "Add ArXiv Link",
-    "retryParse": "Retry PDF Parse",
     "arxivPlaceholder": "Enter ArXiv URL (e.g., https://arxiv.org/abs/...)",
-    "metadataOnlyHint": "Metadata saved, retry PDF parsing later",
-    "parseStatus": "Parse Status",
-    "pending": "Pending",
-    "processing": "Processing",
     "succeeded": "Succeeded",
     "failed": "Failed",
-    "processingPdfTag": "Processing PDF…",
-    "retryParseFailedSoon": "Could not fetch PDF yet; try again later",
-    "retryParseOk": "Parse retry succeeded",
-    "pdfUploadedOk": "PDF uploaded and parsed",
-    "pdfProcessFail": "PDF processing failed",
     "needArxivUrl": "Enter an ArXiv URL",
     "arxivAddedOk": "ArXiv source added",
-    "arxivAddFail": "Failed to add ArXiv source",
-    "retryParseFail": "Retry failed"
+    "arxivAddFail": "Failed to add ArXiv source"
   },
   "help": {
     "title": "Help",

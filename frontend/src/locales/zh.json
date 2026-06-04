@@ -629,26 +629,14 @@
     "apiKeyHint": "请先在设置中配置 DeepSeek API Key 后重试"
   },
   "source": {
-    "title": "来源输入（PDF / ArXiv）",
-    "uploadPdf": "上传 PDF",
+    "title": "来源输入（ArXiv）",
     "addArxiv": "添加 ArXiv 链接",
-    "retryParse": "重试 PDF 解析",
     "arxivPlaceholder": "输入 ArXiv 链接（如 https://arxiv.org/abs/...）",
-    "metadataOnlyHint": "已保存元数据，稍后可重试 PDF 解析",
-    "parseStatus": "解析状态",
-    "pending": "待处理",
-    "processing": "处理中",
     "succeeded": "已完成",
     "failed": "失败",
-    "processingPdfTag": "PDF 处理中...",
-    "retryParseFailedSoon": "重试失败，请稍后再试",
-    "retryParseOk": "重试解析成功",
-    "pdfUploadedOk": "PDF 上传并解析成功",
-    "pdfProcessFail": "PDF 处理失败",
     "needArxivUrl": "请输入 ArXiv 链接",
     "arxivAddedOk": "ArXiv 来源已添加",
-    "arxivAddFail": "ArXiv 添加失败",
-    "retryParseFail": "重试失败"
+    "arxivAddFail": "ArXiv 添加失败"
   },
   "help": {
     "title": "使用帮助",

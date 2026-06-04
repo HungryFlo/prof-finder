@@ -60,4 +60,14 @@ Prof-Finder 建立在众多优秀的开源项目之上，特此感谢（排名�
 
 ## License
 
-[MIT License](LICENSE)
+Prof-Finder is released under the [MIT License](LICENSE).
+
+Third-party components (Python, frontend, runtime models, and external services) are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Portable release archives include the same
+`LICENSE` and `THIRD_PARTY_NOTICES.md` files.
+
+To refresh the notices after dependency changes:
+
+```bash
+python scripts/generate_third_party_notices.py
+```

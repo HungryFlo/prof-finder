@@ -94,6 +94,14 @@ def build_executable() -> Path:
     return executable
 
 
+def copy_license_notices(target_dir: Path) -> None:
+    """Ship project MIT license and third-party notices with portable packages."""
+    for filename in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
+        source = REPO_ROOT / filename
+        if source.is_file():
+            shutil.copy2(source, target_dir / filename)
+
+
 def write_portable_readme(target_dir: Path) -> None:
     (target_dir / "README-PORTABLE.txt").write_text(
         """Prof-Finder 便携版用户指南
@@ -308,6 +316,13 @@ Uninstall
 
 The uninstall script asks you to type DELETE, then removes your data folder, model folder, and this app folder.
 This action is irreversible. Deleting the extracted folder alone does NOT remove user data.
+
+【许可信息 / License】
+
+  LICENSE — Prof-Finder MIT license
+  THIRD_PARTY_NOTICES.md — third-party open-source components
+
+================================================================================
 """,
         encoding="utf-8",
     )
@@ -337,6 +352,7 @@ def create_archive(executable: Path, platform_tag: str) -> Path:
                 shutil.copy2(item, target)
     else:
         shutil.copy2(executable, staging_dir / executable.name)
+    copy_license_notices(staging_dir)
     write_portable_readme(staging_dir)
     write_uninstall_script(staging_dir, platform_tag)
 

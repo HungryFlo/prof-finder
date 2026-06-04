@@ -307,7 +307,7 @@ class SourceInput(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     professor_id = Column(Integer, ForeignKey("professors.id"), nullable=True, index=True)
 
-    source_type = Column(String(20), nullable=False)  # "pdf" | "arxiv"
+    source_type = Column(String(20), nullable=False)  # "arxiv" (legacy rows may have "pdf")
     original_name = Column(String(500))
     source_url = Column(String(1000))
     canonical_id = Column(String(50))

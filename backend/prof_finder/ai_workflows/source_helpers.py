@@ -85,7 +85,7 @@ def build_paper_summary_from_source(
     """Build a structured paper summary record from one source input.
 
     Args:
-        source_input: Dict with source_type, title, abstract, extracted_markdown, etc.
+        source_input: Dict with source_type, title, abstract, etc.
         provider: Optional LLM provider.
         language: Output language.
 
@@ -93,22 +93,16 @@ def build_paper_summary_from_source(
         Dict with source_input_id, source_type, title, summary, keywords, or None.
     """
     source_type = source_input.get("source_type")
-    if source_type not in {"pdf", "arxiv"}:
+    if source_type != "arxiv":
         return None
 
     title = (source_input.get("title") or "").strip()
-    if not title:
-        title = (source_input.get("original_name") or "").strip()
     if not title and source_input.get("canonical_id"):
         title = f"arXiv:{source_input.get('canonical_id')}"
     if not title:
         title = "Untitled Paper"
 
-    raw_content = ""
-    if source_type == "arxiv":
-        raw_content = source_input.get("abstract") or ""
-    else:
-        raw_content = source_input.get("extracted_markdown") or source_input.get("extracted_text") or ""
+    raw_content = source_input.get("abstract") or ""
 
     result = summarize_paper(
         source_type=source_type,

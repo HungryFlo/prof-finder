@@ -139,6 +139,13 @@ python scripts/build_portable.py
 - 队列库默认 `data/huey_tasks.db`（`HUEY_DB_PATH`）
 - Worker 数默认 2（`HUEY_CONSUMER_WORKERS`）
 
+## 许可证与第三方声明
+
+- 本项目代码：[MIT License](../LICENSE)
+- 第三方组件清单：[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)（Python 生产依赖、前端 npm 生产依赖、嵌入模型与外部服务）
+- 更新依赖后请执行：`python scripts/generate_third_party_notices.py`（需 `poetry install --with dev` 与 `frontend/node_modules`）
+- 便携包构建会自动复制 `LICENSE` 与 `THIRD_PARTY_NOTICES.md` 到发行目录
+
 ## 规格说明
 
 功能规格与变更历史见 [`openspec/`](../openspec/) 目录；协作流程见 [`openspec/AGENTS.md`](../openspec/AGENTS.md)。

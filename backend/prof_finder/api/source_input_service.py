@@ -1,11 +1,8 @@
-"""Shared helpers for SourceInput ingestion (PDF + ArXiv)."""
+"""Shared helpers for SourceInput ingestion (ArXiv)."""
 
 from __future__ import annotations
 
-import os
 import re
-import tempfile
-from pathlib import Path
 from typing import Dict, Optional
 from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
@@ -14,19 +11,6 @@ import requests
 
 
 ARXIV_API_URL = "https://export.arxiv.org/api/query"
-
-
-def extract_markdown_from_pdf(pdf_path: Path) -> str:
-    """Extract markdown text from PDF using pymupdf4llm."""
-    try:
-        import pymupdf4llm  # type: ignore
-    except Exception as exc:  # pragma: no cover - dependency/runtime issue
-        raise RuntimeError("pymupdf4llm not available") from exc
-
-    markdown = pymupdf4llm.to_markdown(str(pdf_path))
-    if not isinstance(markdown, str):
-        raise RuntimeError("PDF markdown extraction returned invalid data")
-    return markdown
 
 
 def normalize_arxiv_id(url: str) -> str:
@@ -89,31 +73,6 @@ def fetch_arxiv_metadata(canonical_id: str, timeout: int = 15) -> Dict[str, Opti
     }
 
 
-def download_to_temp_file(url: str, suffix: str = ".pdf", timeout: int = 30) -> Path:
-    """Download URL content to a temporary file and return path."""
-    fd, temp_path = tempfile.mkstemp(suffix=suffix)
-    os.close(fd)  # Close leaked file descriptor
-    Path(temp_path).unlink(missing_ok=True)
-    target = Path(temp_path)
-    response = requests.get(url, timeout=timeout, stream=True)
-    response.raise_for_status()
-    with open(target, "wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            f.write(chunk)
-    return target
-
-
-def safe_delete_file(path: Optional[str]) -> None:
-    """Best-effort temporary file cleanup."""
-    if not path:
-        return
-    try:
-        Path(path).unlink(missing_ok=True)
-    except Exception:
-        # Cleanup failures are non-fatal by design.
-        return
-
-
 def _text_or_none(node: Optional[ET.Element]) -> Optional[str]:
     if node is None or node.text is None:
         return None
@@ -172,12 +131,10 @@ def build_paper_summary_from_scholar_publication(
 def build_paper_summary_from_source(source_input: dict, summarizer=None, language: str = "zh") -> Optional[dict]:
     """Build a structured paper summary record from one source input."""
     source_type = source_input.get("source_type")
-    if source_type not in {"pdf", "arxiv"}:
+    if source_type != "arxiv":
         return None
 
     title = (source_input.get("title") or "").strip()
-    if not title:
-        title = (source_input.get("original_name") or "").strip()
     if not title and source_input.get("canonical_id"):
         title = f"arXiv:{source_input.get('canonical_id')}"
     if not title:
@@ -185,11 +142,7 @@ def build_paper_summary_from_source(source_input: dict, summarizer=None, languag
 
     summary = ""
     keywords: list[str] = []
-    raw_content = ""
-    if source_type == "arxiv":
-        raw_content = source_input.get("abstract") or ""
-    else:
-        raw_content = source_input.get("extracted_markdown") or source_input.get("extracted_text") or ""
+    raw_content = source_input.get("abstract") or ""
 
     if summarizer is not None:
         llm_result = summarizer.summarize_with_fallback(
