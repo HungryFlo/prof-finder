@@ -30,7 +30,15 @@ import { sourceInputsApi } from '@/api/source-inputs'
 import { useApiError } from '@/composables/useApiError'
 import { useTaskStore } from '@/stores/tasks'
 import { useFormatDate } from '@/composables/useDateLocale'
-import type { PaperSummary, Professor, Publication, SourceInput } from '@/types'
+import type { DblpCandidate, PaperSummary, Professor, Publication, SourceInput } from '@/types'
+
+function dblpCandidateUrl(c: DblpCandidate): string {
+  const url = c.url?.trim()
+  if (url) return url
+  const pid = c.pid?.trim().replace(/^\/+|\/+$/g, '')
+  if (!pid) return ''
+  return `https://dblp.org/pid/${pid}.html`
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -545,21 +553,32 @@ watch(
           <n-form-item :label="$t('professor.homepage')">
             <n-space vertical style="width: 100%">
               <n-input v-model:value="form.homepage" />
-              <n-tooltip :disabled="hasHomepageUrl">
-                <template #trigger>
-                  <n-button
-                    size="small"
-                    secondary
-                    type="primary"
-                    :disabled="!hasHomepageUrl"
-                    :loading="crawlHomepageLoading"
-                    @click="handleCrawlHomepage"
-                  >
-                    {{ $t('professor.crawlHomepage') }}
-                  </n-button>
-                </template>
-                {{ $t('professor.crawlHomepageNoUrl') }}
-              </n-tooltip>
+              <n-space>
+                <n-tooltip :disabled="hasHomepageUrl">
+                  <template #trigger>
+                    <n-button
+                      size="small"
+                      secondary
+                      type="primary"
+                      :disabled="!hasHomepageUrl"
+                      :loading="crawlHomepageLoading"
+                      @click="handleCrawlHomepage"
+                    >
+                      {{ $t('professor.crawlHomepage') }}
+                    </n-button>
+                  </template>
+                  {{ $t('professor.crawlHomepageNoUrl') }}
+                </n-tooltip>
+                <a
+                  v-if="form.homepage"
+                  :href="form.homepage"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="font-size: 13px"
+                >
+                  {{ $t('professor.openHomepage') }}
+                </a>
+              </n-space>
             </n-space>
           </n-form-item>
           <n-form-item :label="$t('professor.scholarFormLabel')">
@@ -657,7 +676,17 @@ watch(
                 <strong>{{ c.name }}</strong>
               </n-radio>
               <div style="margin-left: 24px; margin-top: 4px; font-size: 13px; color: var(--muted-foreground)">
-                <span v-if="c.affiliation">{{ c.affiliation }}</span>
+                <div v-if="c.affiliation">{{ c.affiliation }}</div>
+                <div v-if="dblpCandidateUrl(c)" style="margin-top: 4px">
+                  <a
+                    :href="dblpCandidateUrl(c)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    @click.stop
+                  >
+                    {{ dblpCandidateUrl(c) }}
+                  </a>
+                </div>
               </div>
             </div>
           </n-space>

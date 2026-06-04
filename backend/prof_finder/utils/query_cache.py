@@ -3,25 +3,36 @@
 import time
 from typing import Any, Optional, Tuple
 
-# {user_id: (timestamp, UserProfile)}
-_active_profile_cache: dict[int, Tuple[float, Any]] = {}
+# {user_id: (timestamp, active_profile_id or None)}
+_active_profile_cache: dict[int, Tuple[float, Optional[int]]] = {}
 _ACTIVE_PROFILE_TTL = 30  # seconds
 
 
 def get_active_profile(session: Any, user_id: int) -> Optional[Any]:
-    """Return the active UserProfile for *user_id*, using a short-lived cache."""
+    """Return the active UserProfile for *user_id*, using a short-lived cache.
+
+    Only the profile id is cached — never ORM instances, which become detached
+    when the request session closes.
+    """
     from ..models.schema import UserProfile
 
     cached = _active_profile_cache.get(user_id)
     if cached and (time.time() - cached[0]) < _ACTIVE_PROFILE_TTL:
-        return cached[1]
+        profile_id = cached[1]
+        if profile_id is None:
+            return None
+        return (
+            session.query(UserProfile)
+            .filter(UserProfile.id == profile_id, UserProfile.user_id == user_id)
+            .first()
+        )
 
     profile = (
         session.query(UserProfile)
         .filter(UserProfile.user_id == user_id, UserProfile.is_active.is_(True))
         .first()
     )
-    _active_profile_cache[user_id] = (time.time(), profile)
+    _active_profile_cache[user_id] = (time.time(), profile.id if profile else None)
     return profile
 
 

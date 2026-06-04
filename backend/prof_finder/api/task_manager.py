@@ -323,7 +323,6 @@ from .enrichment_prefs import (  # noqa: E402
     AutoEnrichFlags,
     any_auto_enrich_substep_enabled,
     flags_from_user_settings_row,
-    planned_enrichment_step_count,
     planned_enrichment_step_count_for_professor,
 )
 
@@ -379,6 +378,13 @@ def execute_batch_crawl(task_id: str, scholar_urls: List[str]) -> None:
                             h_index=author_data.get("h_index"),
                             total_citations=author_data.get("citations"),
                         )
+                        from ..utils.name_locales import (
+                            apply_inferred_locales_from_name,
+                            merge_name_locales,
+                        )
+
+                        apply_inferred_locales_from_name(professor)
+                        merge_name_locales(professor, en=author_data.get("name"))
                         session.add(professor)
                         session.flush()
                         new_professor_ids.append(professor.id)
@@ -782,10 +788,18 @@ def execute_single_crawl(task_id: str, scholar_url: str) -> None:
                 )
                 .first()
             )
+            from ..utils.name_locales import (
+                apply_inferred_locales_from_name,
+                apply_scholar_name_update,
+                merge_name_locales,
+            )
+
             if existing:
                 # Professor already linked — update Scholar data in place
                 professor = existing
-                professor.affiliation = author_data.get("affiliation") or professor.affiliation
+                from ..utils.profile_merge import apply_external_affiliation
+
+                apply_external_affiliation(professor, author_data.get("affiliation"))
                 professor.email = author_data.get("email") or professor.email
                 professor.homepage = author_data.get("homepage") or professor.homepage
                 professor.google_scholar_url = scholar_url
@@ -799,6 +813,7 @@ def execute_single_crawl(task_id: str, scholar_url: str) -> None:
                 )
                 professor.h_index = author_data.get("h_index") or professor.h_index
                 professor.total_citations = author_data.get("citations") or professor.total_citations
+                apply_scholar_name_update(professor, author_data.get("name"))
             else:
                 professor = Professor(
                     user_id=task.user_id,
@@ -814,6 +829,8 @@ def execute_single_crawl(task_id: str, scholar_url: str) -> None:
                     total_citations=author_data.get("citations"),
                     source="google_scholar",
                 )
+                apply_inferred_locales_from_name(professor)
+                merge_name_locales(professor, en=author_data.get("name"))
                 session.add(professor)
 
             session.flush()
@@ -1157,6 +1174,10 @@ def execute_university_crawl(task_id: str, university_id: str) -> None:
 
     from ..models.schema import University
     from ..utils.professor_dedup import find_matching_professor
+    from ..utils.url_utils import normalize_school_crawl_professors
+
+    crawl_base = getattr(crawler, "crawl_base_url", "") or ""
+    normalize_school_crawl_professors(professors_data, crawl_base)
 
     with db.session() as session:
         user_universities = (
@@ -1308,7 +1329,7 @@ def execute_batch_dblp_match(
             row.request_delay if row and row.request_delay else app_settings.request_delay
         )
 
-    dblp_client = DblpClient(request_delay=0)
+    dblp_client = DblpClient(request_delay=request_delay)
     matched_ids: List[int] = []
 
     def _finish_cancelled() -> None:
@@ -1377,8 +1398,15 @@ def execute_batch_dblp_match(
                         author_data.get("publications") or [],
                         "dblp",
                     )
-                    if author_data.get("affiliation"):
-                        professor.affiliation = author_data["affiliation"]
+                    from ..utils.profile_merge import apply_external_affiliation
+
+                    apply_external_affiliation(professor, author_data.get("affiliation"))
+                from ..utils.name_locales import apply_dblp_name_update
+
+                en_name = match_result.get("dblp_name") or (
+                    author_data.get("name") if author_data else None
+                )
+                apply_dblp_name_update(professor, en_name)
                 matched_ids.append(pid)
             elif match_result.get("status") == "ambiguous":
                 professor.dblp_enrichment_status = "ambiguous"
@@ -1456,9 +1484,11 @@ def execute_single_dblp_crawl(task_id: str, dblp_url: str) -> None:
             )
             if existing:
                 professor = existing
-                professor.name = author_data.get("name") or professor.name
-                if author_data.get("affiliation"):
-                    professor.affiliation = author_data["affiliation"]
+                from ..utils.profile_merge import apply_external_affiliation
+                from ..utils.name_locales import apply_dblp_name_update
+
+                apply_dblp_name_update(professor, author_data.get("name"))
+                apply_external_affiliation(professor, author_data.get("affiliation"))
                 professor.dblp_url = profile_url
                 professor.publications = merge_publications(
                     professor.publications,
@@ -1477,6 +1507,13 @@ def execute_single_dblp_crawl(task_id: str, dblp_url: str) -> None:
                     ),
                     source="dblp",
                 )
+                from ..utils.name_locales import (
+                    apply_inferred_locales_from_name,
+                    merge_name_locales,
+                )
+
+                apply_inferred_locales_from_name(professor)
+                merge_name_locales(professor, en=author_data.get("name"))
                 session.add(professor)
 
             session.flush()
@@ -1572,6 +1609,13 @@ def execute_batch_dblp_crawl(task_id: str, dblp_urls: List[str]) -> None:
                     ),
                     source="dblp",
                 )
+                from ..utils.name_locales import (
+                    apply_inferred_locales_from_name,
+                    merge_name_locales,
+                )
+
+                apply_inferred_locales_from_name(professor)
+                merge_name_locales(professor, en=author_data.get("name"))
                 session.add(professor)
                 session.flush()
                 new_professor_ids.append(professor.id)
@@ -1727,6 +1771,10 @@ def execute_generic_university_crawl(task_id: str, config_id: int, cache_key: st
         persist_task(task)
         return
 
+    from ..utils.url_utils import normalize_school_crawl_professors
+
+    normalize_school_crawl_professors(professors_data, config_data["list_url"])
+
     do_dblp_match = bool(university_variants)
     logger.info(
         "DBLP matching decision: do_dblp_match=%s, university_variants=%s (university_id=%s)",
@@ -1795,6 +1843,9 @@ def execute_generic_university_crawl(task_id: str, config_id: int, cache_key: st
                     source="school_crawler",
                     dblp_enrichment_status="pending" if do_dblp_match else None,
                 )
+                from ..utils.name_locales import apply_inferred_locales_from_name
+
+                apply_inferred_locales_from_name(professor)
                 session.add(professor)
                 session.flush()
                 new_professor_ids.append(professor.id)
@@ -2062,11 +2113,7 @@ def execute_professor_enrichment(task_id: str, professor_id: int) -> None:
             persist_task(task)
             return
 
-        planned = planned_enrichment_step_count(
-            has_scholar=bool(professor.google_scholar_id),
-            publications=list(professor.publications or []),
-            flags=flags,
-        )
+        planned = planned_enrichment_step_count_for_professor(professor, flags)
         prof_name = professor.name
 
     task.total = planned
@@ -2858,13 +2905,16 @@ def execute_batch_refresh(
                 )
                 if professor:
                     from .source_input_service import keep_non_scholar_paper_summaries
+                    from ..utils.name_locales import apply_scholar_name_update
                     from ..utils.publication_merge import merge_publications
 
                     professor.paper_summaries = keep_non_scholar_paper_summaries(
                         professor.paper_summaries or []
                     )
-                    professor.name = author_data["name"]
-                    professor.affiliation = author_data.get("affiliation")
+                    from ..utils.profile_merge import apply_external_affiliation
+
+                    apply_scholar_name_update(professor, author_data.get("name"))
+                    apply_external_affiliation(professor, author_data.get("affiliation"))
                     professor.email = author_data.get("email") or professor.email
                     professor.homepage = author_data.get("homepage") or professor.homepage
                     professor.research_interests = author_data.get("interests", [])
@@ -2989,8 +3039,10 @@ def execute_batch_refresh_dblp(
                     .first()
                 )
                 if professor:
-                    if author_data.get("affiliation"):
-                        professor.affiliation = author_data["affiliation"]
+                    from ..utils.name_locales import apply_dblp_name_update
+                    from ..utils.profile_merge import apply_external_affiliation
+
+                    apply_external_affiliation(professor, author_data.get("affiliation"))
                     professor.publications = merge_publications(
                         professor.publications,
                         author_data.get("publications", []),
@@ -3000,6 +3052,7 @@ def execute_batch_refresh_dblp(
                         professor.paper_summaries or [], {"dblp_pub"}
                     )
                     professor.dblp_url = author_data.get("dblp_url") or professor.dblp_url
+                    apply_dblp_name_update(professor, author_data.get("name"))
                     professor.embedding = None
 
             task.success_count += 1

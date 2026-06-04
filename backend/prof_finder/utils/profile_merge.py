@@ -116,6 +116,30 @@ def merge_profile_into_dict(prof: dict, extracted: dict) -> dict:
     return prof
 
 
+def has_stored_affiliation(affiliation: Optional[str]) -> bool:
+    """True when the professor already has a non-empty school/affiliation string."""
+    return bool((affiliation or "").strip())
+
+
+def merge_external_affiliation(
+    current: Optional[str],
+    incoming: Optional[str],
+) -> Optional[str]:
+    """Keep existing affiliation when set; otherwise take DBLP/Scholar value."""
+    if has_stored_affiliation(current):
+        return (current or "").strip() or None
+    if incoming is None:
+        return None
+    stripped = str(incoming).strip()
+    return stripped or None
+
+
+def apply_external_affiliation(professor: Any, incoming: Optional[str]) -> None:
+    """Update professor.affiliation from DBLP/Scholar only if not already set."""
+    merged = merge_external_affiliation(professor.affiliation, incoming)
+    professor.affiliation = merged
+
+
 def apply_profile_merge_to_professor(professor: Any, extracted: dict) -> None:
     """Apply merge to a Professor ORM instance in place."""
     merged = merge_profile_fields(

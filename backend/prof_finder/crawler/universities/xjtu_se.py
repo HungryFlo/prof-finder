@@ -44,6 +44,7 @@ class XJTUSECrawler(UniversityCrawlerBase):
 
     university_id = "xjtu-se"
     display_name = "西安交通大学 - 软件学院"
+    crawl_base_url = _SE_BASE_URL
 
     def crawl_all(self, delay: float = 2.0) -> list[dict]:
         """Crawl list page then enrich each teacher from detail page when possible."""

@@ -12,6 +12,7 @@ from typing import Callable, Optional
 from .css_extractor import extract_professors_css
 from .llm_extractor import extract_professors_llm
 from .profile_extractor import enrich_profiles_for_batch
+from ...utils.url_utils import normalize_school_crawl_professors, resolve_absolute_url
 
 logger = logging.getLogger(__name__)
 
@@ -109,12 +110,15 @@ class GenericUniversityCrawler:
         if not normalized:
             return normalized
 
+        normalize_school_crawl_professors(normalized, self.list_url)
+
         return enrich_profiles_for_batch(
             normalized,
             delay=delay,
             api_key=self.api_key,
             base_url=self.base_url,
             model=self.model,
+            page_base_url=self.list_url,
             send_progress=send_progress,
             cancel_checker=cancel_checker,
         )
@@ -123,11 +127,17 @@ class GenericUniversityCrawler:
         """Normalize raw extraction results to a consistent format."""
         normalized: list[dict] = []
         for item in raw:
+            raw_homepage = (item.get("homepage") or item.get("url") or "").strip()
+            homepage = (
+                resolve_absolute_url(raw_homepage, self.list_url)
+                if raw_homepage
+                else None
+            )
             prof: dict = {
                 "name": item.get("name", "").strip(),
                 "affiliation": item.get("affiliation", self.affiliation or self.display_name),
                 "email": item.get("email"),
-                "homepage": item.get("homepage") or item.get("url"),
+                "homepage": homepage,
                 "research_interests": item.get("research_interests") or [],
                 "title": item.get("title"),
                 "photo_url": item.get("photo_url"),

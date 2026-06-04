@@ -17,10 +17,6 @@ import {
   NDynamicTags,
   NRadioGroup,
   NRadio,
-  NSpin,
-  NEmpty,
-  NTabs,
-  NTabPane,
   NAlert,
   NSwitch,
   NSelect,
@@ -31,7 +27,7 @@ import type { DataTableColumns } from 'naive-ui'
 import { professorsApi } from '@/api/professors'
 import { universitiesApi, type University } from '@/api/universities'
 import { useApiError } from '@/composables/useApiError'
-import type { UniversityCrawlerInfo, CrawlerTestResponse } from '@/api/professors'
+import type { CrawlerTestResponse } from '@/api/professors'
 import { useTaskStore } from '@/stores/tasks'
 import ProfessorSummaryDrawer from '@/components/ProfessorSummaryDrawer.vue'
 import type { ProfessorListItem, PaginatedResponse } from '@/types'
@@ -63,11 +59,6 @@ const dblpLoading = ref(false)
 const dblpUrl = ref('')
 
 const showUniversityModal = ref(false)
-const universityLoading = ref(false)
-const universityCrawlers = ref<UniversityCrawlerInfo[]>([])
-const selectedUniversityId = ref<string>('')
-const crawlersLoading = ref(false)
-const universityModalTab = ref<'builtin' | 'custom'>('builtin')
 
 // Custom crawler form state
 const customCrawlerForm = ref({
@@ -75,7 +66,7 @@ const customCrawlerForm = ref({
   university: '',
   department: '',
   list_url: '',
-  extraction_mode: 'css' as 'css' | 'llm',
+  extraction_mode: 'llm' as 'css' | 'llm',
   affiliation: '',
   css_card: '',
   css_name: '',
@@ -171,7 +162,11 @@ const columns = computed<DataTableColumns<ProfessorListItem>>(() => [
         { size: 'small' },
         () =>
           row.research_interests.slice(0, 3).map((interest) =>
-            h(NTag, { size: 'small', type: 'info' }, { default: () => interest })
+            h(
+              NTag,
+              { size: 'small', type: 'info', style: 'max-width: 120px' },
+              { default: () => h('span', { style: 'display:inline-block;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom' }, interest) }
+            )
           )
       )
     },
@@ -180,7 +175,7 @@ const columns = computed<DataTableColumns<ProfessorListItem>>(() => [
   {
     title: 'DBLP',
     key: 'dblp_enrichment_status',
-    width: 110,
+    width: 130,
     render(row) {
       if (row.dblp_pid) {
         return h(NTag, { size: 'small', type: 'success' }, { default: () => t('professor.dblpMatched') })
@@ -194,36 +189,32 @@ const columns = computed<DataTableColumns<ProfessorListItem>>(() => [
       if (row.dblp_enrichment_status === 'not_found') {
         return h(NTag, { size: 'small', type: 'default' }, { default: () => t('professor.dblpNotFound') })
       }
-      return null
+      const extLoading = externalMatchLoadingIds.value.has(row.id)
+      return h(
+        NButton,
+        {
+          size: 'small',
+          type: 'info',
+          secondary: true,
+          loading: extLoading,
+          disabled: extLoading,
+          onClick: () => handleMatchDblp(row),
+        },
+        { default: () => t('professor.matchDblp') }
+      )
     },
   },
   {
     title: t('professor.actions'),
     key: 'actions',
-    width: 360,
+    width: 200,
     render(row) {
-      const extLoading = externalMatchLoadingIds.value.has(row.id)
-      const needsDblp = !row.dblp_pid
       return h(NSpace, { size: 'small', wrap: true }, () => [
         h(
           NButton,
           { size: 'small', type: 'primary', onClick: () => router.push(`/professor/${row.id}`) },
           { default: () => t('professor.tableDetail') }
         ),
-        needsDblp
-          ? h(
-              NButton,
-              {
-                size: 'small',
-                type: 'info',
-                secondary: true,
-                loading: extLoading,
-                disabled: extLoading,
-                onClick: () => handleMatchDblp(row),
-              },
-              { default: () => t('professor.matchDblp') }
-            )
-          : null,
         h(
           NPopconfirm,
           { onPositiveClick: () => handleDelete(row.id) },
@@ -240,44 +231,12 @@ const columns = computed<DataTableColumns<ProfessorListItem>>(() => [
 
 async function openUniversityModal() {
   showUniversityModal.value = true
-  if (universityCrawlers.value.length === 0) {
-    crawlersLoading.value = true
+  if (universityList.value.length === 0) {
     try {
-      const [crawlers, unis] = await Promise.all([
-        professorsApi.getUniversityCrawlers(),
-        universitiesApi.list().catch(() => []),
-      ])
-      universityCrawlers.value = crawlers
-      universityList.value = unis
-      if (universityCrawlers.value.length > 0) {
-        const first = universityCrawlers.value[0]
-        if (first) {
-          selectedUniversityId.value = first.university_id
-        }
-      }
+      universityList.value = await universitiesApi.list().catch(() => [])
     } catch (error: unknown) {
       handleApiError(error, t('professor.fetchUniversityFailed'))
-    } finally {
-      crawlersLoading.value = false
     }
-  }
-}
-
-async function handleCrawlUniversity() {
-  if (!selectedUniversityId.value) {
-    message.warning(t('professor.selectUniversity'))
-    return
-  }
-  universityLoading.value = true
-  try {
-    const { task_id, message: msg } = await professorsApi.crawlUniversity(selectedUniversityId.value)
-    showUniversityModal.value = false
-    message.success(msg || t('professor.crawlTaskStarted'))
-    taskStore.addTask(task_id, 'university-crawl', t('professor.univImportTask'), 0, afterImportTasksComplete)
-  } catch (error: unknown) {
-    handleApiError(error, t('professor.startTaskFailed'))
-  } finally {
-    universityLoading.value = false
   }
 }
 
@@ -705,49 +664,6 @@ onMounted(() => {
       style="width: 640px"
       :bordered="false"
     >
-      <n-tabs v-model:value="universityModalTab" type="line">
-        <!-- Built-in crawlers tab -->
-        <n-tab-pane :name="'builtin'" :tab="$t('professor.crawlerBuiltinTab')">
-          <p style="color: var(--muted-foreground); margin-bottom: 16px; font-size: 13px">
-            {{ $t('professor.univModalIntro') }}
-          </p>
-          <n-spin :show="crawlersLoading">
-            <div v-if="!crawlersLoading && universityCrawlers.length === 0">
-              <n-empty :description="$t('professor.noUniversityCrawler')" />
-            </div>
-            <n-radio-group
-              v-else
-              v-model:value="selectedUniversityId"
-              style="width: 100%"
-            >
-              <n-space vertical>
-                <n-radio
-                  v-for="crawler in universityCrawlers"
-                  :key="crawler.university_id"
-                  :value="crawler.university_id"
-                >
-                  {{ crawler.display_name }}
-                </n-radio>
-              </n-space>
-            </n-radio-group>
-          </n-spin>
-          <div style="margin-top: 16px; text-align: right">
-            <n-space>
-              <n-button @click="showUniversityModal = false">{{ $t('common.cancel') }}</n-button>
-              <n-button
-                type="primary"
-                :loading="universityLoading"
-                :disabled="!selectedUniversityId"
-                @click="handleCrawlUniversity"
-              >
-                {{ $t('professor.univModalPositive') }}
-              </n-button>
-            </n-space>
-          </div>
-        </n-tab-pane>
-
-        <!-- Custom crawler tab -->
-        <n-tab-pane :name="'custom'" :tab="$t('professor.crawlerCustomTab')">
           <n-form label-placement="top" :show-feedback="false">
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px">
               <n-form-item :label="$t('professor.crawlerName')" required>
@@ -794,8 +710,8 @@ onMounted(() => {
             <n-form-item :label="$t('professor.crawlerExtractionMode')">
               <n-radio-group v-model:value="customCrawlerForm.extraction_mode">
                 <n-space>
-                  <n-radio value="css">{{ $t('professor.crawlerModeCss') }}</n-radio>
                   <n-radio value="llm">{{ $t('professor.crawlerModeLlm') }}</n-radio>
+                  <n-radio value="css">{{ $t('professor.crawlerModeCss') }}</n-radio>
                 </n-space>
               </n-radio-group>
             </n-form-item>
@@ -914,8 +830,6 @@ onMounted(() => {
               </n-button>
             </n-space>
           </div>
-        </n-tab-pane>
-      </n-tabs>
     </n-modal>
 
     <n-modal

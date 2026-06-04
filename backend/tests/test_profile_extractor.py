@@ -64,3 +64,26 @@ def test_enrich_profiles_for_batch_continues_on_failure(mock_extract):
 def test_extract_professor_profile_crawl_failure(mock_crawl):
     mock_crawl.return_value = CrawlResult(success=False, html="", markdown="")
     assert extract_professor_profile("https://bad.example") == {}
+
+
+@patch("prof_finder.crawler.crawl4ai_engine.profile_extractor._llm_extract_profile")
+@patch("prof_finder.crawler.crawl4ai_engine.profile_extractor._choose_best_content")
+@patch("prof_finder.crawler.crawl4ai_engine.profile_extractor._try_ajax_endpoints")
+@patch("prof_finder.crawler.crawl4ai_engine.profile_extractor.crawl_url_full")
+def test_extract_professor_profile_resolves_relative_url(
+    mock_crawl, mock_ajax, mock_choose, mock_llm
+):
+    mock_crawl.return_value = CrawlResult(success=True, html="<div/>", markdown="")
+    mock_ajax.return_value = ""
+    mock_choose.return_value = "<div/>"
+    mock_llm.return_value = {}
+
+    extract_professor_profile(
+        "/cris/rp/rp03608",
+        page_base_url="https://www.hku.hk/faculty/list",
+        api_key="key",
+    )
+    mock_crawl.assert_called_once_with(
+        "https://www.hku.hk/cris/rp/rp03608",
+        auto_tab_click=True,
+    )

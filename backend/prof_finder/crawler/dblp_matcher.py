@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Optional
 
-from .dblp import DblpClient, dblp_profile_url
+from .dblp import DblpClient, _DBLP_MIN_REQUEST_DELAY, dblp_profile_url
 from .scholar_matcher import (
     _affiliation_matches,
     _name_matches,
@@ -61,6 +61,8 @@ def match_professor_dblp(
     for term in search_terms:
         if cancel_checker and cancel_checker():
             break
+        if request_delay > 0:
+            time.sleep(max(float(request_delay), _DBLP_MIN_REQUEST_DELAY))
         try:
             results = dblp_client.search_author(term, limit=5)
         except Exception as e:
@@ -103,8 +105,6 @@ def match_professor_dblp(
 
         if len(candidates) >= MAX_CANDIDATES:
             break
-        if request_delay > 0:
-            time.sleep(request_delay)
 
     if not candidates:
         return {"status": "not_found", "dblp_pid": None, "candidates": []}

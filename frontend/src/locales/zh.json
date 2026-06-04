@@ -289,6 +289,7 @@
     "fetchAbstractsTask": "获取论文摘要 · {name}",
     "crawlHomepage": "爬取个人主页",
     "crawlHomepageNoUrl": "请先填写个人主页 URL",
+    "openHomepage": "打开个人主页",
     "crawlHomepageStarted": "已启动个人主页爬取任务",
     "crawlHomepageTask": "爬取个人主页 · {name}",
     "summarizeTask": "论文总结 · {name}",

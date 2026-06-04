@@ -15,6 +15,11 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 
+_SEARCH_MAX_RETRIES = 3
+_SEARCH_RETRY_BASE_DELAY = 5.0
+# DBLP often closes idle connections when hit too quickly.
+_DBLP_MIN_REQUEST_DELAY = 3.0
+
 _USER_AGENT = "prof-finder/1.0 (+https://github.com/prof-finder)"
 _SEARCH_API = "https://dblp.org/search/author/api"
 _PID_XML = "https://dblp.org/pid/{pid}.xml"
@@ -98,7 +103,12 @@ class DblpClient:
     """Client for DBLP search and PID export APIs."""
 
     def __init__(self, request_delay: Optional[float] = None):
-        self._delay = request_delay if request_delay is not None else float(settings.request_delay)
+        configured = (
+            float(request_delay)
+            if request_delay is not None
+            else float(settings.request_delay)
+        )
+        self._delay = max(configured, _DBLP_MIN_REQUEST_DELAY)
         self._session = requests.Session()
         self._session.headers.update({"User-Agent": _USER_AGENT})
 
@@ -108,16 +118,39 @@ class DblpClient:
 
     def search_author(self, query: str, limit: int = 10) -> list[dict]:
         """Search authors by name."""
-        try:
-            resp = self._session.get(
-                _SEARCH_API,
-                params={"q": query, "format": "json", "h": min(limit, 1000)},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            hits = _normalize_hits(resp.json())
-        except Exception as e:
-            logger.warning("DBLP author search failed for %r: %s", query, e)
+        hits: list[dict] = []
+        last_error: Optional[Exception] = None
+        for attempt in range(_SEARCH_MAX_RETRIES):
+            self._sleep()
+            try:
+                resp = self._session.get(
+                    _SEARCH_API,
+                    params={"q": query, "format": "json", "h": min(limit, 1000)},
+                    timeout=30,
+                )
+                resp.raise_for_status()
+                hits = _normalize_hits(resp.json())
+                last_error = None
+                break
+            except (requests.Timeout, requests.ConnectionError) as e:
+                last_error = e
+                if attempt < _SEARCH_MAX_RETRIES - 1:
+                    delay = _SEARCH_RETRY_BASE_DELAY * (2**attempt)
+                    logger.warning(
+                        "DBLP author search failed for %r (attempt %d/%d): %s — retry in %.1fs",
+                        query,
+                        attempt + 1,
+                        _SEARCH_MAX_RETRIES,
+                        e,
+                        delay,
+                    )
+                    time.sleep(delay)
+                    continue
+            except Exception as e:
+                logger.warning("DBLP author search failed for %r: %s", query, e)
+                return []
+        if last_error is not None:
+            logger.warning("DBLP author search failed for %r: %s", query, last_error)
             return []
 
         results: list[dict] = []
@@ -144,14 +177,13 @@ class DblpClient:
     def get_author(self, pid: str) -> Optional[dict]:
         """Fetch author metadata and publications from PID XML export."""
         pid = pid.strip("/")
+        self._sleep()
         try:
             resp = self._session.get(_PID_XML.format(pid=pid), timeout=60)
             resp.raise_for_status()
         except Exception as e:
             logger.warning("DBLP get_author failed for %s: %s", pid, e)
             return None
-        finally:
-            self._sleep()
 
         try:
             root = ET.fromstring(resp.content)

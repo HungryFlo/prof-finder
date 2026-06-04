@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from prof_finder.crawler.dblp import DblpClient, extract_dblp_pid_from_url
 
@@ -53,6 +54,22 @@ def test_search_author_single_hit():
     assert len(results) == 1
     assert results[0]["pid"] == "l/YannLeCun"
     assert results[0]["name"] == "Yann LeCun"
+
+
+def test_search_author_retries_on_timeout():
+    client = DblpClient(request_delay=0)
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json.return_value = SAMPLE_SEARCH_JSON
+    with patch.object(client._session, "get") as mock_get:
+        mock_get.side_effect = [
+            requests.Timeout("read timed out"),
+            mock_resp,
+        ]
+        with patch("prof_finder.crawler.dblp.time.sleep"):
+            results = client.search_author("Yann LeCun", limit=5)
+    assert len(results) == 1
+    assert mock_get.call_count == 2
 
 
 def test_get_author_parses_xml():

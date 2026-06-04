@@ -9,6 +9,7 @@ from typing import Callable, Optional
 
 from ...utils.profile_merge import merge_profile_into_dict
 from .engine import crawl_url_full
+from ...utils.url_utils import normalize_school_crawl_professor, resolve_absolute_url
 from .llm_extractor import (
     _MAX_CONTENT_CHARS,
     _LLM_MAX_RETRIES,
@@ -29,6 +30,7 @@ def extract_professor_profile(
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
     model: Optional[str] = None,
+    page_base_url: Optional[str] = None,
     send_progress: Optional[Callable[[str], None]] = None,
     cancel_checker: Optional[Callable[[], bool]] = None,
 ) -> dict:
@@ -40,10 +42,14 @@ def extract_professor_profile(
     if cancel_checker and cancel_checker():
         return {}
 
+    crawl_url = url.strip()
+    if page_base_url:
+        crawl_url = resolve_absolute_url(crawl_url, page_base_url)
+
     if send_progress:
         send_progress("正在爬取个人主页...")
 
-    crawl_result = crawl_url_full(url, auto_tab_click=True)
+    crawl_result = crawl_url_full(crawl_url, auto_tab_click=True)
     if not crawl_result.success:
         logger.warning("Failed to crawl profile %s", url)
         return {}
@@ -51,7 +57,7 @@ def extract_professor_profile(
     if cancel_checker and cancel_checker():
         return {}
 
-    ajax_html = _try_ajax_endpoints(url, crawl_result.html or "")
+    ajax_html = _try_ajax_endpoints(crawl_url, crawl_result.html or "")
     if ajax_html and len(ajax_html) > len(crawl_result.html or "") * 0.5:
         crawl_result.html = ajax_html
 
@@ -219,6 +225,7 @@ def enrich_profiles_for_batch(
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
     model: Optional[str] = None,
+    page_base_url: Optional[str] = None,
     send_progress: Optional[Callable[[str], None]] = None,
     cancel_checker: Optional[Callable[[], bool]] = None,
 ) -> list[dict]:
@@ -233,6 +240,9 @@ def enrich_profiles_for_batch(
         profile_url = _profile_url_for(prof)
         if not profile_url:
             continue
+        if page_base_url:
+            profile_url = resolve_absolute_url(profile_url, page_base_url)
+            prof["homepage"] = profile_url
 
         prof_name = prof.get("name", "")
         if send_progress:
@@ -246,10 +256,13 @@ def enrich_profiles_for_batch(
                 api_key=api_key,
                 base_url=base_url,
                 model=model,
+                page_base_url=page_base_url,
                 cancel_checker=cancel_checker,
             )
             if extracted:
                 merge_profile_into_dict(prof, extracted)
+                if page_base_url:
+                    normalize_school_crawl_professor(prof, page_base_url)
         except Exception as exc:
             logger.warning(
                 "Profile enrichment failed for %s (%s): %s",

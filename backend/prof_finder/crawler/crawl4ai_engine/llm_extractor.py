@@ -14,6 +14,7 @@ from typing import Callable, Optional
 from urllib.parse import urljoin
 
 from .engine import crawl_url_full
+from .url_utils import resolve_absolute_url
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,12 @@ def extract_professors_llm(
         send_progress("正在使用 AI 分析页面内容...")
 
     professors = _llm_extract(content, affiliation, api_key=api_key, base_url=base_url, model=model)
+
+    for prof in professors:
+        for key in ("url", "homepage"):
+            value = prof.get(key)
+            if value and isinstance(value, str):
+                prof[key] = resolve_absolute_url(value, url)
 
     if send_progress:
         send_progress(f"AI 提取完成，共识别 {len(professors)} 位教授")
@@ -214,7 +221,7 @@ JSON 格式：[{{"name":"姓名","affiliation":"机构","url":"链接或null","e
 - 如果页面是表格形式，逐行提取每一行的教师信息。
 - 如果姓名和职称在同一元素中（如"张三 教授"），拆分后分别填入对应字段。
 - research_interests 应为字符串数组，如果无法提取则为空数组 []。
-- url 字段可以是相对路径，保留原样即可。
+- url / homepage 可以是相对路径（如 /cris/rp/xxx），按 HTML 中的 href 原样填写即可。
 
 HTML 内容：
 {truncated}

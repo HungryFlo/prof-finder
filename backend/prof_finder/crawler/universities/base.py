@@ -16,6 +16,8 @@ class UniversityCrawlerBase(ABC):
 
     university_id: str
     display_name: str
+    #: Site origin for resolving relative profile URLs (e.g. ``https://www.example.edu``).
+    crawl_base_url: str = ""
 
     @abstractmethod
     def crawl_all(self, delay: float = 2.0) -> list[dict]:

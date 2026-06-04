@@ -1,6 +1,7 @@
 """Professor management commands."""
 
 import re
+import time
 from typing import Optional
 import typer
 from rich.console import Console
@@ -12,6 +13,11 @@ from ..models import Professor
 from ..crawler import ScholarCrawler, DblpClient
 from ..crawler.dblp import extract_dblp_pid_from_url, dblp_profile_url
 from ..utils.publication_merge import merge_publications
+from ..utils.name_locales import (
+    apply_inferred_locales_from_name,
+    infer_locales_from_name,
+    merge_name_locales,
+)
 from ..api.task_manager import TaskStatus, create_task, execute_professor_enrichment
 from ..api.enrichment_prefs import (
     flags_from_user_settings_row,
@@ -127,6 +133,8 @@ def add_professor(
                 publications=merge_publications([], author_data.get("publications", []), "dblp"),
                 source="dblp",
             )
+            apply_inferred_locales_from_name(professor)
+            merge_name_locales(professor, en=author_data.get("name"))
             session.add(professor)
             session.flush()
             prof_id = professor.id
@@ -197,6 +205,8 @@ def add_professor(
                 h_index=author_data.get("h_index"),
                 total_citations=author_data.get("citations"),
             )
+            apply_inferred_locales_from_name(professor)
+            merge_name_locales(professor, en=author_data.get("name"))
             session.add(professor)
             session.flush()
             session.refresh(professor)
@@ -214,6 +224,7 @@ def add_professor(
                 name=name,
                 affiliation=affiliation,
             )
+            apply_inferred_locales_from_name(professor)
             session.add(professor)
             session.flush()
             session.refresh(professor)
@@ -244,9 +255,12 @@ def _update_professor_from_scholar(session, professor: Professor, scholar_id: st
         console.print("[red]错误: 未找到数据[/red]")
         return
 
-    # Update fields
-    professor.name = author_data.get("name", professor.name)
-    professor.affiliation = author_data.get("affiliation", professor.affiliation)
+    from ..utils.name_locales import apply_scholar_name_update
+
+    apply_scholar_name_update(professor, author_data.get("name"))
+    from ..utils.profile_merge import apply_external_affiliation
+
+    apply_external_affiliation(professor, author_data.get("affiliation"))
     professor.email = author_data.get("email", professor.email)
     professor.homepage = author_data.get("homepage", professor.homepage)
     professor.research_interests = author_data.get("interests", professor.research_interests)
@@ -363,5 +377,110 @@ def delete_professor(
         session.commit()
 
         console.print(f"[green]✓ 已删除教授: {professor.name}[/green]")
+
+
+@app.command("backfill-name-locales")
+def backfill_name_locales(
+    user: Optional[str] = typer.Option(None, "--user", "-u", help="Username"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without saving"),
+) -> None:
+    """Backfill professor name_locales from name, Scholar, and DBLP (no pinyin)."""
+    from ..config import settings as app_settings
+    from ..models.schema import UserSettings
+
+    current_user = get_current_user(user)
+    db = get_db()
+
+    with db.session() as session:
+        settings_row = (
+            session.query(UserSettings)
+            .filter(UserSettings.user_id == current_user.id)
+            .first()
+        )
+        request_delay = (
+            settings_row.request_delay if settings_row and settings_row.request_delay
+            else app_settings.request_delay
+        )
+        professor_ids = [
+            p.id
+            for p in session.query(Professor)
+            .filter(Professor.user_id == current_user.id)
+            .order_by(Professor.id)
+            .all()
+        ]
+
+    if not professor_ids:
+        console.print("[yellow]没有教授记录[/yellow]")
+        return
+
+    scholar = ScholarCrawler()
+    dblp_client = DblpClient()
+    stats = {"processed": 0, "zh": 0, "en": 0, "skipped": 0}
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        bar = progress.add_task("回填 name_locales...", total=len(professor_ids))
+        for prof_id in professor_ids:
+            progress.advance(bar)
+            with db.session() as session:
+                prof = (
+                    session.query(Professor)
+                    .filter(
+                        Professor.id == prof_id,
+                        Professor.user_id == current_user.id,
+                    )
+                    .first()
+                )
+                if not prof:
+                    continue
+                locales = prof.name_locales or {}
+                had_zh = bool((locales.get("zh") or "").strip())
+                had_en = bool((locales.get("en") or "").strip())
+                if had_zh and had_en:
+                    stats["skipped"] += 1
+                    continue
+
+                stats["processed"] += 1
+                if dry_run:
+                    if not had_zh and infer_locales_from_name(prof.name).get("zh"):
+                        stats["zh"] += 1
+                    if not had_en and (prof.google_scholar_id or prof.dblp_pid):
+                        stats["en"] += 1
+                    continue
+
+                if not had_zh and apply_inferred_locales_from_name(prof):
+                    if (prof.name_locales or {}).get("zh"):
+                        stats["zh"] += 1
+
+                if not (prof.name_locales or {}).get("en") and prof.google_scholar_id:
+                    try:
+                        author_data = scholar.get_author(prof.google_scholar_id)
+                        if author_data and merge_name_locales(
+                            prof, en=author_data.get("name")
+                        ):
+                            stats["en"] += 1
+                    except Exception as e:
+                        console.print(f"[yellow]Scholar 跳过 {prof.name}: {e}[/yellow]")
+                    if request_delay > 0:
+                        time.sleep(request_delay)
+
+                if not (prof.name_locales or {}).get("en") and prof.dblp_pid:
+                    try:
+                        author_data = dblp_client.get_author(prof.dblp_pid)
+                        if author_data and merge_name_locales(
+                            prof, en=author_data.get("name")
+                        ):
+                            stats["en"] += 1
+                    except Exception as e:
+                        console.print(f"[yellow]DBLP 跳过 {prof.name}: {e}[/yellow]")
+
+    prefix = "[dry-run] " if dry_run else ""
+    console.print(
+        f"{prefix}处理 {stats['processed']} 位；补全 zh {stats['zh']}；"
+        f"补全 en {stats['en']}；已齐全跳过 {stats['skipped']}"
+    )
 
 

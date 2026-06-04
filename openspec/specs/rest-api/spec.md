@@ -62,7 +62,8 @@
 - **AND** 支持分页参数 `?page=1&page_size=20`
 - **AND** 支持筛选参数 `?affiliation=xxx&interest=xxx`
 - **AND** 支持搜索参数 `?search=xxx`（按姓名和机构模糊匹配）
-- **AND** 支持排序参数 `?sort_by=name|affiliation|h_index|updated_at&sort_order=asc|desc`
+- **AND** 支持排序参数 `?sort_by=name|affiliation|h_index|created_at&sort_order=asc|desc`
+- **AND** 未指定 `sort_by` 时默认按 `created_at` 降序（最近添加在前）
 
 #### Scenario: List affiliations
 - **WHEN** GET `/api/professors/affiliations`

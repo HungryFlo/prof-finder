@@ -41,6 +41,7 @@ import re
 import time
 import logging
 from typing import Optional
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -70,6 +71,7 @@ class XJTUCSCrawler(UniversityCrawlerBase):
 
     university_id = "xjtu-cs"
     display_name = "西安交通大学 - 计算机科学与技术学院"
+    crawl_base_url = _BASE_URL
 
     def crawl_all(self, delay: float = 2.0) -> list[dict]:
         """Crawl all teachers from all XJTU CS department category pages.
@@ -229,7 +231,7 @@ class XJTUCSCrawler(UniversityCrawlerBase):
         detail_link = card.select_one("a.more")
         source_url: Optional[str] = None
         if detail_link and detail_link.get("href"):
-            source_url = detail_link["href"].strip()
+            source_url = urljoin(_BASE_URL + "/", str(detail_link["href"]).strip())
 
         # --- Contact details (left column) ---
         email: Optional[str] = None

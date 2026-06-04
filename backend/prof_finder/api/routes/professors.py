@@ -73,7 +73,7 @@ _PROFESSOR_SORT_COLUMNS = {
     "name": Professor.name,
     "affiliation": Professor.affiliation,
     "h_index": Professor.h_index,
-    "updated_at": Professor.updated_at,
+    "created_at": Professor.created_at,
 }
 
 
@@ -127,7 +127,7 @@ def list_professors(
     total = query.count()
 
     # Apply sorting
-    order_col = _PROFESSOR_SORT_COLUMNS.get(sort_by, Professor.updated_at)
+    order_col = _PROFESSOR_SORT_COLUMNS.get(sort_by, Professor.created_at)
     order_func = order_col.asc if sort_order == "asc" else order_col.desc
 
     # Apply pagination
@@ -221,6 +221,10 @@ async def create_professor(
         publications=[],
         paper_summaries=data.paper_summaries or [],
     )
+    if not (data.name_locales or {}):
+        from ...utils.name_locales import apply_inferred_locales_from_name
+
+        apply_inferred_locales_from_name(professor)
     session.add(professor)
     session.flush()
     session.refresh(professor)
@@ -1374,9 +1378,12 @@ async def refresh_professor(
             detail="未找到该学者信息",
         )
     
+    from ...utils.profile_merge import apply_external_affiliation
+    from ...utils.name_locales import apply_scholar_name_update
+
     # Update professor data
-    professor.name = author_data["name"]
-    professor.affiliation = author_data.get("affiliation")
+    apply_scholar_name_update(professor, author_data.get("name"))
+    apply_external_affiliation(professor, author_data.get("affiliation"))
     professor.email = author_data.get("email") or professor.email
     professor.homepage = author_data.get("homepage") or professor.homepage
     professor.research_interests = author_data.get("interests", [])
@@ -1626,8 +1633,9 @@ async def refresh_professor_dblp(
     if not author_data:
         raise HTTPException(status_code=404, detail="未找到 DBLP 学者信息")
 
-    if author_data.get("affiliation"):
-        professor.affiliation = author_data.get("affiliation") or professor.affiliation
+    from ...utils.profile_merge import apply_external_affiliation
+
+    apply_external_affiliation(professor, author_data.get("affiliation"))
     professor.publications = merge_publications(
         professor.publications,
         author_data.get("publications", []),
@@ -1747,6 +1755,12 @@ def confirm_dblp_candidate(
     professor.dblp_pid = body.dblp_pid
     professor.dblp_url = dblp_profile_url(body.dblp_pid)
     professor.dblp_enrichment_status = "user_confirmed"
+    for cand in professor.dblp_candidates or []:
+        if cand.get("pid") == body.dblp_pid and cand.get("name"):
+            from ...utils.name_locales import apply_dblp_name_update
+
+            apply_dblp_name_update(professor, cand["name"])
+            break
     professor.dblp_candidates = None
 
     task = create_task(

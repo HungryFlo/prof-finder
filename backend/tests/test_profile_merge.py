@@ -1,6 +1,11 @@
 """Tests for profile field merge utilities."""
 
-from prof_finder.utils.profile_merge import merge_profile_fields, merge_profile_into_dict
+from prof_finder.utils.profile_merge import (
+    apply_external_affiliation,
+    merge_external_affiliation,
+    merge_profile_fields,
+    merge_profile_into_dict,
+)
 
 
 def test_merge_email_fill_empty():
@@ -37,6 +42,28 @@ def test_merge_bio_and_external_homepage_to_notes():
     assert "研究方向广泛" in notes
     assert "外部主页: https://personal.edu/~foo" in notes
     assert merged["homepage"] == "https://dept.edu/teacher/foo"
+
+
+def test_merge_external_affiliation_keeps_existing():
+    assert merge_external_affiliation("西安交通大学", "MIT") == "西安交通大学"
+
+
+def test_merge_external_affiliation_fills_when_empty():
+    assert merge_external_affiliation(None, "MIT") == "MIT"
+    assert merge_external_affiliation("  ", "MIT") == "MIT"
+
+
+def test_apply_external_affiliation_on_mock_professor():
+    class Prof:
+        affiliation = "已有学校"
+
+    p = Prof()
+    apply_external_affiliation(p, "DBLP University")
+    assert p.affiliation == "已有学校"
+
+    p.affiliation = None
+    apply_external_affiliation(p, "DBLP University")
+    assert p.affiliation == "DBLP University"
 
 
 def test_merge_profile_into_dict():
