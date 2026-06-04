@@ -74,8 +74,11 @@ export interface Publication {
   year?: number | string
   citations?: number
   authors?: string
+  source?: 'scholar' | 'dblp' | string
   author_pub_id?: string
   gscholar_url?: string
+  dblp_url?: string
+  venue?: string
   abstract?: string
   pub_url?: string
   eprint_url?: string
@@ -104,6 +107,22 @@ export interface ScholarCandidate {
   citedby?: number
 }
 
+export interface DblpCandidate {
+  pid: string
+  name: string
+  affiliation?: string
+  url?: string
+  score: number
+  email_domain_match?: boolean
+}
+
+export interface DblpSearchResult {
+  name: string
+  pid: string
+  url: string
+  affiliations: string[]
+}
+
 export interface Professor {
   id: number
   name: string
@@ -113,6 +132,10 @@ export interface Professor {
   homepage?: string
   google_scholar_id?: string
   google_scholar_url?: string
+  dblp_pid?: string
+  dblp_url?: string
+  dblp_enrichment_status?: string
+  dblp_candidates?: DblpCandidate[]
   research_interests: string[]
   publications: Publication[]
   paper_summaries?: PaperSummary[]
@@ -144,6 +167,8 @@ export interface ProfessorListItem {
   source?: string
   enrichment_status?: string
   google_scholar_id?: string
+  dblp_pid?: string
+  dblp_enrichment_status?: string
   created_at: string
 }
 
@@ -234,11 +259,16 @@ export interface UserSettings {
 // Task panel types
 export type TaskType =
   | 'batch-crawl'
+  | 'batch-dblp-crawl'
   | 'batch-letters'
   | 'single-crawl'
+  | 'single-dblp-crawl'
   | 'university-crawl'
   | 'generic-university-crawl'
   | 'batch-scholar-match'
+  | 'batch-dblp-match'
+  | 'batch-refresh-dblp'
+  | 'batch-refresh-external'
   | 'paper-summary'
   | 'profile-parse'
   | 'profile-generate'

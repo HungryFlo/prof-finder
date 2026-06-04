@@ -11,6 +11,10 @@ export interface BatchCrawlRequest {
   scholar_urls: string[]
 }
 
+export interface BatchDblpCrawlRequest {
+  dblp_urls: string[]
+}
+
 export interface BatchLetterRequest {
   professor_ids?: number[]
   top?: number
@@ -21,6 +25,13 @@ export const tasksApi = {
   async startBatchCrawl(urls: string[]): Promise<TaskStartResponse> {
     const response = await client.post<TaskStartResponse>('/tasks/batch-crawl', {
       scholar_urls: urls,
+    })
+    return response.data
+  },
+
+  async startBatchDblpCrawl(urls: string[]): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>('/tasks/batch-dblp-crawl', {
+      dblp_urls: urls,
     })
     return response.data
   },

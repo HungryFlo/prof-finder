@@ -12,13 +12,17 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from ...models.schema import User, Professor, SourceInput, UserSettings, University, UniversityCrawlerConfig
 from ...crawler.scholar import ScholarCrawler
+from ...crawler.dblp import DblpClient, extract_dblp_pid_from_url, dblp_profile_url
 from ...llm import PaperSummarizer
 from ..deps import get_db_session, get_current_user
 from ..schemas import (
     ProfessorCreate,
     ProfessorUpdate,
     ProfessorScholarAdd,
+    ProfessorDblpAdd,
     ProfessorSearchRequest,
+    DblpSearchResult,
+    DblpCandidateConfirm,
     ProfessorResponse,
     ProfessorListResponse,
     ProfessorNameCollision,
@@ -47,7 +51,12 @@ from ..task_manager import (
     extract_scholar_id_from_url,
     enqueue_task,
 )
-from ..source_input_service import build_paper_summary_from_source, keep_non_scholar_paper_summaries
+from ..source_input_service import (
+    build_paper_summary_from_source,
+    keep_non_scholar_paper_summaries,
+    keep_paper_summaries_excluding,
+)
+from ...utils.publication_merge import merge_publications
 from ..enrichment_prefs import (
     flags_from_user_settings_row,
     planned_enrichment_step_count_for_professor,
@@ -82,6 +91,8 @@ def get_professor_list_response(professor: Professor) -> dict:
         "source": professor.source,
         "enrichment_status": professor.enrichment_status,
         "google_scholar_id": professor.google_scholar_id,
+        "dblp_pid": professor.dblp_pid,
+        "dblp_enrichment_status": professor.dblp_enrichment_status,
         "created_at": professor.created_at,
     }
 
@@ -320,6 +331,65 @@ async def search_scholar(
     ]
     _scholar_cache[cache_key] = (time.time(), result_list)
     return result_list
+
+
+_dblp_cache: dict = {}
+_DBLP_CACHE_TTL = 300
+
+
+@router.post("/dblp/search", response_model=List[DblpSearchResult])
+async def search_dblp(
+    data: ProfessorSearchRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Search DBLP for authors."""
+    cache_key = f"dblp:{data.query}:{data.limit}"
+    cached = _dblp_cache.get(cache_key)
+    if cached and (time.time() - cached[0]) < _DBLP_CACHE_TTL:
+        return cached[1]
+
+    client = DblpClient()
+    try:
+        results = await asyncio.to_thread(client.search_author, data.query, data.limit)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"DBLP 搜索失败: {str(e)}",
+        )
+
+    result_list = [
+        DblpSearchResult(
+            name=r["name"],
+            pid=r["pid"],
+            url=r["url"],
+            affiliations=r.get("affiliations") or [],
+        )
+        for r in results
+    ]
+    _dblp_cache[cache_key] = (time.time(), result_list)
+    return result_list
+
+
+@router.post("/dblp", response_model=TaskStartResponse)
+async def add_professor_by_dblp(
+    data: ProfessorDblpAdd,
+    current_user: User = Depends(get_current_user),
+):
+    """Start async task to add/link professor from DBLP profile URL."""
+    try:
+        extract_dblp_pid(data.url)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    cleanup_old_tasks()
+    task = create_task(
+        task_type="single-dblp-crawl",
+        task_name="爬取 DBLP 教授",
+        user_id=current_user.id,
+        total=1,
+    )
+    enqueue_task("single-dblp-crawl", task.task_id, data.url)
+    return TaskStartResponse(task_id=task.task_id, message="DBLP 爬取任务已启动")
 
 
 @router.get("/university-crawlers", response_model=List[UniversityCrawlerInfo])
@@ -1419,7 +1489,11 @@ async def refresh_professor(
     professor.email = author_data.get("email") or professor.email
     professor.homepage = author_data.get("homepage") or professor.homepage
     professor.research_interests = author_data.get("interests", [])
-    professor.publications = author_data.get("publications", [])
+    professor.publications = merge_publications(
+        professor.publications,
+        author_data.get("publications", []),
+        "scholar",
+    )
     professor.paper_summaries = keep_non_scholar_paper_summaries(professor.paper_summaries or [])
     professor.h_index = author_data.get("h_index")
     professor.total_citations = author_data.get("citations")
@@ -1572,5 +1646,344 @@ def set_scholar_id_manually(
     return TaskStartResponse(
         task_id=task.task_id,
         message=f"已设置 Scholar ID，正在爬取 {professor.name} 的完整信息...",
+        total=1,
+    )
+
+
+@router.post("/{professor_id}/match-dblp", response_model=TaskStartResponse)
+def match_professor_dblp_route(
+    professor_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Search DBLP for one professor and link when confident."""
+    professor = (
+        session.query(Professor)
+        .filter(Professor.id == professor_id, Professor.user_id == current_user.id)
+        .first()
+    )
+    if not professor:
+        raise HTTPException(status_code=404, detail="教授不存在")
+    if professor.dblp_pid:
+        raise HTTPException(status_code=400, detail="该教授已关联 DBLP")
+
+    universities = (
+        session.query(University).filter(University.user_id == current_user.id).all()
+    )
+    university_variants, department_affiliation = resolve_scholar_match_params(
+        professor, universities
+    )
+    if not university_variants and not department_affiliation:
+        raise HTTPException(
+            status_code=400,
+            detail="请填写教授单位，或在设置中配置大学名称变体",
+        )
+
+    professor.dblp_enrichment_status = "pending"
+    professor.dblp_candidates = None
+
+    task = create_task(
+        "batch-dblp-match",
+        f"DBLP 匹配: {professor.name}",
+        current_user.id,
+        total=1,
+    )
+    enqueue_task(
+        "batch-dblp-match",
+        task.task_id,
+        professor_ids=[professor.id],
+        university_variants=university_variants,
+        department_affiliation=department_affiliation,
+    )
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message=f"已开始为 {professor.name} 搜索 DBLP",
+        total=1,
+    )
+
+
+@router.post("/{professor_id}/match-external", response_model=TaskStartResponse)
+def match_professor_external(
+    professor_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Start Scholar and DBLP matching tasks for one professor."""
+    professor = (
+        session.query(Professor)
+        .filter(Professor.id == professor_id, Professor.user_id == current_user.id)
+        .first()
+    )
+    if not professor:
+        raise HTTPException(status_code=404, detail="教授不存在")
+
+    universities = (
+        session.query(University).filter(University.user_id == current_user.id).all()
+    )
+    university_variants, department_affiliation = resolve_scholar_match_params(
+        professor, universities
+    )
+    if not university_variants and not department_affiliation:
+        raise HTTPException(
+            status_code=400,
+            detail="请填写教授单位，或在设置中配置大学名称变体",
+        )
+
+    messages: list[str] = []
+    total = 0
+    primary_task_id: str | None = None
+
+    if not professor.google_scholar_id:
+        professor.enrichment_status = "pending"
+        professor.scholar_candidates = None
+        scholar_task = create_task(
+            "batch-scholar-match",
+            f"Scholar 匹配: {professor.name}",
+            current_user.id,
+            total=1,
+        )
+        enqueue_task(
+            "batch-scholar-match",
+            scholar_task.task_id,
+            professor_ids=[professor.id],
+            university_variants=university_variants,
+            department_affiliation=department_affiliation,
+        )
+        messages.append("Scholar")
+        primary_task_id = scholar_task.task_id
+        total += 1
+
+    if not professor.dblp_pid:
+        professor.dblp_enrichment_status = "pending"
+        professor.dblp_candidates = None
+        dblp_task = create_task(
+            "batch-dblp-match",
+            f"DBLP 匹配: {professor.name}",
+            current_user.id,
+            total=1,
+        )
+        enqueue_task(
+            "batch-dblp-match",
+            dblp_task.task_id,
+            professor_ids=[professor.id],
+            university_variants=university_variants,
+            department_affiliation=department_affiliation,
+        )
+        messages.append("DBLP")
+        if primary_task_id is None:
+            primary_task_id = dblp_task.task_id
+        total += 1
+
+    if total == 0:
+        raise HTTPException(status_code=400, detail="Scholar 与 DBLP 均已关联")
+
+    return TaskStartResponse(
+        task_id=primary_task_id or "",
+        message=f"已启动外部档案匹配：{' + '.join(messages)}",
+        total=total,
+    )
+
+
+@router.post("/{professor_id}/refresh-dblp", response_model=ProfessorResponse)
+async def refresh_professor_dblp(
+    professor_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Refresh DBLP publications only (does not touch Scholar metrics)."""
+    professor = (
+        session.query(Professor)
+        .filter(Professor.id == professor_id, Professor.user_id == current_user.id)
+        .first()
+    )
+    if not professor:
+        raise HTTPException(status_code=404, detail="教授不存在")
+    if not professor.dblp_pid:
+        raise HTTPException(status_code=400, detail="该教授没有关联的 DBLP pid")
+
+    client = DblpClient()
+    try:
+        author_data = await asyncio.to_thread(client.get_author, professor.dblp_pid)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"DBLP 刷新失败: {str(e)}",
+        )
+    if not author_data:
+        raise HTTPException(status_code=404, detail="未找到 DBLP 学者信息")
+
+    if author_data.get("affiliation"):
+        professor.affiliation = author_data.get("affiliation") or professor.affiliation
+    professor.publications = merge_publications(
+        professor.publications,
+        author_data.get("publications", []),
+        "dblp",
+    )
+    professor.paper_summaries = keep_paper_summaries_excluding(
+        professor.paper_summaries or [], {"dblp_pub"}
+    )
+    professor.dblp_url = author_data.get("dblp_url") or professor.dblp_url
+    professor.embedding = None
+    session.flush()
+    session.refresh(professor)
+
+    settings_row = (
+        session.query(UserSettings)
+        .filter(UserSettings.user_id == current_user.id)
+        .first()
+    )
+    flags = flags_from_user_settings_row(settings_row)
+    enrich_planned = planned_enrichment_step_count_for_professor(professor, flags)
+    extra: dict = {}
+    if enrich_planned > 0:
+        enrich_task = create_task(
+            "professor-enrichment",
+            "教授信息增强",
+            current_user.id,
+            total=enrich_planned,
+        )
+        enqueue_task("professor-enrichment", enrich_task.task_id, professor_id=professor.id)
+        extra["enrichment_task_id"] = enrich_task.task_id
+        extra["enrichment_task_total"] = enrich_planned
+
+    base = ProfessorResponse.model_validate(professor)
+    return base.model_copy(update=extra)
+
+
+@router.post("/batch-refresh-dblp", response_model=TaskStartResponse)
+async def batch_refresh_dblp(
+    data: BatchDeleteRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Batch refresh professors from DBLP."""
+    if not data.ids:
+        raise HTTPException(status_code=400, detail="请选择至少一位教授")
+    professors = (
+        session.query(Professor)
+        .filter(Professor.id.in_(data.ids), Professor.user_id == current_user.id)
+        .all()
+    )
+    if len(professors) != len(data.ids):
+        raise HTTPException(status_code=400, detail="存在无效的教授 ID")
+
+    cleanup_old_tasks()
+    task = create_task(
+        task_type="batch-refresh-dblp",
+        task_name=f"批量更新 DBLP · {len(data.ids)} 位",
+        user_id=current_user.id,
+        total=len(data.ids),
+    )
+    enqueue_task("batch-refresh-dblp", task.task_id, professor_ids=list(data.ids))
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message=f"已启动 DBLP 批量更新，共 {len(data.ids)} 位教授",
+    )
+
+
+@router.post("/batch-refresh-external", response_model=TaskStartResponse)
+async def batch_refresh_external(
+    data: BatchDeleteRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Batch refresh Scholar + DBLP sources for selected professors."""
+    if not data.ids:
+        raise HTTPException(status_code=400, detail="请选择至少一位教授")
+    professors = (
+        session.query(Professor)
+        .filter(Professor.id.in_(data.ids), Professor.user_id == current_user.id)
+        .all()
+    )
+    if len(professors) != len(data.ids):
+        raise HTTPException(status_code=400, detail="存在无效的教授 ID")
+
+    cleanup_old_tasks()
+    task = create_task(
+        task_type="batch-refresh-external",
+        task_name=f"批量更新外部档案 · {len(data.ids)} 位",
+        user_id=current_user.id,
+        total=len(data.ids),
+    )
+    enqueue_task("batch-refresh-external", task.task_id, professor_ids=list(data.ids))
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message=f"已启动外部档案批量更新，共 {len(data.ids)} 位教授",
+    )
+
+
+@router.post("/confirm-dblp", response_model=TaskStartResponse)
+def confirm_dblp_candidate(
+    body: DblpCandidateConfirm,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Confirm DBLP candidate and crawl full profile."""
+    professor = (
+        session.query(Professor)
+        .filter(
+            Professor.id == body.professor_id,
+            Professor.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not professor:
+        raise HTTPException(status_code=404, detail="教授不存在")
+
+    professor.dblp_pid = body.dblp_pid
+    professor.dblp_url = dblp_profile_url(body.dblp_pid)
+    professor.dblp_enrichment_status = "user_confirmed"
+    professor.dblp_candidates = None
+
+    task = create_task(
+        "single-dblp-crawl",
+        f"爬取 DBLP: {professor.name}",
+        current_user.id,
+        total=1,
+    )
+    enqueue_task("single-dblp-crawl", task.task_id, professor.dblp_url)
+
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message=f"已确认 DBLP 关联，正在爬取 {professor.name} 的论文列表...",
+        total=1,
+    )
+
+
+@router.post("/{professor_id}/set-dblp", response_model=TaskStartResponse)
+def set_dblp_manually(
+    professor_id: int,
+    body: ProfessorDblpAdd,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Manually set DBLP profile URL and crawl."""
+    professor = (
+        session.query(Professor)
+        .filter(Professor.id == professor_id, Professor.user_id == current_user.id)
+        .first()
+    )
+    if not professor:
+        raise HTTPException(status_code=404, detail="教授不存在")
+    try:
+        pid = extract_dblp_pid(body.url)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="无法从 URL 中提取 DBLP pid")
+
+    professor.dblp_pid = pid
+    professor.dblp_url = dblp_profile_url(pid)
+    professor.dblp_enrichment_status = "user_confirmed"
+    professor.dblp_candidates = None
+
+    task = create_task(
+        "single-dblp-crawl",
+        f"爬取 DBLP: {professor.name}",
+        current_user.id,
+        total=1,
+    )
+    enqueue_task("single-dblp-crawl", task.task_id, body.url)
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message=f"已设置 DBLP，正在爬取 {professor.name} 的论文列表...",
         total=1,
     )

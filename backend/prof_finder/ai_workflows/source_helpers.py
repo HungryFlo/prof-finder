@@ -50,6 +50,33 @@ def build_paper_summary_from_scholar_publication(
     return rec
 
 
+def build_paper_summary_from_dblp_publication(
+    pub: dict,
+    provider: LLMProvider | None = None,
+    language: str = "en",
+) -> dict:
+    """Build a paper_summaries record from a DBLP publication dict."""
+    title = (pub.get("title") or "").strip() or "Untitled Paper"
+    venue = (pub.get("venue") or "").strip()
+    content = f"Venue: {venue}" if venue else ""
+    result = summarize_paper(
+        source_type="dblp_pub",
+        title=title,
+        content=content,
+        language=language,
+        provider=provider,
+    )
+    rec: dict = {
+        "source_type": "dblp_pub",
+        "title": title,
+        "summary": result.summary,
+        "keywords": result.keywords[:12],
+    }
+    if pub.get("dblp_url"):
+        rec["dblp_url"] = pub["dblp_url"]
+    return rec
+
+
 def build_paper_summary_from_source(
     source_input: dict,
     provider: LLMProvider | None = None,

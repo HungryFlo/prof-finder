@@ -18,6 +18,7 @@ from ..schemas import (
     TaskCancelResponse,
     TaskListItemResponse,
     BatchCrawlRequest,
+    BatchDblpCrawlRequest,
     BatchLetterRequest,
 )
 from ..task_manager import (
@@ -72,6 +73,33 @@ async def start_batch_crawl(
     return TaskStartResponse(
         task_id=task.task_id,
         message=f"已启动批量爬取任务，共 {len(data.scholar_urls)} 个链接",
+    )
+
+
+@router.post("/batch-dblp-crawl", response_model=TaskStartResponse)
+async def start_batch_dblp_crawl(
+    data: BatchDblpCrawlRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Start a batch DBLP profile crawl task."""
+    if not data.dblp_urls:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请提供至少一个 DBLP URL",
+        )
+
+    cleanup_old_tasks()
+    task = create_task(
+        task_type="batch-dblp-crawl",
+        task_name=f"批量爬取 DBLP {len(data.dblp_urls)} 个教授",
+        user_id=current_user.id,
+        total=len(data.dblp_urls),
+    )
+    enqueue_task("batch-dblp-crawl", task.task_id, data.dblp_urls)
+
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message=f"已启动 DBLP 批量爬取，共 {len(data.dblp_urls)} 个链接",
     )
 
 

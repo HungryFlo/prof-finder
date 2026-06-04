@@ -9,7 +9,9 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from ..db import get_db
 from ..models import Professor
-from ..crawler import ScholarCrawler
+from ..crawler import ScholarCrawler, DblpClient
+from ..crawler.dblp import extract_dblp_pid_from_url, dblp_profile_url
+from ..utils.publication_merge import merge_publications
 from ..api.task_manager import TaskStatus, create_task, execute_professor_enrichment
 from ..api.enrichment_prefs import (
     flags_from_user_settings_row,
@@ -74,6 +76,7 @@ def _cli_run_professor_enrichment(user_id: int, professor_id: int) -> None:
 @app.command("add")
 def add_professor(
     scholar: Optional[str] = typer.Option(None, "--scholar", "-s", help="Google Scholar URL or ID"),
+    dblp: Optional[str] = typer.Option(None, "--dblp", help="DBLP profile URL or pid"),
     name: Optional[str] = typer.Option(None, "--name", "-n", help="Professor name (manual add)"),
     affiliation: Optional[str] = typer.Option(None, "--affiliation", "-a", help="Affiliation"),
     user: Optional[str] = typer.Option(None, "--user", "-u", help="Username"),
@@ -81,6 +84,55 @@ def add_professor(
     """Add a professor to your database."""
     current_user = get_current_user(user)
     db = get_db()
+
+    if scholar and dblp:
+        console.print("[red]错误: 请只指定 --scholar 或 --dblp 之一[/red]")
+        raise typer.Exit(1)
+
+    if dblp:
+        try:
+            pid = extract_dblp_pid_from_url(dblp)
+        except ValueError:
+            console.print("[red]错误: 无效的 DBLP URL 或 pid[/red]")
+            raise typer.Exit(1)
+
+        with db.session() as session:
+            existing = session.query(Professor).filter(
+                Professor.user_id == current_user.id,
+                Professor.dblp_pid == pid,
+            ).first()
+            if existing:
+                console.print(f"[yellow]教授 {existing.name} 已存在 (ID: {existing.id})[/yellow]")
+                return
+
+        console.print("[cyan]正在从 DBLP 获取信息...[/cyan]")
+        client = DblpClient()
+        author_data = client.get_author(pid)
+        if not author_data:
+            console.print("[red]错误: 未找到该 DBLP 作者[/red]")
+            raise typer.Exit(1)
+
+        console.print(f"\n[green]✓ {author_data['name']}[/green]")
+        console.print(f"  论文数: {len(author_data.get('publications', []))}")
+        if not Confirm.ask("\n是否保存?", default=True):
+            return
+
+        with db.session() as session:
+            professor = Professor(
+                user_id=current_user.id,
+                name=author_data["name"],
+                affiliation=author_data.get("affiliation"),
+                dblp_pid=pid,
+                dblp_url=author_data.get("dblp_url") or dblp_profile_url(pid),
+                publications=merge_publications([], author_data.get("publications", []), "dblp"),
+                source="dblp",
+            )
+            session.add(professor)
+            session.flush()
+            prof_id = professor.id
+        _cli_run_professor_enrichment(current_user.id, prof_id)
+        console.print(f"[green]✓ 已保存教授 (ID: {prof_id})[/green]")
+        return
 
     if scholar:
         # Add from Google Scholar

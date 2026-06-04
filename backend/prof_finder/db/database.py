@@ -123,6 +123,18 @@ class Database:
                 conn.execute(text("ALTER TABLE professors ADD COLUMN scholar_candidates JSON"))
                 conn.commit()
 
+            prof_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(professors)"))}
+            dblp_additions = {
+                "dblp_pid": "VARCHAR(100)",
+                "dblp_url": "VARCHAR(500)",
+                "dblp_enrichment_status": "VARCHAR(20)",
+                "dblp_candidates": "JSON",
+            }
+            for column, sql_type in dblp_additions.items():
+                if column not in prof_cols:
+                    conn.execute(text(f"ALTER TABLE professors ADD COLUMN {column} {sql_type}"))
+                    conn.commit()
+
             # Add university_id to university_crawler_configs
             config_table_exists = conn.execute(
                 text(

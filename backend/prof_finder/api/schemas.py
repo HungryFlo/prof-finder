@@ -286,6 +286,12 @@ class ProfessorScholarAdd(BaseModel):
     url: str
 
 
+class ProfessorDblpAdd(BaseModel):
+    """Add or link professor by DBLP profile URL or pid."""
+
+    url: str
+
+
 class ProfessorSearchRequest(BaseModel):
     """Search Google Scholar request."""
 
@@ -304,6 +310,10 @@ class ProfessorResponse(BaseModel):
     homepage: Optional[str]
     google_scholar_id: Optional[str]
     google_scholar_url: Optional[str]
+    dblp_pid: Optional[str] = None
+    dblp_url: Optional[str] = None
+    dblp_enrichment_status: Optional[str] = None
+    dblp_candidates: Optional[List[dict]] = None
     research_interests: List[str]
     publications: List[dict]
     paper_summaries: Optional[List[dict]] = None
@@ -341,10 +351,21 @@ class ProfessorListResponse(BaseModel):
     source: Optional[str] = None
     enrichment_status: Optional[str] = None
     google_scholar_id: Optional[str] = None
+    dblp_pid: Optional[str] = None
+    dblp_enrichment_status: Optional[str] = None
     created_at: ApiDateTime
 
     class Config:
         from_attributes = True
+
+
+class DblpSearchResult(BaseModel):
+    """DBLP author search result."""
+
+    name: str
+    pid: str
+    url: str
+    affiliations: List[str] = Field(default_factory=list)
 
 
 class ProfessorNameCollision(BaseModel):
@@ -564,6 +585,12 @@ class BatchCrawlRequest(BaseModel):
     scholar_urls: List[str]
 
 
+class BatchDblpCrawlRequest(BaseModel):
+    """Batch DBLP crawl request."""
+
+    dblp_urls: List[str]
+
+
 # ============= University Crawler Schemas =============
 
 
@@ -699,6 +726,13 @@ class ScholarCandidateConfirm(BaseModel):
 
     professor_id: int
     scholar_id: str
+
+
+class DblpCandidateConfirm(BaseModel):
+    """Confirm a DBLP candidate for a professor."""
+
+    professor_id: int
+    dblp_pid: str
 
 
 # ============= Common Schemas =============

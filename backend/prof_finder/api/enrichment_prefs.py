@@ -31,6 +31,7 @@ def flags_from_user_settings_row(row: Optional[Any]) -> AutoEnrichFlags:
 def planned_enrichment_step_count(
     *,
     has_scholar: bool,
+    has_publications: bool,
     publications: list,
     flags: AutoEnrichFlags,
 ) -> int:
@@ -38,7 +39,7 @@ def planned_enrichment_step_count(
     n = 0
     if flags.fetch_publication_details and has_scholar and bool(publications):
         n += 1
-    if flags.paper_summaries:
+    if flags.paper_summaries and has_publications:
         n += 1
     if flags.research_profile:
         n += 1
@@ -47,8 +48,10 @@ def planned_enrichment_step_count(
 
 def planned_enrichment_step_count_for_professor(professor: Any, flags: AutoEnrichFlags) -> int:
     pubs = list(professor.publications or [])
+    has_pubs = bool(pubs)
     return planned_enrichment_step_count(
         has_scholar=bool(professor.google_scholar_id),
+        has_publications=has_pubs,
         publications=pubs,
         flags=flags,
     )

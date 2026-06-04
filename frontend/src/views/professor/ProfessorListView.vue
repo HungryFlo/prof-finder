@@ -58,6 +58,10 @@ const showScholarModal = ref(false)
 const scholarLoading = ref(false)
 const scholarUrl = ref('')
 
+const showDblpModal = ref(false)
+const dblpLoading = ref(false)
+const dblpUrl = ref('')
+
 const showUniversityModal = ref(false)
 const universityLoading = ref(false)
 const universityCrawlers = ref<UniversityCrawlerInfo[]>([])
@@ -104,6 +108,7 @@ const showSummaryDrawer = ref(false)
 const summaryDrawerProfId = ref(0)
 
 const scholarMatchLoadingIds = ref<Set<number>>(new Set())
+const externalMatchLoadingIds = ref<Set<number>>(new Set())
 
 const searchQuery = ref('')
 const sortBy = ref<string | null>(null)
@@ -176,7 +181,7 @@ const columns = computed<DataTableColumns<ProfessorListItem>>(() => [
   {
     title: 'Scholar',
     key: 'enrichment_status',
-    width: 120,
+    width: 110,
     render(row) {
       if (row.google_scholar_id) {
         return h(NTag, { size: 'small', type: 'success' }, { default: () => t('professor.scholarMatched') })
@@ -194,29 +199,50 @@ const columns = computed<DataTableColumns<ProfessorListItem>>(() => [
     },
   },
   {
+    title: 'DBLP',
+    key: 'dblp_enrichment_status',
+    width: 110,
+    render(row) {
+      if (row.dblp_pid) {
+        return h(NTag, { size: 'small', type: 'success' }, { default: () => t('professor.dblpMatched') })
+      }
+      if (row.dblp_enrichment_status === 'pending') {
+        return h(NTag, { size: 'small', type: 'info' }, { default: () => t('professor.dblpPending') })
+      }
+      if (row.dblp_enrichment_status === 'ambiguous') {
+        return h(NTag, { size: 'small', type: 'warning' }, { default: () => t('professor.dblpAmbiguous') })
+      }
+      if (row.dblp_enrichment_status === 'not_found') {
+        return h(NTag, { size: 'small', type: 'default' }, { default: () => t('professor.dblpNotFound') })
+      }
+      return null
+    },
+  },
+  {
     title: t('professor.actions'),
     key: 'actions',
-    width: 320,
+    width: 360,
     render(row) {
-      const matchLoading = scholarMatchLoadingIds.value.has(row.id)
+      const extLoading = externalMatchLoadingIds.value.has(row.id)
+      const needsExternal = !row.google_scholar_id || !row.dblp_pid
       return h(NSpace, { size: 'small', wrap: true }, () => [
         h(
           NButton,
           { size: 'small', type: 'primary', onClick: () => router.push(`/professor/${row.id}`) },
           { default: () => t('professor.tableDetail') }
         ),
-        !row.google_scholar_id
+        needsExternal
           ? h(
               NButton,
               {
                 size: 'small',
                 type: 'info',
                 secondary: true,
-                loading: matchLoading,
-                disabled: matchLoading,
-                onClick: () => handleMatchScholar(row),
+                loading: extLoading,
+                disabled: extLoading,
+                onClick: () => handleMatchExternal(row),
               },
-              { default: () => t('professor.searchScholar') }
+              { default: () => t('professor.matchExternal') }
             )
           : null,
         h(
@@ -507,29 +533,67 @@ async function handleBatchGenerateProfiles() {
   }
 }
 
-async function handleMatchScholar(row: ProfessorListItem) {
-  if (scholarMatchLoadingIds.value.has(row.id)) return
+async function handleMatchExternal(row: ProfessorListItem) {
+  if (externalMatchLoadingIds.value.has(row.id)) return
 
-  const next = new Set(scholarMatchLoadingIds.value)
+  const next = new Set(externalMatchLoadingIds.value)
   next.add(row.id)
-  scholarMatchLoadingIds.value = next
+  externalMatchLoadingIds.value = next
 
   try {
-    const { task_id, message: msg } = await professorsApi.matchScholar(row.id)
-    message.success(msg || t('professor.searchScholarStarted', { name: row.name }))
+    const { task_id, message: msg } = await professorsApi.matchExternal(row.id)
+    message.success(msg || t('professor.matchExternalStarted'))
     taskStore.addTask(
       task_id,
-      'batch-scholar-match',
-      t('professor.searchScholarTask', { name: row.name }),
-      1,
+      'batch-dblp-match',
+      t('professor.matchExternal') + `: ${row.name}`,
+      2,
       afterImportTasksComplete,
     )
   } catch (error: unknown) {
-    handleApiError(error, t('professor.searchScholarFailed'))
+    handleApiError(error, t('professor.matchExternalFailed'))
   } finally {
-    const done = new Set(scholarMatchLoadingIds.value)
+    const done = new Set(externalMatchLoadingIds.value)
     done.delete(row.id)
-    scholarMatchLoadingIds.value = done
+    externalMatchLoadingIds.value = done
+  }
+}
+
+async function handleAddByDblp() {
+  if (!dblpUrl.value) {
+    message.warning(t('professor.enterDblpUrl'))
+    return
+  }
+  dblpLoading.value = true
+  try {
+    const { task_id } = await professorsApi.addByDblp(dblpUrl.value)
+    showDblpModal.value = false
+    dblpUrl.value = ''
+    taskStore.addTask(task_id, 'single-dblp-crawl', t('professor.importProfessorTask'), 1, afterImportTasksComplete)
+  } catch (error: unknown) {
+    handleApiError(error, t('professor.addFailed'))
+  } finally {
+    dblpLoading.value = false
+  }
+}
+
+async function handleBatchRefreshExternal() {
+  if (selectedRowKeys.value.length === 0) {
+    message.warning(t('professor.pleaseSelectProfessorToRefresh'))
+    return
+  }
+  try {
+    const { task_id, message: msg } = await professorsApi.batchRefreshExternal(selectedRowKeys.value)
+    taskStore.addTask(
+      task_id,
+      'batch-refresh-external',
+      t('professor.batchRefreshExternal') + ` (${selectedRowKeys.value.length})`,
+      selectedRowKeys.value.length,
+      afterImportTasksComplete,
+    )
+    message.success(msg || t('professor.batchRefreshStarting'))
+  } catch (error: unknown) {
+    handleApiError(error, t('professor.batchRefreshFail'))
   }
 }
 
@@ -596,6 +660,14 @@ onMounted(() => {
           </n-button>
           <n-button
             v-if="selectedRowKeys.length > 0"
+            type="info"
+            secondary
+            @click="handleBatchRefreshExternal"
+          >
+            {{ $t('professor.batchRefreshExternal') }} ({{ selectedRowKeys.length }})
+          </n-button>
+          <n-button
+            v-if="selectedRowKeys.length > 0"
             type="warning"
             @click="handleBatchGenerateProfiles"
           >
@@ -606,6 +678,9 @@ onMounted(() => {
           </n-button>
           <n-button type="primary" @click="showScholarModal = true">
             {{ $t('professor.addByScholar') }}
+          </n-button>
+          <n-button type="primary" secondary @click="showDblpModal = true">
+            {{ $t('professor.addByDblp') }}
           </n-button>
           <n-button @click="showManualModal = true">{{ $t('professor.manualAdd') }}</n-button>
         </n-space>
@@ -862,6 +937,27 @@ onMounted(() => {
           </div>
         </n-tab-pane>
       </n-tabs>
+    </n-modal>
+
+    <n-modal
+      v-model:show="showDblpModal"
+      preset="dialog"
+      :title="$t('professor.dblpModalTitle')"
+      :positive-text="$t('professor.addByScholarPos')"
+      :negative-text="$t('common.cancel')"
+      :positive-button-props="{ loading: dblpLoading }"
+      @positive-click="handleAddByDblp"
+      style="width: 500px"
+    >
+      <p style="margin: 0 0 12px; color: var(--muted-foreground); font-size: 13px; line-height: 1.5">
+        {{ $t('professor.dblpModalIntro') }}
+      </p>
+      <n-form-item :label="$t('professor.dblpFormLabel')">
+        <n-input
+          v-model:value="dblpUrl"
+          placeholder="https://dblp.org/pid/l/AuthorName.html"
+        />
+      </n-form-item>
     </n-modal>
 
     <n-modal

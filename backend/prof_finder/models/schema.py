@@ -215,6 +215,12 @@ class Professor(Base):
     google_scholar_id = Column(String(50))
     google_scholar_url = Column(String(500))
 
+    # DBLP data
+    dblp_pid = Column(String(100), index=True)
+    dblp_url = Column(String(500))
+    dblp_enrichment_status = Column(String(20))
+    dblp_candidates = Column(JSON, nullable=True)
+
     # Source tracking for school-crawler professors
     source = Column(String(20), default="manual")  # "school_crawler" | "google_scholar" | "manual"
     enrichment_status = Column(String(20))  # "pending" | "matched" | "not_found" | "ambiguous" | "user_confirmed"

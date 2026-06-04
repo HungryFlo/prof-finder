@@ -121,16 +121,25 @@ def _text_or_none(node: Optional[ET.Element]) -> Optional[str]:
     return value or None
 
 
-def keep_non_scholar_paper_summaries(items: Optional[list]) -> list:
-    """Drop auto-generated Scholar publication summaries; keep PDF/ArXiv and other entries."""
+def keep_paper_summaries_excluding(
+    items: Optional[list],
+    exclude: Optional[set[str]] = None,
+) -> list:
+    """Drop summaries whose source_type is in ``exclude``."""
+    excluded = exclude if exclude is not None else {"scholar_pub"}
     out: list = []
     for item in items or []:
         if not isinstance(item, dict):
             continue
-        if item.get("source_type") == "scholar_pub":
+        if item.get("source_type") in excluded:
             continue
         out.append(item)
     return out
+
+
+def keep_non_scholar_paper_summaries(items: Optional[list]) -> list:
+    """Drop auto-generated Scholar publication summaries; keep PDF/ArXiv and other entries."""
+    return keep_paper_summaries_excluding(items, {"scholar_pub"})
 
 
 def build_paper_summary_from_scholar_publication(

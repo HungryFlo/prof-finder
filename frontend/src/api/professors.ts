@@ -4,6 +4,7 @@ import type {
   PaperSummary,
   ProfessorListItem,
   ScholarSearchResult,
+  DblpSearchResult,
   PaginatedResponse,
   ProfessorEditPreviewResponse,
 } from '@/types'
@@ -318,6 +319,86 @@ export const professorsApi = {
     const response = await client.post<TaskStartResponse>(
       `/professors/${professorId}/match-scholar`,
       {},
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
+    )
+    return response.data
+  },
+
+  async searchDblp(query: string, limit: number = 10): Promise<DblpSearchResult[]> {
+    const response = await client.post<DblpSearchResult[]>('/professors/dblp/search', {
+      query,
+      limit,
+    })
+    return response.data
+  },
+
+  async addByDblp(url: string): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(
+      '/professors/dblp',
+      { url },
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
+    )
+    return response.data
+  },
+
+  async matchDblp(professorId: number): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(
+      `/professors/${professorId}/match-dblp`,
+      {},
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
+    )
+    return response.data
+  },
+
+  async matchExternal(professorId: number): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(
+      `/professors/${professorId}/match-external`,
+      {},
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
+    )
+    return response.data
+  },
+
+  async confirmDblp(professorId: number, dblpPid: string): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(
+      '/professors/confirm-dblp',
+      { professor_id: professorId, dblp_pid: dblpPid },
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
+    )
+    return response.data
+  },
+
+  async setDblp(professorId: number, url: string): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(
+      `/professors/${professorId}/set-dblp`,
+      { url },
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
+    )
+    return response.data
+  },
+
+  async refreshDblp(id: number): Promise<Professor> {
+    const response = await client.post<Professor>(
+      `/professors/${id}/refresh-dblp`,
+      {},
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
+    )
+    return response.data
+  },
+
+  async batchRefreshDblp(ids: number[]): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(
+      '/professors/batch-refresh-dblp',
+      { ids },
+      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
+    )
+    return response.data
+  },
+
+  async batchRefreshExternal(ids: number[]): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(
+      '/professors/batch-refresh-external',
+      { ids },
       { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
     )
     return response.data

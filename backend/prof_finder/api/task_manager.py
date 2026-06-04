@@ -201,6 +201,13 @@ def cleanup_old_tasks() -> None:
 # ---------------------------------------------------------------------------
 
 
+def extract_dblp_pid_from_url(url: str) -> str:
+    """Extract DBLP pid from profile URL (delegates to crawler.dblp)."""
+    from ..crawler.dblp import extract_dblp_pid_from_url as _extract
+
+    return _extract(url)
+
+
 def extract_scholar_id_from_url(url: str) -> str:
     """Extract Google Scholar author ID from a profile URL.
 
@@ -783,7 +790,13 @@ def execute_single_crawl(task_id: str, scholar_url: str) -> None:
                 professor.homepage = author_data.get("homepage") or professor.homepage
                 professor.google_scholar_url = scholar_url
                 professor.research_interests = author_data.get("interests") or professor.research_interests
-                professor.publications = author_data.get("publications") or professor.publications
+                from ..utils.publication_merge import merge_publications
+
+                professor.publications = merge_publications(
+                    professor.publications,
+                    author_data.get("publications") or [],
+                    "scholar",
+                )
                 professor.h_index = author_data.get("h_index") or professor.h_index
                 professor.total_citations = author_data.get("citations") or professor.total_citations
             else:
@@ -799,6 +812,7 @@ def execute_single_crawl(task_id: str, scholar_url: str) -> None:
                     publications=author_data.get("publications", []),
                     h_index=author_data.get("h_index"),
                     total_citations=author_data.get("citations"),
+                    source="google_scholar",
                 )
                 session.add(professor)
 
@@ -1419,6 +1433,342 @@ def execute_batch_scholar_match(
     _enqueue_batch_professor_enrichment_if_enabled(task.user_id, matched_ids)
 
 
+def _mark_pending_dblp_professors_not_found(user_id: int, professor_ids: List[int]) -> int:
+    from ..db.database import get_db
+    from ..models.schema import Professor
+
+    db = get_db()
+    cleared = 0
+    with db.session() as session:
+        for pid in professor_ids:
+            professor = (
+                session.query(Professor)
+                .filter(Professor.id == pid, Professor.user_id == user_id)
+                .first()
+            )
+            if professor and professor.dblp_enrichment_status == "pending":
+                professor.dblp_enrichment_status = "not_found"
+                cleared += 1
+    return cleared
+
+
+@register_task("batch-dblp-match")
+def execute_batch_dblp_match(
+    task_id: str,
+    professor_ids: List[int],
+    university_variants: List[str],
+    department_affiliation: str | None = None,
+) -> None:
+    """Match professors to DBLP profiles."""
+    from ..config import settings as app_settings
+    from ..db.database import get_db
+    from ..models.schema import Professor, UserSettings
+    from ..crawler.dblp import DblpClient, dblp_profile_url
+    from ..crawler.dblp_matcher import match_professor_dblp
+
+    task = get_task(task_id)
+    if not task:
+        return
+    task.status = TaskStatus.RUNNING
+    task.total = len(professor_ids) if professor_ids else 1
+    persist_task(task)
+
+    if not professor_ids:
+        task.status = TaskStatus.COMPLETED
+        task.message = "无教授需要匹配 DBLP"
+        persist_task(task)
+        return
+
+    db = get_db()
+    with db.session() as session:
+        row = (
+            session.query(UserSettings)
+            .filter(UserSettings.user_id == task.user_id)
+            .first()
+        )
+        request_delay = (
+            row.request_delay if row and row.request_delay else app_settings.request_delay
+        )
+
+    dblp_client = DblpClient(request_delay=0)
+    matched_ids: List[int] = []
+
+    def _finish_cancelled() -> None:
+        cleared = _mark_pending_dblp_professors_not_found(task.user_id, professor_ids)
+        task.status = TaskStatus.CANCELLED
+        task.message = (
+            f"DBLP 匹配已取消（{cleared} 位未完成的教授已标记为未找到）"
+            if cleared
+            else "DBLP 匹配已取消"
+        )
+        persist_task(task)
+
+    for i, pid in enumerate(professor_ids):
+        if task.cancel_requested:
+            _finish_cancelled()
+            return
+
+        task.current = i + 1
+        with db.session() as session:
+            professor = (
+                session.query(Professor)
+                .filter(Professor.id == pid, Professor.user_id == task.user_id)
+                .first()
+            )
+            if not professor:
+                task.failed_count += 1
+                continue
+            prof_name = professor.name
+            crawled_email = professor.email
+
+        task.message = f"正在搜索 {prof_name} 的 DBLP 主页 ({i + 1}/{len(professor_ids)})"
+
+        try:
+            match_result = match_professor_dblp(
+                chinese_name=prof_name,
+                crawled_email=crawled_email,
+                university_variants=university_variants,
+                department_affiliation=department_affiliation,
+                dblp_client=dblp_client,
+                request_delay=request_delay,
+                cancel_checker=lambda: task.cancel_requested,
+            )
+        except Exception as e:
+            logger.warning("DBLP matching failed for %s: %s", prof_name, e)
+            match_result = {"status": "not_found", "dblp_pid": None, "candidates": []}
+
+        with db.session() as session:
+            professor = (
+                session.query(Professor)
+                .filter(Professor.id == pid, Professor.user_id == task.user_id)
+                .first()
+            )
+            if not professor:
+                continue
+            if match_result.get("status") == "matched":
+                pid_val = match_result["dblp_pid"]
+                author_data = dblp_client.get_author(pid_val)
+                professor.dblp_pid = pid_val
+                professor.dblp_url = match_result.get("dblp_url") or dblp_profile_url(pid_val)
+                professor.dblp_enrichment_status = "matched"
+                if author_data:
+                    from ..utils.publication_merge import merge_publications
+
+                    professor.publications = merge_publications(
+                        professor.publications,
+                        author_data.get("publications") or [],
+                        "dblp",
+                    )
+                    if author_data.get("affiliation"):
+                        professor.affiliation = author_data["affiliation"]
+                matched_ids.append(pid)
+            elif match_result.get("status") == "ambiguous":
+                professor.dblp_enrichment_status = "ambiguous"
+                professor.dblp_candidates = match_result.get("candidates", [])
+            else:
+                professor.dblp_enrichment_status = "not_found"
+
+        task.success_count += 1
+        task.results.append(
+            {
+                "professor_id": pid,
+                "name": prof_name,
+                "success": True,
+                "dblp_status": match_result.get("status"),
+            }
+        )
+
+        if (
+            not task.cancel_requested
+            and i < len(professor_ids) - 1
+            and request_delay > 0
+        ):
+            time.sleep(request_delay)
+
+    if task.cancel_requested:
+        _finish_cancelled()
+        return
+
+    matched = sum(1 for r in task.results if r.get("dblp_status") == "matched")
+    ambiguous = sum(1 for r in task.results if r.get("dblp_status") == "ambiguous")
+    task.status = TaskStatus.COMPLETED
+    task.message = (
+        f"DBLP 匹配完成：自动匹配 {matched} 位，待确认 {ambiguous} 位，"
+        f"未找到 {task.success_count - matched - ambiguous} 位"
+    )
+    persist_task(task)
+    _enqueue_batch_professor_enrichment_if_enabled(task.user_id, matched_ids)
+
+
+@register_task("single-dblp-crawl")
+def execute_single_dblp_crawl(task_id: str, dblp_url: str) -> None:
+    """Crawl DBLP profile and merge publications into professor record."""
+    from ..db.database import get_db
+    from ..models.schema import Professor, UserSettings
+    from ..crawler.dblp import DblpClient
+    from ..utils.publication_merge import merge_publications
+
+    task = get_task(task_id)
+    if not task:
+        return
+    task.status = TaskStatus.RUNNING
+    task.message = "正在爬取 DBLP 教授信息..."
+    persist_task(task)
+
+    db = get_db()
+    try:
+        pid = extract_dblp_pid_from_url(dblp_url)
+        client = DblpClient()
+        author_data = client.get_author(pid)
+        if not author_data:
+            task.status = TaskStatus.FAILED
+            task.error_message = "未找到该 DBLP 学者信息"
+            persist_task(task)
+            return
+
+        profile_url = author_data.get("dblp_url") or dblp_url
+        with db.session() as session:
+            existing = (
+                session.query(Professor)
+                .filter(
+                    Professor.user_id == task.user_id,
+                    Professor.dblp_pid == author_data["dblp_pid"],
+                )
+                .first()
+            )
+            if existing:
+                professor = existing
+                professor.name = author_data.get("name") or professor.name
+                if author_data.get("affiliation"):
+                    professor.affiliation = author_data["affiliation"]
+                professor.dblp_url = profile_url
+                professor.publications = merge_publications(
+                    professor.publications,
+                    author_data.get("publications") or [],
+                    "dblp",
+                )
+            else:
+                professor = Professor(
+                    user_id=task.user_id,
+                    name=author_data["name"],
+                    affiliation=author_data.get("affiliation"),
+                    dblp_pid=author_data["dblp_pid"],
+                    dblp_url=profile_url,
+                    publications=merge_publications(
+                        [], author_data.get("publications") or [], "dblp"
+                    ),
+                    source="dblp",
+                )
+                session.add(professor)
+
+            session.flush()
+            enrichment_professor_id = professor.id
+            settings_row = (
+                session.query(UserSettings)
+                .filter(UserSettings.user_id == task.user_id)
+                .first()
+            )
+            enrich_flags = flags_from_user_settings_row(settings_row)
+            enrich_planned = planned_enrichment_step_count_for_professor(
+                professor, enrich_flags
+            )
+
+        task.success_count = 1
+        task.current = 1
+        task.message = f"DBLP 爬取完成：{author_data['name']}"
+        task.results.append({"name": author_data["name"], "success": True})
+        task.status = TaskStatus.COMPLETED
+        persist_task(task)
+
+        if enrich_planned > 0:
+            enrich_task = create_task(
+                "professor-enrichment",
+                "教授信息增强",
+                task.user_id,
+                total=enrich_planned,
+            )
+            enqueue_task(
+                "professor-enrichment",
+                enrich_task.task_id,
+                professor_id=enrichment_professor_id,
+            )
+    except ValueError as e:
+        task.status = TaskStatus.FAILED
+        task.error_message = str(e)
+        persist_task(task)
+    except Exception as e:
+        task.status = TaskStatus.FAILED
+        task.error_message = f"DBLP 爬取失败: {str(e)}"
+        persist_task(task)
+
+
+@register_task("batch-dblp-crawl")
+def execute_batch_dblp_crawl(task_id: str, dblp_urls: List[str]) -> None:
+    """Crawl multiple DBLP profile URLs."""
+    from ..db.database import get_db
+    from ..models.schema import Professor, UserSettings
+    from ..crawler.dblp import DblpClient, extract_dblp_pid_from_url
+    from ..crawler.dblp import dblp_profile_url
+    from ..utils.publication_merge import merge_publications
+
+    task = get_task(task_id)
+    if not task:
+        return
+    task.status = TaskStatus.RUNNING
+    persist_task(task)
+    db = get_db()
+    client = DblpClient()
+    new_professor_ids: List[int] = []
+
+    for i, url in enumerate(dblp_urls):
+        if task.cancel_requested:
+            break
+        task.current = i + 1
+        task.message = f"正在爬取 DBLP 第 {i + 1}/{task.total} 个..."
+        try:
+            pid = extract_dblp_pid_from_url(url)
+            author_data = client.get_author(pid)
+            if not author_data:
+                task.failed_count += 1
+                continue
+            with db.session() as session:
+                existing = (
+                    session.query(Professor)
+                    .filter(
+                        Professor.user_id == task.user_id,
+                        Professor.dblp_pid == author_data["dblp_pid"],
+                    )
+                    .first()
+                )
+                if existing:
+                    task.results.append({"url": url, "success": True, "skipped": True})
+                    continue
+                professor = Professor(
+                    user_id=task.user_id,
+                    name=author_data["name"],
+                    affiliation=author_data.get("affiliation"),
+                    dblp_pid=author_data["dblp_pid"],
+                    dblp_url=author_data.get("dblp_url") or dblp_profile_url(pid),
+                    publications=merge_publications(
+                        [], author_data.get("publications") or [], "dblp"
+                    ),
+                    source="dblp",
+                )
+                session.add(professor)
+                session.flush()
+                new_professor_ids.append(professor.id)
+            task.success_count += 1
+            task.results.append({"url": url, "name": author_data["name"], "success": True})
+        except Exception as e:
+            task.failed_count += 1
+            task.results.append({"url": url, "success": False, "error": str(e)})
+
+    task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
+    persist_task(task)
+    if new_professor_ids and task.status == TaskStatus.COMPLETED:
+        _enqueue_batch_professor_enrichment_if_enabled(task.user_id, new_professor_ids)
+
+
 @register_task("generic-university-crawl")
 def execute_generic_university_crawl(task_id: str, config_id: int, cache_key: str | None = None) -> None:
     """Crawl professors using a user-defined UniversityCrawlerConfig.
@@ -1626,6 +1976,7 @@ def execute_generic_university_crawl(task_id: str, config_id: int, cache_key: st
                     publications=[],
                     source="school_crawler",
                     enrichment_status="pending" if do_scholar_match else None,
+                    dblp_enrichment_status="pending" if do_scholar_match else None,
                 )
                 session.add(professor)
                 session.flush()
@@ -1660,7 +2011,22 @@ def execute_generic_university_crawl(task_id: str, config_id: int, cache_key: st
                 university_variants=university_variants,
                 department_affiliation=department_affiliation,
             )
-            task.message += f"，已启动 Scholar 匹配任务（{len(new_professor_ids)} 位）"
+            dblp_task = create_task(
+                "batch-dblp-match",
+                f"DBLP 匹配 ({len(new_professor_ids)} 位)",
+                task.user_id,
+                total=len(new_professor_ids),
+            )
+            enqueue_task(
+                "batch-dblp-match",
+                dblp_task.task_id,
+                professor_ids=new_professor_ids,
+                university_variants=university_variants,
+                department_affiliation=department_affiliation,
+            )
+            task.message += (
+                f"，已启动 Scholar 与 DBLP 匹配任务（各 {len(new_professor_ids)} 位）"
+            )
     persist_task(task)
 
 
@@ -1680,7 +2046,10 @@ def _enrich_professor_core(
     from ..crawler.scholar import ScholarCrawler
     from ..db.database import get_db
     from ..ai_workflows.provider import LLMProvider
-    from ..ai_workflows.source_helpers import build_paper_summary_from_scholar_publication
+    from ..ai_workflows.source_helpers import (
+        build_paper_summary_from_dblp_publication,
+        build_paper_summary_from_scholar_publication,
+    )
     from ..ai_workflows.workflows import generate_professor_profile
     from ..models.schema import Professor, UserSettings
     from .source_input_service import keep_non_scholar_paper_summaries
@@ -1708,6 +2077,7 @@ def _enrich_professor_core(
         if not professor:
             raise ValueError("教授不存在或无权限")
         has_scholar = bool(professor.google_scholar_id)
+        has_dblp = bool(professor.dblp_pid)
         publications = list(professor.publications or [])
         prof_name = professor.name
 
@@ -1764,7 +2134,7 @@ def _enrich_professor_core(
     if _cancelled():
         raise TaskCancelled()
 
-    if flags.paper_summaries:
+    if flags.paper_summaries and publications:
         _prog("正在生成论文摘要...")
         prov = _ensure_provider()
         with db.session() as session:
@@ -1775,17 +2145,36 @@ def _enrich_professor_core(
             )
             if not professor:
                 raise ValueError("教授不存在或无权限")
+            from .source_input_service import keep_paper_summaries_excluding
+
             publications = list(professor.publications or [])
-            merged = keep_non_scholar_paper_summaries(professor.paper_summaries or [])
+            merged = keep_paper_summaries_excluding(
+                professor.paper_summaries or [], {"scholar_pub", "dblp_pub"}
+            )
             new_items: list = []
             for pub in publications[:max_pub]:
                 if _cancelled():
                     raise TaskCancelled()
-                new_items.append(
-                    build_paper_summary_from_scholar_publication(
-                        pub, provider=prov, language="en"
+                src = pub.get("source")
+                if not src:
+                    if pub.get("dblp_url"):
+                        src = "dblp"
+                    elif pub.get("author_pub_id") or pub.get("gscholar_url"):
+                        src = "scholar"
+                    else:
+                        src = "scholar"
+                if src == "dblp":
+                    new_items.append(
+                        build_paper_summary_from_dblp_publication(
+                            pub, provider=prov, language="en"
+                        )
                     )
-                )
+                else:
+                    new_items.append(
+                        build_paper_summary_from_scholar_publication(
+                            pub, provider=prov, language="en"
+                        )
+                    )
             professor.paper_summaries = merged + new_items
             flag_modified(professor, "paper_summaries")
             professor.embedding = None
@@ -2667,6 +3056,7 @@ def execute_batch_refresh(
                 )
                 if professor:
                     from .source_input_service import keep_non_scholar_paper_summaries
+                    from ..utils.publication_merge import merge_publications
 
                     professor.paper_summaries = keep_non_scholar_paper_summaries(
                         professor.paper_summaries or []
@@ -2676,7 +3066,11 @@ def execute_batch_refresh(
                     professor.email = author_data.get("email") or professor.email
                     professor.homepage = author_data.get("homepage") or professor.homepage
                     professor.research_interests = author_data.get("interests", [])
-                    professor.publications = author_data.get("publications", [])
+                    professor.publications = merge_publications(
+                        professor.publications,
+                        author_data.get("publications", []),
+                        "scholar",
+                    )
                     professor.h_index = author_data.get("h_index")
                     professor.total_citations = author_data.get("citations")
                     professor.embedding = None
@@ -2731,6 +3125,224 @@ def execute_batch_refresh(
                 batch_enrich.task_id,
                 professor_ids=enrichment_ids,
             )
+
+
+@register_task("batch-refresh-dblp")
+def execute_batch_refresh_dblp(
+    task_id: str,
+    professor_ids: list[int],
+    session_factory: Optional[Callable[[], Any]] = None,
+) -> None:
+    """Refresh DBLP publications for multiple professors."""
+    from ..db.database import get_db
+    from ..models.schema import Professor, UserSettings
+    from ..crawler.dblp import DblpClient
+    from ..utils.publication_merge import merge_publications
+    from .source_input_service import keep_paper_summaries_excluding
+
+    task = get_task(task_id)
+    if not task:
+        return
+    task.status = TaskStatus.RUNNING
+    task.total = len(professor_ids)
+    task.message = "正在批量更新 DBLP..."
+    persist_task(task)
+
+    if session_factory is None:
+        session_context = get_db().session
+    else:
+
+        def session_context():
+            return _session_scope(session_factory)
+
+    client = DblpClient()
+    enrichment_ids: list[int] = []
+
+    for i, professor_id in enumerate(professor_ids):
+        if task.cancel_requested:
+            break
+        task.current = i + 1
+        try:
+            with session_context() as session:
+                professor = (
+                    session.query(Professor)
+                    .filter(Professor.id == professor_id, Professor.user_id == task.user_id)
+                    .first()
+                )
+                if not professor or not professor.dblp_pid:
+                    task.failed_count += 1
+                    continue
+                pid = professor.dblp_pid
+                prof_name = professor.name
+
+            author_data = client.get_author(pid)
+            if not author_data:
+                task.failed_count += 1
+                continue
+
+            with session_context() as session:
+                professor = (
+                    session.query(Professor)
+                    .filter(Professor.id == professor_id, Professor.user_id == task.user_id)
+                    .first()
+                )
+                if professor:
+                    if author_data.get("affiliation"):
+                        professor.affiliation = author_data["affiliation"]
+                    professor.publications = merge_publications(
+                        professor.publications,
+                        author_data.get("publications", []),
+                        "dblp",
+                    )
+                    professor.paper_summaries = keep_paper_summaries_excluding(
+                        professor.paper_summaries or [], {"dblp_pub"}
+                    )
+                    professor.dblp_url = author_data.get("dblp_url") or professor.dblp_url
+                    professor.embedding = None
+
+            task.success_count += 1
+            task.results.append({"professor_id": professor_id, "name": prof_name, "success": True})
+            enrichment_ids.append(professor_id)
+        except Exception as exc:
+            task.failed_count += 1
+            task.results.append({"professor_id": professor_id, "success": False, "error": str(exc)})
+
+    task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
+    task.message = f"DBLP 批量更新完成：成功 {task.success_count}，失败 {task.failed_count}"
+    persist_task(task)
+    if enrichment_ids:
+        _enqueue_batch_professor_enrichment_if_enabled(task.user_id, enrichment_ids)
+
+
+@register_task("batch-refresh-external")
+def execute_batch_refresh_external(
+    task_id: str,
+    professor_ids: list[int],
+    session_factory: Optional[Callable[[], Any]] = None,
+) -> None:
+    """Refresh Scholar and/or DBLP per professor."""
+    from ..db.database import get_db
+    from ..models.schema import Professor
+    from ..crawler.scholar import ScholarCrawler
+    from ..crawler.dblp import DblpClient
+    from ..utils.publication_merge import merge_publications
+    from .source_input_service import (
+        keep_non_scholar_paper_summaries,
+        keep_paper_summaries_excluding,
+    )
+
+    task = get_task(task_id)
+    if not task:
+        return
+    task.status = TaskStatus.RUNNING
+    task.total = len(professor_ids)
+    persist_task(task)
+
+    if session_factory is None:
+        session_context = get_db().session
+    else:
+
+        def session_context():
+            return _session_scope(session_factory)
+
+    scholar = ScholarCrawler()
+    dblp = DblpClient()
+    enrichment_ids: list[int] = []
+
+    for i, professor_id in enumerate(professor_ids):
+        if task.cancel_requested:
+            break
+        task.current = i + 1
+        task.message = f"正在更新外部档案 {i + 1}/{task.total}..."
+        try:
+            with session_context() as session:
+                professor = (
+                    session.query(Professor)
+                    .filter(Professor.id == professor_id, Professor.user_id == task.user_id)
+                    .first()
+                )
+                if not professor:
+                    task.failed_count += 1
+                    continue
+                scholar_id = professor.google_scholar_id
+                dblp_pid = professor.dblp_pid
+                prof_name = professor.name
+
+            updated = False
+            if scholar_id:
+                author_data = scholar.get_author(scholar_id)
+                if author_data:
+                    with session_context() as session:
+                        professor = (
+                            session.query(Professor)
+                            .filter(
+                                Professor.id == professor_id,
+                                Professor.user_id == task.user_id,
+                            )
+                            .first()
+                        )
+                        if professor:
+                            professor.paper_summaries = keep_non_scholar_paper_summaries(
+                                professor.paper_summaries or []
+                            )
+                            professor.publications = merge_publications(
+                                professor.publications,
+                                author_data.get("publications", []),
+                                "scholar",
+                            )
+                            professor.h_index = author_data.get("h_index")
+                            professor.total_citations = author_data.get("citations")
+                            professor.research_interests = author_data.get("interests", [])
+                            updated = True
+
+            if dblp_pid:
+                dblp_data = dblp.get_author(dblp_pid)
+                if dblp_data:
+                    with session_context() as session:
+                        professor = (
+                            session.query(Professor)
+                            .filter(
+                                Professor.id == professor_id,
+                                Professor.user_id == task.user_id,
+                            )
+                            .first()
+                        )
+                        if professor:
+                            professor.publications = merge_publications(
+                                professor.publications,
+                                dblp_data.get("publications", []),
+                                "dblp",
+                            )
+                            professor.paper_summaries = keep_paper_summaries_excluding(
+                                professor.paper_summaries or [], {"dblp_pub"}
+                            )
+                            updated = True
+
+            if updated:
+                with session_context() as session:
+                    professor = (
+                        session.query(Professor)
+                        .filter(
+                            Professor.id == professor_id,
+                            Professor.user_id == task.user_id,
+                        )
+                        .first()
+                    )
+                    if professor:
+                        professor.embedding = None
+                task.success_count += 1
+                enrichment_ids.append(professor_id)
+            else:
+                task.failed_count += 1
+        except Exception as exc:
+            task.failed_count += 1
+            task.results.append({"professor_id": professor_id, "error": str(exc)})
+
+    task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
+    task.message = f"外部档案更新完成：成功 {task.success_count}，失败 {task.failed_count}"
+    persist_task(task)
+    if enrichment_ids:
+        _enqueue_batch_professor_enrichment_if_enabled(task.user_id, enrichment_ids)
 
 
 @register_task("profile-refine")

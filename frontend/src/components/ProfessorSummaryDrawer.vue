@@ -103,6 +103,16 @@ function formatJsonNote(note: unknown): string {
             </a>
             <span v-else>-</span>
           </n-descriptions-item>
+          <n-descriptions-item :label="$t('professor.dblp')">
+            <a
+              v-if="professor.dblp_url"
+              :href="professor.dblp_url"
+              target="_blank"
+            >
+              {{ $t('professor.dblpHome') }}
+            </a>
+            <span v-else>-</span>
+          </n-descriptions-item>
           <n-descriptions-item :label="$t('professor.hIndex')">
             {{ professor.h_index ?? '-' }}
           </n-descriptions-item>

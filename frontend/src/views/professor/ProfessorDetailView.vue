@@ -63,11 +63,13 @@ const form = ref({
   email: '',
   homepage: '',
   google_scholar_url: '',
+  dblp_url: '',
   research_interests: [] as string[],
   manual_notes: '',
 })
 
 const refreshLoading = ref(false)
+const refreshDblpLoading = ref(false)
 const fillPublicationsLoading = ref(false)
 const crawlHomepageLoading = ref(false)
 const summarizeLoading = ref(false)
@@ -76,8 +78,11 @@ const generateProfileLoading = ref(false)
 // Scholar candidate confirmation
 const selectedCandidateId = ref<string>('')
 const confirmScholarLoading = ref(false)
+const selectedDblpCandidateId = ref<string>('')
+const confirmDblpLoading = ref(false)
 
 const applyScholarLoading = ref(false)
+const applyDblpLoading = ref(false)
 
 const publications = computed<Publication[]>(() => {
   return (professor.value?.publications || []) as Publication[]
@@ -100,17 +105,25 @@ function hasMatchingSummary(pub: Publication): boolean {
   return summaryByTitle.value.has(pub.title.toLowerCase())
 }
 
+function pubSourceLabel(row: Publication): string {
+  if (row.source === 'dblp') return t('professor.pubSourceDblp')
+  if (row.source === 'scholar') return t('professor.pubSourceScholar')
+  if (row.dblp_url) return t('professor.pubSourceDblp')
+  return t('professor.pubSourceScholar')
+}
+
 const publicationColumns = computed<DataTableColumns<Publication>>(() => [
   {
     title: t('professor.pubColTitle'),
     key: 'title',
-    width: 420,
+    width: 380,
     render(row) {
       const children: ReturnType<typeof h>[] = []
-      if (row.gscholar_url) {
+      const link = row.gscholar_url || row.dblp_url
+      if (link) {
         children.push(
           h('a', {
-            href: row.gscholar_url,
+            href: link,
             target: '_blank',
             style: 'text-decoration: none; color: inherit; font-weight: 500',
           }, row.title)
@@ -128,6 +141,16 @@ const publicationColumns = computed<DataTableColumns<Publication>>(() => [
       return h('div', { style: 'display: flex; align-items: center' }, children)
     },
   },
+  {
+    title: t('professor.pubColSource'),
+    key: 'source',
+    width: 88,
+    render(row) {
+      return h(NTag, { size: 'tiny', type: row.source === 'dblp' ? 'info' : 'success' }, {
+        default: () => pubSourceLabel(row),
+      })
+    },
+  },
   { title: t('professor.pubColYear'), key: 'year', width: 72 },
   { title: t('professor.pubColCitations'), key: 'citations', width: 88 },
   {
@@ -135,7 +158,7 @@ const publicationColumns = computed<DataTableColumns<Publication>>(() => [
     key: 'journal',
     width: 200,
     render(row) {
-      return row.journal || row.conference || '-'
+      return row.venue || row.journal || row.conference || '-'
     },
   },
   {
@@ -180,6 +203,7 @@ async function fetchData() {
       email: data.email || '',
       homepage: data.homepage || '',
       google_scholar_url: data.google_scholar_url || '',
+      dblp_url: data.dblp_url || '',
       research_interests: [...(data.research_interests || [])],
       manual_notes: data.manual_notes || '',
     }
@@ -429,6 +453,72 @@ async function handleConfirmScholar() {
   }
 }
 
+function dblpUrlChanged(): boolean {
+  return form.value.dblp_url.trim() !== (professor.value?.dblp_url || '').trim()
+}
+
+async function handleApplyDblpUrl() {
+  const url = form.value.dblp_url.trim()
+  if (!url || !professor.value) {
+    message.warning(t('professor.enterDblpUrl'))
+    return
+  }
+  if (!dblpUrlChanged()) {
+    message.info(t('professor.scholarUrlUnchanged'))
+    return
+  }
+  applyDblpLoading.value = true
+  try {
+    const { task_id } = await professorsApi.setDblp(professor.value.id, url)
+    message.success(t('professor.setDblpSuccess'))
+    taskStore.addTask(task_id, 'single-dblp-crawl', t('professor.importProfessorTask'), 1, () => fetchData())
+  } catch (error: unknown) {
+    handleApiError(error, t('professor.startTaskFailed'))
+  } finally {
+    applyDblpLoading.value = false
+  }
+}
+
+async function handleRefreshDblp() {
+  if (!professor.value?.dblp_pid) return
+  refreshDblpLoading.value = true
+  try {
+    const updated = await professorsApi.refreshDblp(professor.value.id)
+    professor.value = updated
+    message.success(t('professor.dblpSynced'))
+    if (updated.enrichment_task_id) {
+      taskStore.addTask(
+        updated.enrichment_task_id,
+        'professor-enrichment',
+        t('professor.enrichmentTask'),
+        updated.enrichment_task_total ?? 0,
+        () => fetchData(),
+      )
+    }
+  } catch (error: unknown) {
+    handleApiError(error, t('professor.dblpSyncFailed'))
+  } finally {
+    refreshDblpLoading.value = false
+  }
+}
+
+async function handleConfirmDblp() {
+  if (!selectedDblpCandidateId.value || !professor.value) return
+  confirmDblpLoading.value = true
+  try {
+    const { task_id } = await professorsApi.confirmDblp(
+      professor.value.id,
+      selectedDblpCandidateId.value,
+    )
+    message.success(t('professor.confirmDblpSuccess'))
+    taskStore.addTask(task_id, 'single-dblp-crawl', t('professor.importProfessorTask'), 1, () => fetchData())
+  } catch (error: unknown) {
+    handleApiError(error, t('professor.startTaskFailed'))
+  } finally {
+    confirmDblpLoading.value = false
+  }
+}
+
 watch(
   () => [route.name, route.params.id] as const,
   ([name]) => {
@@ -518,6 +608,34 @@ watch(
               </n-space>
             </n-space>
           </n-form-item>
+          <n-form-item :label="$t('professor.dblpFormLabel')">
+            <n-space vertical style="width: 100%">
+              <n-input
+                v-model:value="form.dblp_url"
+                :placeholder="$t('professor.setDblpUrlPlaceholder')"
+              />
+              <n-space>
+                <n-button
+                  size="small"
+                  type="primary"
+                  secondary
+                  :loading="applyDblpLoading"
+                  @click="handleApplyDblpUrl"
+                >
+                  {{ $t('professor.applyDblpUrl') }}
+                </n-button>
+                <a
+                  v-if="form.dblp_url"
+                  :href="form.dblp_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="font-size: 13px"
+                >
+                  {{ $t('professor.dblpHome') }}
+                </a>
+              </n-space>
+            </n-space>
+          </n-form-item>
           <n-form-item :label="$t('professor.researchInterests')">
             <n-dynamic-tags v-model:value="form.research_interests" />
           </n-form-item>
@@ -579,6 +697,48 @@ watch(
         </n-space>
       </n-card>
 
+      <n-card
+        v-if="professor.dblp_enrichment_status === 'ambiguous' && professor.dblp_candidates?.length"
+        :title="$t('professor.dblpCandidates')"
+      >
+        <p style="color: var(--muted-foreground); margin-bottom: 12px; font-size: 13px">
+          {{ $t('professor.dblpCandidatesDesc') }}
+        </p>
+        <n-radio-group v-model:value="selectedDblpCandidateId" style="width: 100%">
+          <n-space vertical>
+            <div
+              v-for="c in professor.dblp_candidates"
+              :key="c.pid"
+              style="
+                padding: 12px;
+                border: 1px solid var(--n-border-color);
+                border-radius: 6px;
+                cursor: pointer;
+              "
+              :style="selectedDblpCandidateId === c.pid ? 'border-color: var(--primary-color)' : ''"
+              @click="selectedDblpCandidateId = c.pid"
+            >
+              <n-radio :value="c.pid">
+                <strong>{{ c.name }}</strong>
+              </n-radio>
+              <div style="margin-left: 24px; margin-top: 4px; font-size: 13px; color: var(--muted-foreground)">
+                <span v-if="c.affiliation">{{ c.affiliation }}</span>
+              </div>
+            </div>
+          </n-space>
+        </n-radio-group>
+        <n-space style="margin-top: 16px">
+          <n-button
+            type="primary"
+            :disabled="!selectedDblpCandidateId"
+            :loading="confirmDblpLoading"
+            @click="handleConfirmDblp"
+          >
+            {{ $t('professor.confirmDblp') }}
+          </n-button>
+        </n-space>
+      </n-card>
+
       <SourceInputPanel v-model="sourceInputs">
         <template #actions>
           <n-button
@@ -595,9 +755,20 @@ watch(
         {{ $t('professor.sourceCardsHintAfterUpload') }}
       </div>
 
-      <n-card :title="$t('professor.publicationsCardTitle')">
+      <n-card :title="$t('professor.publicationsMergedTitle')">
         <template #header-extra>
           <n-space>
+            <n-popconfirm
+              v-if="professor.dblp_pid"
+              @positive-click="handleRefreshDblp"
+            >
+              <template #trigger>
+                <n-button size="small" :loading="refreshDblpLoading">
+                  {{ $t('professor.dblpSyncButton') }}
+                </n-button>
+              </template>
+              {{ $t('professor.dblpResyncQuestion') }}
+            </n-popconfirm>
             <n-popconfirm
               v-if="professor.google_scholar_id"
               @positive-click="handleRefreshScholar"

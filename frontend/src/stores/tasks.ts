@@ -114,9 +114,17 @@ export const useTaskStore = defineStore('tasks', () => {
           ok: result?.success_count ?? 0,
           fail: result?.failed_count ?? 0,
         })
+      case 'batch-dblp-match':
+        return t('task.dblpMatchFinished', {
+          ok: result?.success_count ?? 0,
+          fail: result?.failed_count ?? 0,
+        })
       case 'single-crawl':
+      case 'single-dblp-crawl':
         return t('task.professorImportFinished')
       case 'batch-refresh':
+      case 'batch-refresh-dblp':
+      case 'batch-refresh-external':
         return t('task.batchRefreshFinished', {
           ok: result?.success_count ?? 0,
           fail: result?.failed_count ?? 0,

@@ -191,6 +191,7 @@ class ScholarCrawler:
                     "year": pub.get("bib", {}).get("pub_year", ""),
                     "citations": pub.get("num_citations", 0),
                     "authors": pub.get("bib", {}).get("author", ""),
+                    "source": "scholar",
                     "author_pub_id": author_pub_id,
                     "gscholar_url": (
                         f"https://scholar.google.com/citations"
