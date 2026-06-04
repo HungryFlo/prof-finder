@@ -365,35 +365,3 @@ def delete_professor(
         console.print(f"[green]✓ 已删除教授: {professor.name}[/green]")
 
 
-@app.command("search")
-def search_scholar(
-    query: str = typer.Argument(..., help="Search query (name)"),
-    limit: int = typer.Option(5, "--limit", "-l", help="Max results"),
-) -> None:
-    """Search for professors on Google Scholar."""
-    console.print(f"[cyan]正在搜索: {query}[/cyan]")
-    
-    try:
-        crawler = ScholarCrawler()
-        results = crawler.search_author(query, limit=limit)
-    except Exception as e:
-        console.print(f"[red]错误: 搜索失败: {e}[/red]")
-        raise typer.Exit(1)
-
-    if not results:
-        console.print("[yellow]未找到匹配的作者[/yellow]")
-        return
-
-    console.print(f"\n[green]找到 {len(results)} 个结果:[/green]\n")
-    
-    for i, author in enumerate(results, 1):
-        console.print(f"[bold]{i}. {author.get('name', 'Unknown')}[/bold]")
-        if author.get("affiliation"):
-            console.print(f"   单位: {author['affiliation']}")
-        if author.get("interests"):
-            console.print(f"   研究方向: {', '.join(author['interests'][:5])}")
-        if author.get("scholar_id"):
-            console.print(f"   [dim]Scholar ID: {author['scholar_id']}[/dim]")
-        console.print()
-
-    console.print("[dim]使用 'prof-finder professor add --scholar <scholar_id>' 添加教授[/dim]")

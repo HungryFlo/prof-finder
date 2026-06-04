@@ -265,7 +265,6 @@ export type TaskType =
   | 'single-dblp-crawl'
   | 'university-crawl'
   | 'generic-university-crawl'
-  | 'batch-scholar-match'
   | 'batch-dblp-match'
   | 'batch-refresh-dblp'
   | 'batch-refresh-external'

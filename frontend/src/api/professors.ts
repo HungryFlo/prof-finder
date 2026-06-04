@@ -3,7 +3,6 @@ import type {
   Professor,
   PaperSummary,
   ProfessorListItem,
-  ScholarSearchResult,
   DblpSearchResult,
   PaginatedResponse,
   ProfessorEditPreviewResponse,
@@ -118,14 +117,6 @@ export const professorsApi = {
       { url },
       { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
     )
-    return response.data
-  },
-
-  async search(query: string, limit: number = 10): Promise<ScholarSearchResult[]> {
-    const response = await client.post<ScholarSearchResult[]>('/professors/search', {
-      query,
-      limit,
-    })
     return response.data
   },
 
@@ -295,30 +286,10 @@ export const professorsApi = {
     return response.data
   },
 
-  // ---- Scholar candidate confirmation ----
-
-  async confirmScholar(professorId: number, scholarId: string): Promise<TaskStartResponse> {
-    const response = await client.post<TaskStartResponse>(
-      '/professors/confirm-scholar',
-      { professor_id: professorId, scholar_id: scholarId },
-      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
-    )
-    return response.data
-  },
-
   async setScholarId(professorId: number, url: string): Promise<TaskStartResponse> {
     const response = await client.post<TaskStartResponse>(
       `/professors/${professorId}/set-scholar`,
       { url },
-      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
-    )
-    return response.data
-  },
-
-  async matchScholar(professorId: number): Promise<TaskStartResponse> {
-    const response = await client.post<TaskStartResponse>(
-      `/professors/${professorId}/match-scholar`,
-      {},
       { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
     )
     return response.data
@@ -344,15 +315,6 @@ export const professorsApi = {
   async matchDblp(professorId: number): Promise<TaskStartResponse> {
     const response = await client.post<TaskStartResponse>(
       `/professors/${professorId}/match-dblp`,
-      {},
-      { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
-    )
-    return response.data
-  },
-
-  async matchExternal(professorId: number): Promise<TaskStartResponse> {
-    const response = await client.post<TaskStartResponse>(
-      `/professors/${professorId}/match-external`,
       {},
       { timeout: POST_BEHIND_SSE_TIMEOUT_MS }
     )

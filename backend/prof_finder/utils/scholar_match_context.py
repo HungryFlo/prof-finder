@@ -1,4 +1,4 @@
-"""Resolve university context for per-professor Google Scholar matching."""
+"""Resolve university context for per-professor external profile matching (e.g. DBLP)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ def resolve_scholar_match_params(
     professor: Professor,
     universities: list[University],
 ) -> tuple[list[str], Optional[str]]:
-    """Return (university_variants, department_affiliation) for Scholar matching."""
+    """Return (university_variants, department_affiliation) for external profile matching."""
     affiliation = (professor.affiliation or "").strip() or None
 
     best_uni: University | None = None

@@ -26,7 +26,6 @@ from ..schemas import (
     ProfessorResponse,
     ProfessorListResponse,
     ProfessorNameCollision,
-    ScholarSearchResult,
     ProfessorEditPreviewRequest,
     ProfessorEditApplyRequest,
     ProfessorSourceSummaryRequest,
@@ -43,7 +42,6 @@ from ..schemas import (
     CrawlerTestRequest,
     CrawlerTestResponse,
     CrawlerConfiguredCrawlRequest,
-    ScholarCandidateConfirm,
 )
 from ..task_manager import (
     create_task,
@@ -283,54 +281,6 @@ async def add_professor_by_scholar(
     enqueue_task("single-crawl", task.task_id, data.url)
 
     return TaskStartResponse(task_id=task.task_id, message="爬取任务已启动")
-
-
-_scholar_cache: dict = {}  # {query_key: (timestamp, results)}
-_SCHOLAR_CACHE_TTL = 300  # 5 minutes
-
-
-@router.post("/search", response_model=List[ScholarSearchResult])
-async def search_scholar(
-    data: ProfessorSearchRequest,
-    current_user: User = Depends(get_current_user),
-):
-    """Search Google Scholar for professors.
-
-    Args:
-        data: Search query and limit.
-        current_user: Authenticated user.
-
-    Returns:
-        List of search results (not saved to database).
-    """
-    cache_key = f"{data.query}:{data.limit}"
-    cached = _scholar_cache.get(cache_key)
-    if cached and (time.time() - cached[0]) < _SCHOLAR_CACHE_TTL:
-        return cached[1]
-
-    crawler = ScholarCrawler()
-
-    try:
-        results = await asyncio.to_thread(crawler.search_author, data.query, data.limit)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"搜索失败: {str(e)}",
-        )
-    
-    result_list = [
-        ScholarSearchResult(
-            name=r["name"],
-            affiliation=r.get("affiliation"),
-            scholar_id=r["scholar_id"],
-            scholar_url=f"https://scholar.google.com/citations?user={r['scholar_id']}",
-            interests=r.get("interests", []),
-            citations=r.get("citedby"),
-        )
-        for r in results
-    ]
-    _scholar_cache[cache_key] = (time.time(), result_list)
-    return result_list
 
 
 _dblp_cache: dict = {}
@@ -1374,65 +1324,6 @@ def delete_professor(
     return MessageResponse(message="教授已删除")
 
 
-@router.post("/{professor_id}/match-scholar", response_model=TaskStartResponse)
-def match_professor_scholar(
-    professor_id: int,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_db_session),
-):
-    """Search Google Scholar for one professor and link their profile when confident."""
-    professor = (
-        session.query(Professor)
-        .filter(
-            Professor.id == professor_id,
-            Professor.user_id == current_user.id,
-        )
-        .first()
-    )
-    if not professor:
-        raise HTTPException(status_code=404, detail="教授不存在")
-
-    if professor.google_scholar_id:
-        raise HTTPException(status_code=400, detail="该教授已关联 Google Scholar")
-
-    universities = (
-        session.query(University)
-        .filter(University.user_id == current_user.id)
-        .all()
-    )
-    university_variants, department_affiliation = resolve_scholar_match_params(
-        professor, universities
-    )
-    if not university_variants and not department_affiliation:
-        raise HTTPException(
-            status_code=400,
-            detail="请填写教授单位，或在设置中配置大学名称变体",
-        )
-
-    professor.enrichment_status = "pending"
-    professor.scholar_candidates = None
-
-    task = create_task(
-        "batch-scholar-match",
-        f"Scholar 匹配: {professor.name}",
-        current_user.id,
-        total=1,
-    )
-    enqueue_task(
-        "batch-scholar-match",
-        task.task_id,
-        professor_ids=[professor.id],
-        university_variants=university_variants,
-        department_affiliation=department_affiliation,
-    )
-
-    return TaskStartResponse(
-        task_id=task.task_id,
-        message=f"已开始为 {professor.name} 搜索 Google Scholar",
-        total=1,
-    )
-
-
 @router.post("/{professor_id}/refresh", response_model=ProfessorResponse)
 async def refresh_professor(
     professor_id: int,
@@ -1551,54 +1442,6 @@ def batch_delete_professors(
     return MessageResponse(message=f"已删除 {deleted_count} 位教授")
 
 
-@router.post("/confirm-scholar", response_model=TaskStartResponse)
-def confirm_scholar_candidate(
-    body: ScholarCandidateConfirm,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_db_session),
-):
-    """Confirm a scholar candidate for a school-crawled professor.
-
-    Sets the google_scholar_id and triggers a full Scholar crawl + enrichment.
-    """
-    professor = (
-        session.query(Professor)
-        .filter(
-            Professor.id == body.professor_id,
-            Professor.user_id == current_user.id,
-        )
-        .first()
-    )
-    if not professor:
-        raise HTTPException(status_code=404, detail="教授不存在")
-
-    professor.google_scholar_id = body.scholar_id
-    professor.google_scholar_url = (
-        f"https://scholar.google.com/citations?user={body.scholar_id}"
-    )
-    professor.enrichment_status = "user_confirmed"
-    professor.source = "school_crawler"
-
-    # Create a single-crawl task to fetch full Scholar data
-    task = create_task(
-        "single-crawl",
-        f"爬取教授 Scholar 主页: {professor.name}",
-        current_user.id,
-        total=1,
-    )
-    enqueue_task(
-        "single-crawl",
-        task.task_id,
-        scholar_url=professor.google_scholar_url,
-    )
-
-    return TaskStartResponse(
-        task_id=task.task_id,
-        message=f"已确认 Scholar 关联，正在爬取 {professor.name} 的完整信息...",
-        total=1,
-    )
-
-
 @router.post("/{professor_id}/set-scholar", response_model=TaskStartResponse)
 def set_scholar_id_manually(
     professor_id: int,
@@ -1708,7 +1551,7 @@ def match_professor_external(
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
 ):
-    """Start Scholar and DBLP matching tasks for one professor."""
+    """Start DBLP matching for one professor (Scholar must be linked manually)."""
     professor = (
         session.query(Professor)
         .filter(Professor.id == professor_id, Professor.user_id == current_user.id)
@@ -1716,6 +1559,9 @@ def match_professor_external(
     )
     if not professor:
         raise HTTPException(status_code=404, detail="教授不存在")
+
+    if professor.dblp_pid:
+        raise HTTPException(status_code=400, detail="该教授已关联 DBLP")
 
     universities = (
         session.query(University).filter(University.user_id == current_user.id).all()
@@ -1729,58 +1575,26 @@ def match_professor_external(
             detail="请填写教授单位，或在设置中配置大学名称变体",
         )
 
-    messages: list[str] = []
-    total = 0
-    primary_task_id: str | None = None
-
-    if not professor.google_scholar_id:
-        professor.enrichment_status = "pending"
-        professor.scholar_candidates = None
-        scholar_task = create_task(
-            "batch-scholar-match",
-            f"Scholar 匹配: {professor.name}",
-            current_user.id,
-            total=1,
-        )
-        enqueue_task(
-            "batch-scholar-match",
-            scholar_task.task_id,
-            professor_ids=[professor.id],
-            university_variants=university_variants,
-            department_affiliation=department_affiliation,
-        )
-        messages.append("Scholar")
-        primary_task_id = scholar_task.task_id
-        total += 1
-
-    if not professor.dblp_pid:
-        professor.dblp_enrichment_status = "pending"
-        professor.dblp_candidates = None
-        dblp_task = create_task(
-            "batch-dblp-match",
-            f"DBLP 匹配: {professor.name}",
-            current_user.id,
-            total=1,
-        )
-        enqueue_task(
-            "batch-dblp-match",
-            dblp_task.task_id,
-            professor_ids=[professor.id],
-            university_variants=university_variants,
-            department_affiliation=department_affiliation,
-        )
-        messages.append("DBLP")
-        if primary_task_id is None:
-            primary_task_id = dblp_task.task_id
-        total += 1
-
-    if total == 0:
-        raise HTTPException(status_code=400, detail="Scholar 与 DBLP 均已关联")
+    professor.dblp_enrichment_status = "pending"
+    professor.dblp_candidates = None
+    dblp_task = create_task(
+        "batch-dblp-match",
+        f"DBLP 匹配: {professor.name}",
+        current_user.id,
+        total=1,
+    )
+    enqueue_task(
+        "batch-dblp-match",
+        dblp_task.task_id,
+        professor_ids=[professor.id],
+        university_variants=university_variants,
+        department_affiliation=department_affiliation,
+    )
 
     return TaskStartResponse(
-        task_id=primary_task_id or "",
-        message=f"已启动外部档案匹配：{' + '.join(messages)}",
-        total=total,
+        task_id=dblp_task.task_id,
+        message=f"已开始为 {professor.name} 搜索 DBLP",
+        total=1,
     )
 
 

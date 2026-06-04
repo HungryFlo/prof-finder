@@ -51,7 +51,7 @@ class UserSettings(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
 
     # API configuration
-    deepseek_api_key = Column(String(255))  # Encrypted in production
+    deepseek_api_key = Column(String(255))  # Stored in local SQLite; API returns masked value only
     deepseek_base_url = Column(String(500), default="https://api.deepseek.com/v1")
     deepseek_model = Column(String(100), default="deepseek-chat")
 

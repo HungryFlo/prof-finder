@@ -75,9 +75,6 @@ const crawlHomepageLoading = ref(false)
 const summarizeLoading = ref(false)
 const generateProfileLoading = ref(false)
 
-// Scholar candidate confirmation
-const selectedCandidateId = ref<string>('')
-const confirmScholarLoading = ref(false)
 const selectedDblpCandidateId = ref<string>('')
 const confirmDblpLoading = ref(false)
 
@@ -439,20 +436,6 @@ function formatJsonNote(note: unknown): string {
   return typeof note === 'string' ? note : JSON.stringify(note)
 }
 
-async function handleConfirmScholar() {
-  if (!selectedCandidateId.value || !professor.value) return
-  confirmScholarLoading.value = true
-  try {
-    const { task_id } = await professorsApi.confirmScholar(professor.value.id, selectedCandidateId.value)
-    message.success(t('professor.confirmScholarSuccess'))
-    taskStore.addTask(task_id, 'single-crawl', t('professor.importProfessorTask'), 1, () => fetchData())
-  } catch (error: unknown) {
-    handleApiError(error, t('professor.startTaskFailed'))
-  } finally {
-    confirmScholarLoading.value = false
-  }
-}
-
 function dblpUrlChanged(): boolean {
   return form.value.dblp_url.trim() !== (professor.value?.dblp_url || '').trim()
 }
@@ -524,7 +507,6 @@ watch(
   ([name]) => {
     if (name !== 'ProfessorDetail') return
     professor.value = null
-    selectedCandidateId.value = ''
     fetchData()
   },
   { immediate: true },
@@ -648,53 +630,6 @@ watch(
             />
           </n-form-item>
         </n-form>
-      </n-card>
-
-      <!-- Scholar candidates (for school-crawled professors with ambiguous matches) -->
-      <n-card
-        v-if="professor.enrichment_status === 'ambiguous' && professor.scholar_candidates?.length"
-        :title="$t('professor.scholarCandidates')"
-      >
-        <p style="color: var(--muted-foreground); margin-bottom: 12px; font-size: 13px">
-          {{ $t('professor.scholarCandidatesDesc') }}
-        </p>
-        <n-radio-group v-model:value="selectedCandidateId" style="width: 100%">
-          <n-space vertical>
-            <div
-              v-for="c in professor.scholar_candidates"
-              :key="c.scholar_id"
-              style="
-                padding: 12px;
-                border: 1px solid var(--n-border-color);
-                border-radius: 6px;
-                cursor: pointer;
-              "
-              :style="selectedCandidateId === c.scholar_id ? 'border-color: var(--primary-color)' : ''"
-              @click="selectedCandidateId = c.scholar_id"
-            >
-              <n-radio :value="c.scholar_id">
-                <strong>{{ c.name }}</strong>
-              </n-radio>
-              <div style="margin-left: 24px; margin-top: 4px; font-size: 13px; color: var(--muted-foreground)">
-                <span v-if="c.affiliation">{{ c.affiliation }}</span>
-                <span v-if="c.citedby"> · {{ $t('professor.scholarCandidateCitations') }}: {{ c.citedby }}</span>
-                <n-tag v-if="c.email_domain_match" size="tiny" type="success" style="margin-left: 8px">
-                  {{ $t('professor.scholarCandidateEmailMatch') }}
-                </n-tag>
-              </div>
-            </div>
-          </n-space>
-        </n-radio-group>
-        <n-space style="margin-top: 16px">
-          <n-button
-            type="primary"
-            :disabled="!selectedCandidateId"
-            :loading="confirmScholarLoading"
-            @click="handleConfirmScholar"
-          >
-            {{ $t('professor.confirmScholar') }}
-          </n-button>
-        </n-space>
       </n-card>
 
       <n-card

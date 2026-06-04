@@ -107,7 +107,6 @@ const selectedCrawlerUniversityId = ref<number | null>(null)
 const showSummaryDrawer = ref(false)
 const summaryDrawerProfId = ref(0)
 
-const scholarMatchLoadingIds = ref<Set<number>>(new Set())
 const externalMatchLoadingIds = ref<Set<number>>(new Set())
 
 const searchQuery = ref('')
@@ -179,26 +178,6 @@ const columns = computed<DataTableColumns<ProfessorListItem>>(() => [
   },
   { title: t('professor.hIndex'), key: 'h_index', width: 100, sorter: 'default' },
   {
-    title: 'Scholar',
-    key: 'enrichment_status',
-    width: 110,
-    render(row) {
-      if (row.google_scholar_id) {
-        return h(NTag, { size: 'small', type: 'success' }, { default: () => t('professor.scholarMatched') })
-      }
-      if (row.enrichment_status === 'pending') {
-        return h(NTag, { size: 'small', type: 'info' }, { default: () => t('professor.scholarPending') })
-      }
-      if (row.enrichment_status === 'ambiguous') {
-        return h(NTag, { size: 'small', type: 'warning' }, { default: () => t('professor.scholarAmbiguous') })
-      }
-      if (row.enrichment_status === 'not_found') {
-        return h(NTag, { size: 'small', type: 'default' }, { default: () => t('professor.scholarNotFound') })
-      }
-      return null
-    },
-  },
-  {
     title: 'DBLP',
     key: 'dblp_enrichment_status',
     width: 110,
@@ -224,14 +203,14 @@ const columns = computed<DataTableColumns<ProfessorListItem>>(() => [
     width: 360,
     render(row) {
       const extLoading = externalMatchLoadingIds.value.has(row.id)
-      const needsExternal = !row.google_scholar_id || !row.dblp_pid
+      const needsDblp = !row.dblp_pid
       return h(NSpace, { size: 'small', wrap: true }, () => [
         h(
           NButton,
           { size: 'small', type: 'primary', onClick: () => router.push(`/professor/${row.id}`) },
           { default: () => t('professor.tableDetail') }
         ),
-        needsExternal
+        needsDblp
           ? h(
               NButton,
               {
@@ -240,9 +219,9 @@ const columns = computed<DataTableColumns<ProfessorListItem>>(() => [
                 secondary: true,
                 loading: extLoading,
                 disabled: extLoading,
-                onClick: () => handleMatchExternal(row),
+                onClick: () => handleMatchDblp(row),
               },
-              { default: () => t('professor.matchExternal') }
+              { default: () => t('professor.matchDblp') }
             )
           : null,
         h(
@@ -533,7 +512,7 @@ async function handleBatchGenerateProfiles() {
   }
 }
 
-async function handleMatchExternal(row: ProfessorListItem) {
+async function handleMatchDblp(row: ProfessorListItem) {
   if (externalMatchLoadingIds.value.has(row.id)) return
 
   const next = new Set(externalMatchLoadingIds.value)
@@ -541,17 +520,17 @@ async function handleMatchExternal(row: ProfessorListItem) {
   externalMatchLoadingIds.value = next
 
   try {
-    const { task_id, message: msg } = await professorsApi.matchExternal(row.id)
-    message.success(msg || t('professor.matchExternalStarted'))
+    const { task_id, message: msg } = await professorsApi.matchDblp(row.id)
+    message.success(msg || t('professor.searchDblpStarted', { name: row.name }))
     taskStore.addTask(
       task_id,
       'batch-dblp-match',
-      t('professor.matchExternal') + `: ${row.name}`,
-      2,
+      t('professor.matchDblp') + `: ${row.name}`,
+      1,
       afterImportTasksComplete,
     )
   } catch (error: unknown) {
-    handleApiError(error, t('professor.matchExternalFailed'))
+    handleApiError(error, t('professor.matchDblpFailed'))
   } finally {
     const done = new Set(externalMatchLoadingIds.value)
     done.delete(row.id)

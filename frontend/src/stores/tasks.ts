@@ -109,11 +109,6 @@ export const useTaskStore = defineStore('tasks', () => {
           ok: result?.success_count ?? 0,
           fail: result?.failed_count ?? 0,
         })
-      case 'batch-scholar-match':
-        return t('task.scholarMatchFinished', {
-          ok: result?.success_count ?? 0,
-          fail: result?.failed_count ?? 0,
-        })
       case 'batch-dblp-match':
         return t('task.dblpMatchFinished', {
           ok: result?.success_count ?? 0,
