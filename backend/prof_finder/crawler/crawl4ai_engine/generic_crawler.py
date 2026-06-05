@@ -36,6 +36,7 @@ class GenericUniversityCrawler:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
+        llm_provider: Optional[str] = None,
     ):
         """Initialize the generic crawler.
 
@@ -46,9 +47,10 @@ class GenericUniversityCrawler:
             extraction_mode: "css" or "llm".
             css_selectors: CSS selector config dict (required if mode is "css").
             affiliation: Affiliation string to assign to professors.
-            api_key: DeepSeek API key (for LLM mode).
-            base_url: DeepSeek base URL (for LLM mode).
-            model: LLM model name (for LLM mode). Defaults to app config.
+            api_key: LLM API key (for LLM mode).
+            base_url: LLM API base URL (for LLM mode).
+            model: LLM model name (for LLM mode).
+            llm_provider: ``openai`` (OpenAI-compatible) or ``anthropic``.
         """
         self.university_id = university_id
         self.display_name = display_name
@@ -59,6 +61,7 @@ class GenericUniversityCrawler:
         self.api_key = api_key
         self.base_url = base_url
         self.model = model
+        self.llm_provider = llm_provider
 
     def crawl_all(
         self,
@@ -99,6 +102,7 @@ class GenericUniversityCrawler:
                 api_key=self.api_key,
                 base_url=self.base_url,
                 model=self.model,
+                llm_provider=self.llm_provider,
                 send_progress=send_progress,
                 cancel_checker=cancel_checker,
             )
@@ -118,6 +122,7 @@ class GenericUniversityCrawler:
             api_key=self.api_key,
             base_url=self.base_url,
             model=self.model,
+            llm_provider=self.llm_provider,
             page_base_url=self.list_url,
             send_progress=send_progress,
             cancel_checker=cancel_checker,

@@ -30,6 +30,7 @@ def extract_professor_profile(
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
     model: Optional[str] = None,
+    llm_provider: Optional[str] = None,
     page_base_url: Optional[str] = None,
     send_progress: Optional[Callable[[str], None]] = None,
     cancel_checker: Optional[Callable[[], bool]] = None,
@@ -80,6 +81,7 @@ def extract_professor_profile(
         api_key=api_key,
         base_url=base_url,
         model=model,
+        llm_provider=llm_provider,
     )
 
 
@@ -91,18 +93,26 @@ def _llm_extract_profile(
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
     model: Optional[str] = None,
+    llm_provider: Optional[str] = None,
 ) -> dict:
+    from ...ai_workflows.provider import LLMProvider
     from ...config import settings as app_settings
+    from ...llm.config import LLMConfig, resolve_llm_config
 
-    if not api_key:
-        api_key = app_settings.deepseek_api_key
-    if not base_url:
-        base_url = app_settings.deepseek_base_url
-    if not model:
-        model = getattr(app_settings, "deepseek_model", None) or "deepseek-chat"
+    if api_key or base_url or model or llm_provider:
+        resolved = resolve_llm_config(app_settings=app_settings)
+        config = LLMConfig(
+            provider=llm_provider or resolved.provider,
+            api_key=api_key or resolved.api_key,
+            base_url=base_url or resolved.base_url,
+            model=model or resolved.model,
+        )
+    else:
+        config = resolve_llm_config(app_settings=app_settings)
 
-    if not api_key:
-        logger.error("No DeepSeek API key configured for profile extraction")
+    provider = LLMProvider(config=config)
+    if not provider.enabled:
+        logger.error("No LLM API key/model configured for profile extraction")
         return {}
 
     truncated = content[:_MAX_CONTENT_CHARS]
@@ -122,62 +132,19 @@ HTML 内容：
 {truncated}
 """
 
-    import httpx
-    from openai import APIConnectionError, APITimeoutError, RateLimitError, APIStatusError, OpenAI
-
-    last_error: Optional[Exception] = None
-
-    for attempt in range(_LLM_MAX_RETRIES):
-        try:
-            client = OpenAI(
-                api_key=api_key,
-                base_url=base_url,
-                timeout=httpx.Timeout(120.0, connect=30.0),
-            )
-            response = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=8192,
-            )
-            text = response.choices[0].message.content or ""
-            parsed = _parse_llm_json_object(text)
-            if not isinstance(parsed.get("research_interests"), list):
-                parsed["research_interests"] = _normalize_interests(parsed.get("research_interests"))
-            return parsed
-
-        except (APIConnectionError, APITimeoutError, RateLimitError) as exc:
-            last_error = exc
-            if attempt < _LLM_MAX_RETRIES - 1:
-                delay = _LLM_RETRY_BASE_DELAY * (2**attempt)
-                logger.warning(
-                    "Profile LLM attempt %d/%d failed: %s — retry in %.1fs",
-                    attempt + 1,
-                    _LLM_MAX_RETRIES,
-                    exc,
-                    delay,
-                )
-                time.sleep(delay)
-                continue
-            logger.error("Profile LLM failed after retries: %s", exc)
-
-        except APIStatusError as exc:
-            if exc.status_code in (401, 403):
-                logger.error("Profile LLM: invalid API key")
-                return {}
-            if exc.status_code == 429 and attempt < _LLM_MAX_RETRIES - 1:
-                time.sleep(_LLM_RETRY_BASE_DELAY * (2**attempt))
-                continue
-            logger.error("Profile LLM HTTP %d: %s", exc.status_code, exc)
-            return {}
-
-        except Exception:
-            logger.exception("Profile LLM extraction failed")
-            return {}
-
-    if last_error:
-        logger.error("Profile LLM failed: %s", last_error)
-    return {}
+    try:
+        text = provider.chat_completion(
+            [{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=8192,
+        )
+        parsed = _parse_llm_json_object(text)
+        if not isinstance(parsed.get("research_interests"), list):
+            parsed["research_interests"] = _normalize_interests(parsed.get("research_interests"))
+        return parsed
+    except Exception:
+        logger.exception("Profile LLM extraction failed")
+        return {}
 
 
 def _normalize_interests(value) -> list[str]:
@@ -225,6 +192,7 @@ def enrich_profiles_for_batch(
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
     model: Optional[str] = None,
+    llm_provider: Optional[str] = None,
     page_base_url: Optional[str] = None,
     send_progress: Optional[Callable[[str], None]] = None,
     cancel_checker: Optional[Callable[[], bool]] = None,
@@ -256,6 +224,7 @@ def enrich_profiles_for_batch(
                 api_key=api_key,
                 base_url=base_url,
                 model=model,
+                llm_provider=llm_provider,
                 page_base_url=page_base_url,
                 cancel_checker=cancel_checker,
             )

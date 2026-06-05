@@ -121,7 +121,9 @@ export const professorsApi = {
   },
 
   async get(id: number): Promise<Professor> {
-    const response = await client.get<Professor>(`/professors/${id}`)
+    const response = await client.get<Professor>(`/professors/${id}`, {
+      timeout: POST_BEHIND_SSE_TIMEOUT_MS,
+    })
     return response.data
   },
 

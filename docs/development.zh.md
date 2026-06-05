@@ -24,7 +24,7 @@ poetry install
 cd frontend && npm install && cd ..
 
 cp .env.example .env
-# 编辑 .env，填入 DeepSeek API Key 等配置
+# 编辑 .env，填入 LLM API 等配置
 ```
 
 ### 运行
@@ -50,8 +50,10 @@ cd frontend && npm run dev
 编辑 `.env`：
 
 ```bash
-DEEPSEEK_API_KEY=your_api_key_here
-DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+LLM_PROVIDER=openai
+LLM_API_KEY=your_api_key_here
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_MODEL=deepseek-chat
 DATABASE_PATH=./data/prof_finder.db
 REQUEST_DELAY=3
 ADMIN_USERNAME=root

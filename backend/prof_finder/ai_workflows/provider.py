@@ -1,26 +1,27 @@
-"""Shared LLM client provider with centralised config and retry logic."""
+"""Shared LLM client provider with OpenAI-compatible and Anthropic API support."""
 
 from __future__ import annotations
 
 import logging
 import time
-from typing import Generator, Optional
+from typing import TYPE_CHECKING, Generator, Optional
 
 from openai import OpenAI
 
-from ..config import settings
+from ..llm.config import LLMConfig, LLMProviderType
+
+if TYPE_CHECKING:
+    pass
 
 logger = logging.getLogger(__name__)
 
 
 class LLMProvider:
-    """Centralised OpenAI-compatible client provider for AI workflows.
+    """Centralised LLM client for AI workflows.
 
-    Handles API key resolution, client lifecycle, and network-level retries
-    so individual generators don't duplicate this plumbing.
+    Supports OpenAI-compatible chat completions and Anthropic Messages API.
     """
 
-    DEFAULT_MODEL = "deepseek-v4-flash"
     MAX_RETRIES = 3
     RETRY_BACKOFF_BASE = 1.5  # seconds, multiplied exponentially
 
@@ -29,21 +30,86 @@ class LLMProvider:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
+        *,
+        provider: Optional[LLMProviderType] = None,
+        config: Optional[LLMConfig] = None,
     ):
-        self.api_key = api_key or settings.deepseek_api_key
-        self.base_url = base_url or settings.deepseek_base_url
-        self.model = model or self.DEFAULT_MODEL
-        self._client: Optional[OpenAI] = None
+        if config is not None:
+            self._config = config
+        else:
+            from ..config import settings
+            from ..llm.config import resolve_llm_config
+
+            resolved = resolve_llm_config(app_settings=settings)
+            self._config = LLMConfig(
+                provider=provider or resolved.provider,
+                api_key=api_key or resolved.api_key,
+                base_url=base_url or resolved.base_url,
+                model=model or resolved.model,
+            )
+
+        self._openai_client: Optional[OpenAI] = None
+        self._anthropic_client = None
+
+    @property
+    def config(self) -> LLMConfig:
+        return self._config
+
+    @property
+    def api_key(self) -> str:
+        return self._config.api_key
+
+    @property
+    def base_url(self) -> str:
+        return self._config.base_url
+
+    @property
+    def model(self) -> str:
+        return self._config.model
+
+    @property
+    def provider_type(self) -> LLMProviderType:
+        return self._config.provider
 
     @property
     def enabled(self) -> bool:
-        return bool(self.api_key and self.api_key not in {"test_key", "your_api_key_here"})
+        return self._config.is_configured() and bool(self.model)
 
     @property
     def client(self) -> OpenAI:
-        if self._client is None:
-            self._client = OpenAI(api_key=self.api_key, base_url=self.base_url)
-        return self._client
+        if self._config.provider != "openai":
+            raise RuntimeError("OpenAI client requested but provider is anthropic")
+        if self._openai_client is None:
+            self._openai_client = OpenAI(
+                api_key=self._config.api_key,
+                base_url=self._config.base_url,
+            )
+        return self._openai_client
+
+    def _anthropic_client_instance(self):
+        if self._anthropic_client is None:
+            from anthropic import Anthropic
+
+            self._anthropic_client = Anthropic(
+                api_key=self._config.api_key,
+                base_url=self._config.base_url,
+            )
+        return self._anthropic_client
+
+    @staticmethod
+    def _split_messages(messages: list[dict]) -> tuple[Optional[str], list[dict]]:
+        system_parts: list[str] = []
+        conversation: list[dict] = []
+        for message in messages:
+            role = message.get("role")
+            content = message.get("content", "")
+            if role == "system":
+                if content:
+                    system_parts.append(str(content))
+            else:
+                conversation.append({"role": role, "content": content})
+        system = "\n\n".join(system_parts) if system_parts else None
+        return system, conversation
 
     def chat_completion(
         self,
@@ -53,20 +119,16 @@ class LLMProvider:
         model: Optional[str] = None,
         max_tokens: Optional[int] = None,
     ) -> str:
-        """Call the chat completions endpoint with retry on transient failures.
-
-        Returns the message content string (never None).
-        """
+        """Call the configured provider with retry on transient failures."""
         last_exc: Optional[Exception] = None
         for attempt in range(self.MAX_RETRIES + 1):
             try:
-                response = self.client.chat.completions.create(
-                    model=model or self.model,
-                    messages=messages,
+                return self._chat_once(
+                    messages,
                     temperature=temperature,
-                    **({"max_tokens": max_tokens} if max_tokens is not None else {}),
+                    model=model,
+                    max_tokens=max_tokens,
                 )
-                return (response.choices[0].message.content or "").strip()
             except Exception as exc:
                 last_exc = exc
                 if attempt < self.MAX_RETRIES:
@@ -81,6 +143,59 @@ class LLMProvider:
                     time.sleep(wait)
         raise last_exc  # type: ignore[misc]
 
+    def _chat_once(
+        self,
+        messages: list[dict],
+        *,
+        temperature: float,
+        model: Optional[str],
+        max_tokens: Optional[int],
+    ) -> str:
+        use_model = model or self._config.model
+        if not use_model:
+            raise ValueError("未配置 LLM 模型名称，请在设置中填写模型")
+
+        if self._config.provider == "anthropic":
+            return self._anthropic_chat(
+                messages,
+                model=use_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+
+        response = self.client.chat.completions.create(
+            model=use_model,
+            messages=messages,
+            temperature=temperature,
+            **({"max_tokens": max_tokens} if max_tokens is not None else {}),
+        )
+        return (response.choices[0].message.content or "").strip()
+
+    def _anthropic_chat(
+        self,
+        messages: list[dict],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: Optional[int],
+    ) -> str:
+        system, conversation = self._split_messages(messages)
+        client = self._anthropic_client_instance()
+        kwargs: dict = {
+            "model": model,
+            "messages": conversation,
+            "max_tokens": max_tokens if max_tokens is not None else 8192,
+            "temperature": temperature,
+        }
+        if system:
+            kwargs["system"] = system
+        response = client.messages.create(**kwargs)
+        parts = []
+        for block in response.content:
+            if getattr(block, "type", None) == "text":
+                parts.append(block.text)
+        return "".join(parts).strip()
+
     def chat_completion_stream(
         self,
         messages: list[dict],
@@ -89,12 +204,22 @@ class LLMProvider:
         model: Optional[str] = None,
         max_tokens: Optional[int] = None,
     ) -> Generator[str, None, None]:
-        """Streaming variant: yields content tokens as they arrive from the API.
+        """Streaming variant; no retry (would duplicate tokens)."""
+        use_model = model or self._config.model
+        if not use_model:
+            raise ValueError("未配置 LLM 模型名称，请在设置中填写模型")
 
-        No retry — retrying mid-stream would produce duplicate tokens.
-        """
+        if self._config.provider == "anthropic":
+            yield from self._anthropic_chat_stream(
+                messages,
+                model=use_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return
+
         response = self.client.chat.completions.create(
-            model=model or self.model,
+            model=use_model,
             messages=messages,
             temperature=temperature,
             stream=True,
@@ -104,3 +229,26 @@ class LLMProvider:
             delta = chunk.choices[0].delta if chunk.choices else None
             if delta and delta.content:
                 yield delta.content
+
+    def _anthropic_chat_stream(
+        self,
+        messages: list[dict],
+        *,
+        model: str,
+        temperature: float,
+        max_tokens: Optional[int],
+    ) -> Generator[str, None, None]:
+        system, conversation = self._split_messages(messages)
+        client = self._anthropic_client_instance()
+        kwargs: dict = {
+            "model": model,
+            "messages": conversation,
+            "max_tokens": max_tokens if max_tokens is not None else 8192,
+            "temperature": temperature,
+        }
+        if system:
+            kwargs["system"] = system
+        with client.messages.stream(**kwargs) as stream:
+            for text in stream.text_stream:
+                if text:
+                    yield text

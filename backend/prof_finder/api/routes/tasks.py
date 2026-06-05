@@ -126,19 +126,17 @@ async def start_batch_letters(
             detail="请先激活一份简历",
         )
 
+    from ...llm.config import llm_not_configured_message, llm_provider_for_user_settings
+
     user_settings = (
         session.query(UserSettings)
         .filter(UserSettings.user_id == current_user.id)
         .first()
     )
-    api_key = (
-        (user_settings.deepseek_api_key if user_settings else None)
-        or app_settings.deepseek_api_key
-    )
-    if not api_key:
+    if not llm_provider_for_user_settings(user_settings).enabled:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先配置 DeepSeek API Key",
+            detail=llm_not_configured_message(),
         )
 
     if data.professor_ids:
@@ -174,7 +172,7 @@ async def start_batch_letters(
         total=len(professor_ids),
     )
     enqueue_task(
-        "batch-letters", task.task_id, professor_ids, active_profile.id, api_key, data.language,
+        "batch-letters", task.task_id, professor_ids, active_profile.id, current_user.id, data.language,
     )
 
     return TaskStartResponse(
@@ -400,24 +398,8 @@ async def retry_task(
     from ...config import settings as app_settings
 
     new_kwargs = dict(task.enqueue_kwargs)
-    if "api_key" in new_kwargs:
-        from ..deps import get_db_session as _get_db
-        # Inline session to avoid Depends() in non-route code
-        from ...db.database import get_db
-
-        db = get_db()
-        with db.session() as session:
-            user_settings = (
-                session.query(UserSettings)
-                .filter(UserSettings.user_id == current_user.id)
-                .first()
-            )
-            new_key = (
-                (user_settings.deepseek_api_key if user_settings else None)
-                or app_settings.deepseek_api_key
-            )
-            if new_key:
-                new_kwargs["api_key"] = new_key
+    if "user_id" in new_kwargs:
+        new_kwargs["user_id"] = current_user.id
 
     cleanup_old_tasks()
     new_task = create_task(

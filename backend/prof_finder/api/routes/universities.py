@@ -150,17 +150,14 @@ async def _generate_name_variants(full_name: str) -> list[str]:
 
     Returns a list like ["XJTU", "Xi'an Jiaotong University", "西安交大", "西交"].
     """
-    from ...config import settings as app_settings
+    from ...ai_workflows.provider import LLMProvider
+    from ...llm.config import resolve_llm_config
 
     try:
-        import httpx
-        from openai import OpenAI
-
-        api_key = app_settings.deepseek_api_key
-        base_url = app_settings.deepseek_base_url
-        model = app_settings.deepseek_model
-        if not api_key:
-            logger.warning("No DeepSeek API key configured, returning empty variants")
+        config = resolve_llm_config()
+        provider = LLMProvider(config=config)
+        if not provider.enabled:
+            logger.warning("No LLM API configured, returning empty variants")
             return []
 
         prompt = f"""你是一个大学名称变体生成器。给定一个大学的中文全名，请列出该大学在 Google Scholar 搜索中可能出现的所有名称变体。
@@ -179,18 +176,11 @@ async def _generate_name_variants(full_name: str) -> list[str]:
 输出："""
 
         def _call_llm() -> list[str]:
-            client = OpenAI(
-                api_key=api_key,
-                base_url=base_url,
-                timeout=httpx.Timeout(30.0, connect=10.0),
-            )
-            response = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
+            content = provider.chat_completion(
+                [{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=500,
             )
-            content = (response.choices[0].message.content or "").strip()
             return _parse_variants_response(content)
 
         # Run blocking LLM call in thread pool

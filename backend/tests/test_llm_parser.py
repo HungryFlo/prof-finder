@@ -88,21 +88,13 @@ class TestLLMParser:
             "skills": ["Python", "PyTorch", "NLP"]
         })
 
-    @patch("prof_finder.parser.llm_parser.settings")
-    @patch("prof_finder.parser.llm_parser.OpenAI")
-    def test_parse_success(self, mock_openai, mock_settings, mock_llm_response):
+    def test_parse_success(self, mock_llm_response):
         """Test successful LLM parsing."""
-        mock_settings.deepseek_api_key = "test-key"
-        mock_settings.deepseek_base_url = "https://api.test.com"
+        mock_provider = MagicMock()
+        mock_provider.enabled = True
+        mock_provider.chat_completion.return_value = mock_llm_response
 
-        # Setup mock response
-        mock_client = MagicMock()
-        mock_openai.return_value = mock_client
-        mock_client.chat.completions.create.return_value.choices = [
-            MagicMock(message=MagicMock(content=mock_llm_response))
-        ]
-
-        parser = LLMParser()
+        parser = LLMParser(provider=mock_provider)
         result = parser.parse("Test resume content")
 
         assert result.name == "张三"
@@ -111,58 +103,42 @@ class TestLLMParser:
         assert len(result.skills) == 3
         assert "Python" in result.skills
 
-    @patch("prof_finder.parser.llm_parser.settings")
-    @patch("prof_finder.parser.llm_parser.OpenAI")
-    def test_parse_json_in_code_block(self, mock_openai, mock_settings, mock_llm_response):
+    def test_parse_json_in_code_block(self, mock_llm_response):
         """Test parsing JSON wrapped in markdown code block."""
-        mock_settings.deepseek_api_key = "test-key"
-        mock_settings.deepseek_base_url = "https://api.test.com"
-
-        # Response with markdown code block
         response_with_block = f"```json\n{mock_llm_response}\n```"
+        mock_provider = MagicMock()
+        mock_provider.enabled = True
+        mock_provider.chat_completion.return_value = response_with_block
 
-        mock_client = MagicMock()
-        mock_openai.return_value = mock_client
-        mock_client.chat.completions.create.return_value.choices = [
-            MagicMock(message=MagicMock(content=response_with_block))
-        ]
-
-        parser = LLMParser()
+        parser = LLMParser(provider=mock_provider)
         result = parser.parse("Test resume content")
 
         assert result.name == "张三"
 
-    @patch("prof_finder.parser.llm_parser.settings")
-    @patch("prof_finder.parser.llm_parser.OpenAI")
-    def test_parse_api_error_raises(self, mock_openai, mock_settings):
+    def test_parse_api_error_raises(self):
         """Test that API errors raise LLMParserError."""
-        mock_settings.deepseek_api_key = "test-key"
-        mock_settings.deepseek_base_url = "https://api.test.com"
+        mock_provider = MagicMock()
+        mock_provider.enabled = True
+        mock_provider.chat_completion.side_effect = Exception("API Error")
 
-        mock_client = MagicMock()
-        mock_openai.return_value = mock_client
-        mock_client.chat.completions.create.side_effect = Exception("API Error")
-
-        parser = LLMParser()
+        parser = LLMParser(provider=mock_provider)
         with pytest.raises(LLMParserError):
             parser.parse("Test content")
 
-    @patch("prof_finder.parser.llm_parser.settings")
-    def test_missing_api_key_raises(self, mock_settings):
+    def test_missing_api_key_raises(self):
         """Test that missing API key raises ValueError."""
-        mock_settings.deepseek_api_key = None
+        mock_provider = MagicMock()
+        mock_provider.enabled = False
 
-        with pytest.raises(ValueError, match="DEEPSEEK_API_KEY"):
-            LLMParser()
+        with pytest.raises(ValueError, match="LLM API Key"):
+            LLMParser(provider=mock_provider)
 
-    @patch("prof_finder.parser.llm_parser.settings")
-    @patch("prof_finder.parser.llm_parser.OpenAI")
-    def test_parse_empty_content_raises(self, mock_openai, mock_settings):
+    def test_parse_empty_content_raises(self):
         """Test that empty content raises error."""
-        mock_settings.deepseek_api_key = "test-key"
-        mock_settings.deepseek_base_url = "https://api.test.com"
+        mock_provider = MagicMock()
+        mock_provider.enabled = True
 
-        parser = LLMParser()
+        parser = LLMParser(provider=mock_provider)
         with pytest.raises(LLMParserError, match="Empty"):
             parser.parse("")
 

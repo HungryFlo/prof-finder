@@ -525,8 +525,10 @@ class BatchLetterRequest(BaseModel):
 class UserSettingsUpdate(BaseModel):
     """User settings update request."""
 
-    deepseek_api_key: Optional[str] = None
-    deepseek_base_url: Optional[str] = None
+    llm_provider: Optional[Literal["openai", "anthropic"]] = None
+    llm_api_key: Optional[str] = None
+    llm_base_url: Optional[str] = None
+    llm_model: Optional[str] = Field(None, min_length=1, max_length=200)
     request_delay: Optional[int] = Field(None, ge=1, le=60)
     auto_enrich_on_save_fetch_publication_details: Optional[bool] = None
     auto_enrich_on_save_paper_summaries: Optional[bool] = None
@@ -536,8 +538,10 @@ class UserSettingsUpdate(BaseModel):
 class UserSettingsResponse(BaseModel):
     """User settings response."""
 
-    deepseek_api_key_masked: Optional[str]  # Only show first/last 4 chars
-    deepseek_base_url: str
+    llm_provider: Literal["openai", "anthropic"]
+    llm_api_key_masked: Optional[str]  # Only show first/last 4 chars
+    llm_base_url: str
+    llm_model: str
     request_delay: int
     auto_enrich_on_save_fetch_publication_details: bool = True
     auto_enrich_on_save_paper_summaries: bool = True

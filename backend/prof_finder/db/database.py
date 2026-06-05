@@ -221,6 +221,39 @@ class Database:
                     )
                     conn.commit()
 
+                llm_settings_cols = {
+                    row[1]
+                    for row in conn.execute(text("PRAGMA table_info(user_settings)"))
+                }
+                llm_additions = {
+                    "llm_provider": "VARCHAR(20) DEFAULT 'openai'",
+                    "llm_api_key": "VARCHAR(255)",
+                    "llm_base_url": "VARCHAR(500)",
+                    "llm_model": "VARCHAR(100)",
+                }
+                for column, col_def in llm_additions.items():
+                    if column not in llm_settings_cols:
+                        conn.execute(
+                            text(f"ALTER TABLE user_settings ADD COLUMN {column} {col_def}")
+                        )
+                        conn.commit()
+
+                conn.execute(
+                    text(
+                        """
+                        UPDATE user_settings SET
+                          llm_api_key = COALESCE(llm_api_key, deepseek_api_key),
+                          llm_base_url = COALESCE(llm_base_url, deepseek_base_url),
+                          llm_model = COALESCE(llm_model, deepseek_model),
+                          llm_provider = COALESCE(llm_provider, 'openai')
+                        WHERE deepseek_api_key IS NOT NULL
+                           OR deepseek_base_url IS NOT NULL
+                           OR deepseek_model IS NOT NULL
+                        """
+                    )
+                )
+                conn.commit()
+
             # Add background_tasks.enqueue_args / enqueue_kwargs columns
             # (huey-task-queue migration)
             bg_tasks_exists = conn.execute(

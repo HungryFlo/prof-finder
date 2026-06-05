@@ -30,9 +30,25 @@ export interface TaskLifecycleEvent {
   message: string
 }
 
+/** Task types that should refresh the professor list when they finish. */
+export const PROFESSOR_LIST_REFRESH_TASK_TYPES: TaskType[] = [
+  'generic-university-crawl',
+  'single-crawl',
+  'single-dblp-crawl',
+  'batch-dblp-crawl',
+  'batch-dblp-match',
+  'batch-refresh',
+  'batch-refresh-dblp',
+  'batch-refresh-external',
+  'professor-enrichment',
+  'batch-professor-enrichment',
+  'batch-professor-profiles',
+]
+
 export const useTaskStore = defineStore('tasks', () => {
   const activeTasks = ref<Map<string, TaskEntry>>(new Map())
   const taskEvents = ref<TaskLifecycleEvent[]>([])
+  const taskTypeCompleteHandlers = new Map<TaskType, Set<() => void>>()
   let nextEventId = 1
 
   // ---------------------------------------------------------------------------
@@ -168,6 +184,38 @@ export const useTaskStore = defineStore('tasks', () => {
     })
   }
 
+  function _invokeTaskTypeHandlers(taskType: TaskType): void {
+    const handlers = taskTypeCompleteHandlers.get(taskType)
+    if (!handlers) return
+    for (const handler of handlers) {
+      try {
+        handler()
+      } catch {
+        // ignore listener errors
+      }
+    }
+  }
+
+  function registerTaskTypeCompleteHandler(
+    taskTypes: TaskType | TaskType[],
+    handler: () => void
+  ): () => void {
+    const types = Array.isArray(taskTypes) ? taskTypes : [taskTypes]
+    for (const taskType of types) {
+      let set = taskTypeCompleteHandlers.get(taskType)
+      if (!set) {
+        set = new Set()
+        taskTypeCompleteHandlers.set(taskType, set)
+      }
+      set.add(handler)
+    }
+    return () => {
+      for (const taskType of types) {
+        taskTypeCompleteHandlers.get(taskType)?.delete(handler)
+      }
+    }
+  }
+
   function _connectSSE(taskId: string, onComplete?: () => void): void {
     const authStore = useAuthStore()
     const token = authStore.accessToken ?? ''
@@ -209,6 +257,7 @@ export const useTaskStore = defineStore('tasks', () => {
         entry.status = 'completed'
         entry.message = _completionMessage(entry, result)
         _pushTaskEvent(entry, 'completed', entry.message)
+        _invokeTaskTypeHandlers(entry.taskType)
       }
       es.close()
       onComplete?.()
@@ -348,16 +397,32 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   /**
+   * Subscribe to newly spawned backend tasks (e.g. batch-dblp-match after university crawl).
+   */
+  async function discoverChainedTasks(): Promise<void> {
+    try {
+      const tasks = await tasksApi.listTasks()
+      for (const t of tasks) {
+        if (activeTasks.value.has(t.task_id)) continue
+        if (t.status !== 'running' && t.status !== 'pending') continue
+        addTask(t.task_id, t.task_type as TaskType, t.task_name, t.total)
+      }
+    } catch {
+      // Server may be unavailable; fail silently
+    }
+  }
+
+  /**
    * Call GET /api/tasks on startup to recover tasks that are still running
    * on the backend after a page refresh.
    */
   async function restoreFromServer(): Promise<void> {
     try {
       const tasks = await tasksApi.listTasks()
-      // Clear stale tasks from previous user before loading new ones
-      activeTasks.value.clear()
       for (const t of tasks) {
-        const entry = _buildEntry(t.task_id, t.task_type, t.task_name, t.total)
+        if (activeTasks.value.has(t.task_id)) continue
+
+        const entry = _buildEntry(t.task_id, t.task_type as TaskType, t.task_name, t.total)
         entry.status = t.cancel_requested && (t.status === 'running' || t.status === 'pending')
           ? 'cancelling'
           : t.status
@@ -386,6 +451,7 @@ export const useTaskStore = defineStore('tasks', () => {
     }
     activeTasks.value.clear()
     taskEvents.value = []
+    taskTypeCompleteHandlers.clear()
   }
 
   return {
@@ -400,6 +466,8 @@ export const useTaskStore = defineStore('tasks', () => {
     retryTask,
     clearCompleted,
     consumeTaskEvents,
+    discoverChainedTasks,
+    registerTaskTypeCompleteHandler,
     restoreFromServer,
     reset,
   }

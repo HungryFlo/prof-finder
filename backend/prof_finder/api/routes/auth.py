@@ -64,7 +64,9 @@ def register(data: UserRegister, session: Session = Depends(get_db_session)):
     # Create default settings for the user
     user_settings = UserSettings(
         user_id=user.id,
-        deepseek_base_url=settings.deepseek_base_url,
+        llm_provider=settings.llm_provider,
+        llm_base_url=settings.llm_base_url,
+        llm_model=settings.llm_model,
         request_delay=settings.request_delay,
     )
     session.add(user_settings)

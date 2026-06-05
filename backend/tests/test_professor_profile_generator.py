@@ -217,7 +217,7 @@ class TestSparseData:
     def test_generate_disabled_raises(self):
         # "test_key" is in the blocked set, so enabled will be False
         gen = ProfessorProfileGenerator(api_key="test_key")
-        with pytest.raises(ValueError, match="DeepSeek API Key"):
+        with pytest.raises(ValueError, match="LLM API Key"):
             gen.generate({})
 
 

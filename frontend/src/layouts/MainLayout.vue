@@ -120,7 +120,7 @@ watch(() => route.path, (newPath, oldPath) => {
 async function checkApiConfiguration() {
   try {
     const settings = await settingsStore.fetchSettings()
-    needsApiConfig.value = !settings.deepseek_api_key_masked
+    needsApiConfig.value = !settings.llm_api_key_masked
   } catch {
     // Settings errors are handled by pages that need them; avoid blocking layout startup.
   }

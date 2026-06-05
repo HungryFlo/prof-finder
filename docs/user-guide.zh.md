@@ -13,10 +13,10 @@
 
 **macOS 提示：** 若系统提示「无法验证开发者」，请前往「系统设置 → 隐私与安全性」，允许运行该应用。
 
-### 第二步：配置 DeepSeek API Key
+### 第二步：配置 LLM API
 
 1. 登录后点击左侧「设置」。
-2. 在「API 配置」卡片中，将 DeepSeek API Key 粘贴到「新 API Key」输入框，点击「保存设置」。
+2. 在「LLM API 配置」卡片中选择 API 类型（OpenAI 兼容或 Anthropic），填写 API Key、Base URL 与模型名称，点击「保存设置」。
 
 以下功能需要 API Key 才能使用：
 
@@ -25,7 +25,7 @@
 - 套磁邮件生成
 - 画像 AI 聊天优化
 
-详见下方「如何获取 DeepSeek API Key」。
+详见下方「如何配置 LLM API」。
 
 ### 第三步：建立学生画像
 
@@ -70,13 +70,18 @@
 - 首次启动需选择数据存储目录；配置保存在解压目录旁的 `install.json`。
 - 卸载：关闭应用后运行 `uninstall-prof-finder.bat`（Windows）或 `./uninstall-prof-finder.sh`（macOS/Linux），输入 `DELETE` 确认。
 
-## 如何获取 DeepSeek API Key
+## 如何配置 LLM API
 
-1. 打开 [DeepSeek 开放平台](https://platform.deepseek.com)，注册或登录账号。
-2. 进入「API Keys」页面，点击「创建 API Key」。
-3. 复制生成的密钥（格式为 `sk-...`）。**密钥只显示一次**，请立即保存。
-4. 在 Prof-Finder「设置 → 新 API Key」中粘贴并保存。
-5. 在 DeepSeek 平台充值或关注用量；请勿将密钥分享给他人。
+Prof-Finder 支持两类接口，由你在设置中自行选择服务商、Base URL 与模型名：
+
+| API 类型 | 适用服务示例 | Base URL 示例 | 模型名示例 |
+|----------|--------------|---------------|------------|
+| OpenAI 兼容 | [DeepSeek](https://platform.deepseek.com)、OpenAI、Ollama 等 | `https://api.deepseek.com/v1` | `deepseek-chat` |
+| Anthropic | [Anthropic](https://console.anthropic.com) 或兼容网关 | `https://api.anthropic.com` | `claude-sonnet-4-20250514` |
+
+1. 在服务商控制台创建 API Key（**只显示一次**，请立即保存）。
+2. 在 Prof-Finder「设置」中填写 API 类型、Key、Base URL、模型名称并保存。
+3. 关注账户余额与用量；请勿将密钥分享给他人。
 
 ## 使用建议
 

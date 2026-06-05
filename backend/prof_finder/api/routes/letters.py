@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ...models.schema import User, UserProfile, Professor, MatchRecord, UserSettings
 from ...llm.letter_generator import LetterGenerator
-from ...config import settings as app_settings
+from ...llm.config import llm_not_configured_message, llm_provider_for_user_settings
 from ...utils.query_cache import get_active_profile
 from ..deps import get_db_session, get_current_user
 from ..schemas import (
@@ -22,39 +22,18 @@ from ..task_manager import create_task, cleanup_old_tasks, enqueue_task
 router = APIRouter(prefix="/letters", tags=["邮件生成"])
 
 
-def get_user_api_key(user: User, session: Session) -> str:
-    """Get the DeepSeek API key for a user.
-    
-    Checks user settings first, then falls back to global settings.
-    
-    Args:
-        user: User to get API key for.
-        session: Database session.
-        
-    Returns:
-        API key string.
-        
-    Raises:
-        HTTPException: If no API key configured.
-    """
-    # Check user settings
+def get_user_letter_generator(user: User, session: Session) -> LetterGenerator:
+    """Build a letter generator from the user's LLM settings."""
     user_settings = (
-        session.query(UserSettings)
-        .filter(UserSettings.user_id == user.id)
-        .first()
+        session.query(UserSettings).filter(UserSettings.user_id == user.id).first()
     )
-    
-    if user_settings and user_settings.deepseek_api_key:
-        return user_settings.deepseek_api_key
-    
-    # Fall back to global settings
-    if app_settings.deepseek_api_key:
-        return app_settings.deepseek_api_key
-    
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="请先在设置中配置 DeepSeek API Key",
-    )
+    provider = llm_provider_for_user_settings(user_settings)
+    if not provider.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=llm_not_configured_message(),
+        )
+    return LetterGenerator(provider=provider)
 
 
 @router.get("", response_model=PaginatedResponse)
@@ -143,7 +122,7 @@ async def generate_letter(
     Returns:
         Task ID for SSE progress tracking.
     """
-    api_key = get_user_api_key(current_user, session)
+    get_user_letter_generator(current_user, session)
 
     active_profile = get_active_profile(session, current_user.id)
     if not active_profile:
@@ -176,7 +155,7 @@ async def generate_letter(
         total=1,
     )
     enqueue_task(
-        "single-letter", task.task_id, professor_id, active_profile.id, api_key, language,
+        "single-letter", task.task_id, professor_id, active_profile.id, current_user.id, language,
     )
 
     return TaskStartResponse(task_id=task.task_id, message="邮件生成任务已启动")

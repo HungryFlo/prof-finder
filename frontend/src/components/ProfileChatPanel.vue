@@ -25,6 +25,7 @@ interface ChatEntry {
   key: string
   role: 'user' | 'assistant'
   content: string
+  failed?: boolean
 }
 
 const { handleApiError } = useApiError()
@@ -121,6 +122,7 @@ async function sendMessage(text?: string) {
         const target = messages.value.find((m) => m.key === assistantKey)
         if (target) {
           target.content = t('chat.errorLine', { msg: errorMsg })
+          target.failed = true
           messages.value = [...messages.value]
         }
         status.value = 'error'
@@ -137,6 +139,7 @@ async function sendMessage(text?: string) {
     const target = messages.value.find((m) => m.key === assistantKey)
     if (target && !target.content) {
       target.content = t('chat.errorLine', { msg: t('chat.errorAiFailed') })
+      target.failed = true
       messages.value = [...messages.value]
     }
     status.value = 'error'
@@ -163,29 +166,28 @@ async function copyMessage(content: string) {
   }
 }
 
-function handleRegenerate() {
-  const lastUserMsg = [...messages.value].reverse().find((m) => m.role === 'user')
-  if (lastUserMsg) {
-    sendMessage(lastUserMsg.content)
-  }
+function resendFromAssistantTurn(assistantKey: string) {
+  const assistantIdx = messages.value.findIndex((m) => m.key === assistantKey)
+  if (assistantIdx === -1 || messages.value[assistantIdx]?.role !== 'assistant') return
+
+  const userMsg = messages.value[assistantIdx - 1]
+  if (!userMsg || userMsg.role !== 'user') return
+
+  messages.value = messages.value.slice(0, assistantIdx)
+  status.value = 'ready'
+  sendMessage(userMsg.content)
+}
+
+function handleRegenerate(assistantKey: string) {
+  resendFromAssistantTurn(assistantKey)
 }
 
 function isApiKeyError(content: string): boolean {
-  return content.includes('DeepSeek') || content.includes('API Key') || content.includes('503')
+  return content.includes('LLM') || content.includes('API Key') || content.includes('503')
 }
 
-function handleRetry() {
-  // Remove the last assistant error message and resend the last user message
-  const lastAssistantIdx = [...messages.value].reverse().findIndex((m) => m.role === 'assistant')
-  if (lastAssistantIdx !== -1) {
-    const idx = messages.value.length - 1 - lastAssistantIdx
-    messages.value.splice(idx, 1)
-  }
-  status.value = 'ready'
-  const lastUserMsg = [...messages.value].reverse().find((m) => m.role === 'user')
-  if (lastUserMsg) {
-    sendMessage(lastUserMsg.content)
-  }
+function handleRetry(assistantKey: string) {
+  resendFromAssistantTurn(assistantKey)
 }
 
 async function handleRefine() {
@@ -286,23 +288,23 @@ async function handleRefine() {
                   <CopyIcon class="size-4" />
                 </MessageAction>
                 <MessageAction
-                  v-if="status === 'ready'"
+                  v-if="!msg.failed && status === 'ready'"
                   :tooltip="$t('chat.actionRegenerate')"
-                  @click="handleRegenerate"
+                  @click="handleRegenerate(msg.key)"
                 >
                   <RefreshCwIcon class="size-4" />
                 </MessageAction>
                 <MessageAction
-                  v-if="status === 'error'"
+                  v-if="msg.failed"
                   :tooltip="$t('chat.actionRetry')"
-                  @click="handleRetry"
+                  @click="handleRetry(msg.key)"
                 >
                   <RefreshCwIcon class="size-4" />
                 </MessageAction>
               </MessageActions>
             </MessageToolbar>
             <div
-              v-if="msg.role === 'assistant' && status === 'error' && isApiKeyError(msg.content)"
+              v-if="msg.role === 'assistant' && msg.failed && isApiKeyError(msg.content)"
               class="text-xs text-amber-600 dark:text-amber-400 mt-1 px-1"
             >
               {{ $t('chat.apiKeyHint') }}

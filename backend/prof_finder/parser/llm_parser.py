@@ -1,12 +1,12 @@
-"""LLM-based resume parser using DeepSeek API."""
+"""LLM-based resume parser using configured LLM API."""
 
 import json
 import re
 import logging
 from typing import Optional
-from openai import OpenAI
 
-from ..config import settings
+from ..ai_workflows.provider import LLMProvider
+from ..llm.config import llm_not_configured_message, resolve_llm_config
 from ..prompts import get_prompt
 from .base import (
     BaseParser,
@@ -27,19 +27,15 @@ class LLMParserError(Exception):
 
 
 class LLMParser(BaseParser):
-    """Parser that uses LLM (DeepSeek API) to extract resume information."""
+    """Parser that uses an LLM to extract resume information."""
 
     MAX_RETRIES = 2
 
-    def __init__(self):
+    def __init__(self, provider: Optional[LLMProvider] = None):
         """Initialize the LLM parser."""
-        if not settings.deepseek_api_key:
-            raise ValueError("DEEPSEEK_API_KEY is not configured in .env")
-
-        self.client = OpenAI(
-            api_key=settings.deepseek_api_key,
-            base_url=settings.deepseek_base_url,
-        )
+        self.provider = provider or LLMProvider(config=resolve_llm_config())
+        if not self.provider.enabled:
+            raise ValueError(llm_not_configured_message())
 
     @staticmethod
     def supported_extensions() -> list[str]:
@@ -99,15 +95,13 @@ class LLMParser(BaseParser):
         Returns:
             LLM response content.
         """
-        response = self.client.chat.completions.create(
-            model="deepseek-v4-flash",
-            messages=[
+        return self.provider.chat_completion(
+            [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=0.1,  # Low temperature for consistent structured output
+            temperature=0.1,
         )
-        return response.choices[0].message.content
 
     def _parse_json_response(self, response: str) -> dict:
         """Parse JSON from LLM response.

@@ -2,8 +2,10 @@ import client from './client'
 import type { UserSettings } from '@/types'
 
 export interface SettingsUpdate {
-  deepseek_api_key?: string
-  deepseek_base_url?: string
+  llm_provider?: 'openai' | 'anthropic'
+  llm_api_key?: string
+  llm_base_url?: string
+  llm_model?: string
   request_delay?: number
   auto_enrich_on_save_fetch_publication_details?: boolean
   auto_enrich_on_save_paper_summaries?: boolean

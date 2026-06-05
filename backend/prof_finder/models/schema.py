@@ -50,10 +50,15 @@ class UserSettings(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
 
-    # API configuration
-    deepseek_api_key = Column(String(255))  # Stored in local SQLite; API returns masked value only
-    deepseek_base_url = Column(String(500), default="https://api.deepseek.com/v1")
-    deepseek_model = Column(String(100), default="deepseek-chat")
+    # LLM API configuration (user-controlled provider, base URL, model)
+    llm_provider = Column(String(20), default="openai")
+    llm_api_key = Column(String(255))  # Stored in local SQLite; API returns masked value only
+    llm_base_url = Column(String(500), default="https://api.deepseek.com/v1")
+    llm_model = Column(String(100), default="deepseek-chat")
+    # Legacy columns (migrated into llm_* on upgrade; still read as fallback)
+    deepseek_api_key = Column(String(255))
+    deepseek_base_url = Column(String(500))
+    deepseek_model = Column(String(100))
 
     # Crawler settings
     request_delay = Column(Integer, default=3)

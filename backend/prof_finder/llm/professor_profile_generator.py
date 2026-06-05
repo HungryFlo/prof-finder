@@ -40,7 +40,7 @@ class ProfessorProfileGenerator:
     def generate(self, professor_data: dict, language: str = "en") -> dict:
         """Run analyzer and builder prompts for a professor research profile."""
         if not self.provider.enabled:
-            raise ValueError("请先配置 DeepSeek API Key 后再生成教授画像")
+            raise ValueError("请先配置 LLM API Key 与模型名称后再生成教授画像")
 
         source_bundle = self._build_source_bundle(professor_data)
         analysis = self._analyze(source_bundle, language=language)

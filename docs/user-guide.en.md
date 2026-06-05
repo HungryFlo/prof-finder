@@ -16,7 +16,7 @@ Prof-Finder is a **locally run** assistant for finding PhD/MPhil supervisors. Yo
 2. Extract and run `Prof-Finder` (or `Prof-Finder.exe` on Windows).
 3. The app starts a local server and opens your browser automatically.
 4. Log in with `root` / `root123`, then change your password on first login.
-5. Go to **Settings** and enter your DeepSeek API Key.
+5. Go to **Settings** and configure your LLM API (type, key, base URL, model name).
 
 See `README-PORTABLE.txt` inside the extracted package for portable-specific instructions.
 
@@ -27,7 +27,7 @@ See `README-PORTABLE.txt` inside the extracted package for portable-specific ins
 ## Recommended Workflow
 
 1. **Log in** — Use default credentials, then set a new password.
-2. **Configure API Key** — Settings → paste your DeepSeek API Key → Save.
+2. **Configure LLM API** — Settings → choose API type, key, base URL, and model → Save.
 3. **Build a profile** — Student Profiles → Upload resume (`.md`, `.tex`, `.txt`). Enable LLM extraction. Activate one profile for matching.
 4. **Add professors** — Professors → Add via Google Scholar URL (recommended), DBLP URL, university batch crawl, external profile linking, or manual entry. Track progress in the task panel.
 5. **Run matching** — Match Results → on first use, download **Qwen/Qwen3-Embedding-0.6B** from ModelScope (~1.2 GB; requires access to `www.modelscope.cn`) → Run Match.
@@ -35,15 +35,20 @@ See `README-PORTABLE.txt` inside the extracted package for portable-specific ins
 
 Click **Help** in the top-right corner of the app for the full in-app guide.
 
-## How to Get a DeepSeek API Key
+## How to Configure an LLM API
 
-1. Visit [DeepSeek Platform](https://platform.deepseek.com) and sign up or log in.
-2. Go to **API Keys** and create a new key.
-3. Copy the key (`sk-...`). **It is shown only once** — save it immediately.
-4. Paste it in Prof-Finder under **Settings → New API Key** and save.
-5. Top up your DeepSeek account as needed. Do not share your key.
+Prof-Finder supports two API styles; you choose the provider, base URL, and model name in Settings:
 
-Features that require an API Key: resume LLM parsing, professor research profiles, paper summaries, contact letter generation, and profile AI chat.
+| API type | Example providers | Base URL example | Model example |
+|----------|-------------------|------------------|---------------|
+| OpenAI-compatible | [DeepSeek](https://platform.deepseek.com), OpenAI, Ollama | `https://api.deepseek.com/v1` | `deepseek-chat` |
+| Anthropic | [Anthropic](https://console.anthropic.com) or compatible gateways | `https://api.anthropic.com` | `claude-sonnet-4-20250514` |
+
+1. Create an API key in your provider console (**shown only once** — save it immediately).
+2. In Prof-Finder **Settings**, enter API type, key, base URL, and model name, then save.
+3. Monitor usage and balance. Do not share your key.
+
+Features that require LLM API: resume parsing, professor profiles, paper summaries, contact letters, and profile AI chat.
 
 ## Best Practices
 

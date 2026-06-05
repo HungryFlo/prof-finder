@@ -47,7 +47,7 @@ class StudentProfileGenerator:
     ) -> dict:
         """Run analyzer and builder prompts for a student profile."""
         if not self.provider.enabled:
-            raise ValueError("请先配置 DeepSeek API Key 后再生成学生画像")
+            raise ValueError("请先配置 LLM API Key 与模型名称后再生成学生画像")
 
         analysis = self._analyze(
             materials=materials,
@@ -85,7 +85,7 @@ class StudentProfileGenerator:
             AI interviewer reply string.
         """
         if not self.provider.enabled:
-            raise ValueError("请先配置 DeepSeek API Key")
+            raise ValueError("请先配置 LLM API Key 与模型名称")
 
         lang = "en" if locale == "en" else "zh"
         lang_instr = _language_instruction(lang)
@@ -131,7 +131,7 @@ class StudentProfileGenerator:
         Same prompt logic as interview() but streams tokens as they arrive.
         """
         if not self.provider.enabled:
-            raise ValueError("请先配置 DeepSeek API Key")
+            raise ValueError("请先配置 LLM API Key 与模型名称")
 
         lang = "en" if locale == "en" else "zh"
         lang_instr = _language_instruction(lang)

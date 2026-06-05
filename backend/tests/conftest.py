@@ -109,8 +109,10 @@ def test_user(test_db: Database) -> User:
         # Create default settings
         settings = UserSettings(
             user_id=user.id,
-            deepseek_api_key="test_key",
-            deepseek_base_url="https://api.deepseek.com/v1",
+            llm_provider="openai",
+            llm_api_key="test_key",
+            llm_base_url="https://api.deepseek.com/v1",
+            llm_model="deepseek-chat",
             request_delay=3,
         )
         session.add(settings)
@@ -135,8 +137,10 @@ def admin_user(test_db: Database) -> User:
         # Create default settings
         settings = UserSettings(
             user_id=user.id,
-            deepseek_api_key="admin_key",
-            deepseek_base_url="https://api.deepseek.com/v1",
+            llm_provider="openai",
+            llm_api_key="admin_key",
+            llm_base_url="https://api.deepseek.com/v1",
+            llm_model="deepseek-chat",
             request_delay=3,
         )
         session.add(settings)

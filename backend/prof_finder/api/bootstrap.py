@@ -26,8 +26,10 @@ def init_admin_user() -> None:
 
             admin_settings = UserSettings(
                 user_id=admin.id,
-                deepseek_api_key=settings.deepseek_api_key or None,
-                deepseek_base_url=settings.deepseek_base_url,
+                llm_provider=settings.llm_provider,
+                llm_api_key=settings.llm_api_key or None,
+                llm_base_url=settings.llm_base_url,
+                llm_model=settings.llm_model,
                 request_delay=settings.request_delay,
             )
             session.add(admin_settings)

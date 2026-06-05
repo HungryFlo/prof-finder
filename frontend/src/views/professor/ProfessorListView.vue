@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, h, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, h, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -28,7 +28,7 @@ import { professorsApi } from '@/api/professors'
 import { universitiesApi, type University } from '@/api/universities'
 import { useApiError } from '@/composables/useApiError'
 import type { CrawlerTestResponse } from '@/api/professors'
-import { useTaskStore } from '@/stores/tasks'
+import { useTaskStore, PROFESSOR_LIST_REFRESH_TASK_TYPES } from '@/stores/tasks'
 import ProfessorSummaryDrawer from '@/components/ProfessorSummaryDrawer.vue'
 import type { ProfessorListItem, PaginatedResponse } from '@/types'
 
@@ -116,9 +116,9 @@ watch(searchQuery, () => {
   }, 300)
 })
 
-/** After crawl/refresh tasks finish, pick up chained tasks (e.g. professor-enrichment). */
+/** After crawl/refresh tasks finish, refresh list and pick up chained tasks (e.g. batch-dblp-match). */
 function afterImportTasksComplete() {
-  void fetchProfessors().then(() => taskStore.restoreFromServer())
+  void fetchProfessors().then(() => taskStore.discoverChainedTasks())
 }
 
 function openSummaryDrawer(id: number) {
@@ -571,9 +571,20 @@ async function handleBatchDelete() {
   })
 }
 
+let unregisterListTaskHandlers: (() => void) | undefined
+
 onMounted(() => {
   fetchProfessors()
   fetchAffiliations()
+  unregisterListTaskHandlers = taskStore.registerTaskTypeCompleteHandler(
+    PROFESSOR_LIST_REFRESH_TASK_TYPES,
+    afterImportTasksComplete
+  )
+  void taskStore.discoverChainedTasks()
+})
+
+onUnmounted(() => {
+  unregisterListTaskHandlers?.()
 })
 </script>
 

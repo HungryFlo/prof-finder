@@ -33,9 +33,27 @@ from ..task_manager import (
     create_task,
     enqueue_task,
 )
+from ...llm.config import llm_not_configured_message, llm_provider_for_user_settings
 from ...llm.student_profile_generator import StudentProfileGenerator
+from ...models.schema import UserSettings
 
 router = APIRouter(prefix="/profiles", tags=["学生画像"])
+
+
+def _student_profile_generator(
+    session: Session,
+    user_id: int,
+) -> StudentProfileGenerator:
+    user_settings = (
+        session.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+    )
+    provider = llm_provider_for_user_settings(user_settings)
+    if not provider.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=llm_not_configured_message(),
+        )
+    return StudentProfileGenerator(provider=provider)
 
 SUPPORTED_PROFILE_MATERIAL_EXTENSIONS = {".md", ".markdown", ".txt", ".tex", ".latex"}
 
@@ -430,12 +448,7 @@ def profile_chat(
             detail="画像不存在",
         )
 
-    generator = StudentProfileGenerator()
-    if not generator.enabled:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="请先配置 DeepSeek API Key",
-        )
+    generator = _student_profile_generator(session, current_user.id)
 
     analysis = profile.profile_analysis or {}
     academic_profile = profile.academic_profile or ""
@@ -480,12 +493,7 @@ async def profile_chat_stream(
             detail="画像不存在",
         )
 
-    generator = StudentProfileGenerator()
-    if not generator.enabled:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="请先配置 DeepSeek API Key",
-        )
+    generator = _student_profile_generator(session, current_user.id)
 
     analysis = profile.profile_analysis or {}
     academic_profile = profile.academic_profile or ""
@@ -561,12 +569,7 @@ async def profile_chat_refine(
             detail="画像不存在",
         )
 
-    generator = StudentProfileGenerator()
-    if not generator.enabled:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="请先配置 DeepSeek API Key",
-        )
+    _student_profile_generator(session, current_user.id)
 
     if not data.history:
         raise HTTPException(

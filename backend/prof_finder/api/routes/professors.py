@@ -631,21 +631,14 @@ async def test_crawler_config(
     from ...config import settings as app_settings
     from ...crawler.crawl4ai_engine.generic_crawler import GenericUniversityCrawler
 
-    # Load user's API key for LLM mode
+    from ...llm.config import resolve_llm_config
+
     user_settings = (
         session.query(UserSettings)
         .filter(UserSettings.user_id == current_user.id)
         .first()
     )
-    api_key = (
-        user_settings.deepseek_api_key if user_settings else None
-    ) or app_settings.deepseek_api_key
-    base_url = (
-        user_settings.deepseek_base_url if user_settings else None
-    ) or app_settings.deepseek_base_url
-    model = (
-        user_settings.deepseek_model if user_settings else None
-    ) or app_settings.deepseek_model
+    llm_config = resolve_llm_config(user_settings, app_settings)
 
     crawler = GenericUniversityCrawler.from_dict({
         "name": data.name or "Test",
@@ -656,9 +649,10 @@ async def test_crawler_config(
         "css_selectors": data.css_selectors,
         "affiliation": data.affiliation,
     })
-    crawler.api_key = api_key
-    crawler.base_url = base_url
-    crawler.model = model
+    crawler.api_key = llm_config.api_key
+    crawler.base_url = llm_config.base_url
+    crawler.model = llm_config.model
+    crawler.llm_provider = llm_config.provider
 
     try:
         results = await asyncio.to_thread(
@@ -896,7 +890,7 @@ def preview_professor_edits(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="教授不存在")
 
     sources: List[SourceInput] = []
-    summarizer = _get_paper_summarizer(current_user)
+    summarizer = _get_paper_summarizer(session, current_user.id)
     if data.source_input_ids:
         sources = (
             session.query(SourceInput)
@@ -963,7 +957,7 @@ def apply_professor_edits(
     if data.manual_patch is not None:
         _apply_manual_patch(professor, data.manual_patch)
 
-    summarizer = _get_paper_summarizer(current_user)
+    summarizer = _get_paper_summarizer(session, current_user.id)
     if data.source_input_ids:
         sources = (
             session.query(SourceInput)
@@ -1287,12 +1281,14 @@ async def batch_refresh_professors(
     )
 
 
-def _get_paper_summarizer(current_user: User) -> PaperSummarizer:
-    """Build summarizer from user settings if available."""
-    user_settings = getattr(current_user, "settings", None)
-    api_key = getattr(user_settings, "deepseek_api_key", None)
-    base_url = getattr(user_settings, "deepseek_base_url", None)
-    return PaperSummarizer(api_key=api_key, base_url=base_url)
+def _get_paper_summarizer(session: Session, user_id: int) -> PaperSummarizer:
+    """Build summarizer from user LLM settings."""
+    from ...llm.config import llm_provider_for_user_settings
+
+    user_settings = (
+        session.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+    )
+    return PaperSummarizer(provider=llm_provider_for_user_settings(user_settings))
 
 
 @router.delete("/{professor_id}", response_model=MessageResponse)

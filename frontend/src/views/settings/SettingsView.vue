@@ -21,6 +21,8 @@ import {
   NPopconfirm,
   NSpin,
   NModal,
+  NDynamicTags,
+  NSelect,
   useMessage,
 } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
@@ -43,16 +45,25 @@ const { openHelp } = useHelpDrawer()
 const loading = ref(false)
 const saving = ref(false)
 const settings = ref<UserSettings>({
-  deepseek_api_key_masked: null,
-  deepseek_base_url: 'https://api.deepseek.com/v1',
+  llm_provider: 'openai',
+  llm_api_key_masked: null,
+  llm_base_url: 'https://api.deepseek.com/v1',
+  llm_model: 'deepseek-chat',
   request_delay: 3,
   auto_enrich_on_save_fetch_publication_details: true,
   auto_enrich_on_save_paper_summaries: true,
   auto_enrich_on_save_research_profile: true,
 })
 
+const providerOptions = [
+  { label: 'OpenAI-compatible', value: 'openai' },
+  { label: 'Anthropic', value: 'anthropic' },
+]
+
 const apiKeyInput = ref('')
+const providerInput = ref<'openai' | 'anthropic'>('openai')
 const baseUrlInput = ref('')
+const modelInput = ref('')
 const delayInput = ref(3)
 const enrichFetch = ref(true)
 const enrichSummaries = ref(true)
@@ -84,20 +95,28 @@ async function fetchUniversities() {
   }
 }
 
-async function handleAddUniversity() {
-  if (!newUniversityName.value.trim()) return
+async function handleAddUniversity(): Promise<boolean> {
+  if (!newUniversityName.value.trim()) {
+    message.warning(t('university.fullNameRequired'))
+    return false
+  }
   addUniversityLoading.value = true
   try {
     const uni = await universitiesApi.create({ full_name: newUniversityName.value.trim() })
     universities.value.unshift(uni)
-    showAddUniversityModal.value = false
     newUniversityName.value = ''
     message.success(t('university.addSuccess'))
+    return true
   } catch (error: unknown) {
     handleApiError(error, t('university.addFailed'))
+    return false
   } finally {
     addUniversityLoading.value = false
   }
+}
+
+function resetAddUniversityModal() {
+  newUniversityName.value = ''
 }
 
 async function handleDeleteUniversity(id: number) {
@@ -133,7 +152,9 @@ async function fetchSettings() {
   loading.value = true
   try {
     settings.value = await settingsStore.fetchSettings()
-    baseUrlInput.value = settings.value.deepseek_base_url
+    providerInput.value = settings.value.llm_provider
+    baseUrlInput.value = settings.value.llm_base_url
+    modelInput.value = settings.value.llm_model
     delayInput.value = settings.value.request_delay
     enrichFetch.value = settings.value.auto_enrich_on_save_fetch_publication_details !== false
     enrichSummaries.value = settings.value.auto_enrich_on_save_paper_summaries !== false
@@ -151,10 +172,16 @@ async function handleSaveSettings() {
     const updateData: Record<string, string | number | boolean> = {}
 
     if (apiKeyInput.value) {
-      updateData.deepseek_api_key = apiKeyInput.value
+      updateData.llm_api_key = apiKeyInput.value
     }
-    if (baseUrlInput.value !== settings.value.deepseek_base_url) {
-      updateData.deepseek_base_url = baseUrlInput.value
+    if (providerInput.value !== settings.value.llm_provider) {
+      updateData.llm_provider = providerInput.value
+    }
+    if (baseUrlInput.value !== settings.value.llm_base_url) {
+      updateData.llm_base_url = baseUrlInput.value
+    }
+    if (modelInput.value !== settings.value.llm_model) {
+      updateData.llm_model = modelInput.value
     }
     if (delayInput.value !== settings.value.request_delay) {
       updateData.request_delay = delayInput.value
@@ -239,23 +266,18 @@ onMounted(() => {
                   <li>{{ t('help.apiKeyStep4') }}</li>
                   <li>{{ t('help.apiKeyStep5') }}</li>
                 </ol>
-                <n-button
-                  tag="a"
-                  href="https://platform.deepseek.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  type="primary"
-                  size="small"
-                  style="margin-top: 12px"
-                >
-                  {{ t('help.openDeepSeekPlatform') }}
-                </n-button>
+                <p style="margin-top: 12px; color: var(--muted-foreground); font-size: 13px">
+                  {{ t('settings.llmProviderExamples') }}
+                </p>
               </n-collapse-item>
             </n-collapse>
             <n-form label-placement="left" label-width="100">
+              <n-form-item :label="t('settings.llmProvider')">
+                <n-select v-model:value="providerInput" :options="providerOptions" />
+              </n-form-item>
               <n-form-item :label="t('settings.currentApiKey')">
                 <span style="color: var(--muted-foreground)">
-                  {{ settings.deepseek_api_key_masked || t('common.noData') }}
+                  {{ settings.llm_api_key_masked || t('common.noData') }}
                 </span>
               </n-form-item>
               <n-form-item :label="t('settings.newApiKey')">
@@ -266,8 +288,14 @@ onMounted(() => {
                   show-password-on="click"
                 />
               </n-form-item>
+              <n-form-item :label="t('settings.llmModel')">
+                <n-input
+                  v-model:value="modelInput"
+                  :placeholder="t('settings.llmModelPlaceholder')"
+                />
+              </n-form-item>
               <n-form-item :label="t('settings.apiBaseUrl')">
-                <n-input v-model:value="baseUrlInput" placeholder="API Base URL" />
+                <n-input v-model:value="baseUrlInput" placeholder="https://api.example.com/v1" />
               </n-form-item>
               <n-form-item :label="t('settings.requestDelay')">
                 <n-input-number v-model:value="delayInput" :min="1" :max="60" />
@@ -403,6 +431,7 @@ onMounted(() => {
       :negative-text="t('common.cancel')"
       :positive-button-props="{ loading: addUniversityLoading }"
       @positive-click="handleAddUniversity"
+      @after-leave="resetAddUniversityModal"
       style="width: 480px"
     >
       <n-form-item :label="t('university.fullName')" label-placement="top">

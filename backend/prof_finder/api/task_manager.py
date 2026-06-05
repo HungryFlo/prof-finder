@@ -23,6 +23,13 @@ from typing import Callable, Dict, Iterator, List, Optional, Any
 from urllib.parse import urlparse, parse_qs
 
 
+def _llm_provider_for_user_settings_row(user_settings) -> "LLMProvider":
+    from ..ai_workflows.provider import LLMProvider
+    from ..llm.config import llm_provider_for_user_settings
+
+    return llm_provider_for_user_settings(user_settings)
+
+
 class TaskStatus(str, Enum):
     """Task lifecycle status."""
 
@@ -429,13 +436,12 @@ def execute_batch_letters(
     task_id: str,
     professor_ids: List[int],
     profile_id: int,
-    api_key: str,
+    user_id: int,
     language: str,
 ) -> None:
     """Generate contact letters for a list of professors."""
     from ..db.database import get_db
-    from ..models.schema import MatchRecord, Professor, UserProfile
-    from ..ai_workflows.provider import LLMProvider
+    from ..models.schema import MatchRecord, Professor, UserProfile, UserSettings
     from ..ai_workflows.workflows import generate_letter
 
     task = get_task(task_id)
@@ -444,7 +450,11 @@ def execute_batch_letters(
     task.status = TaskStatus.RUNNING
     persist_task(task)
     db = get_db()
-    provider = LLMProvider(api_key=api_key)
+    with db.session() as session:
+        user_settings = (
+            session.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+        )
+        provider = _llm_provider_for_user_settings_row(user_settings)
 
     for i, professor_id in enumerate(professor_ids):
         if task.cancel_requested:
@@ -544,6 +554,8 @@ def execute_profile_parse(
     """Parse an uploaded resume and persist it as a user profile."""
     from ..db.database import get_db
     from ..models.schema import UserProfile
+    from ..llm.config import llm_provider_for_user_settings
+    from ..models.schema import UserSettings
     from ..parser.smart_parser import SmartParser
 
     task = get_task(task_id)
@@ -556,7 +568,25 @@ def execute_profile_parse(
     source_format = "markdown" if extension in [".md", ".markdown"] else "latex"
 
     try:
-        parser = SmartParser(prefer_llm=use_llm)
+        if session_factory is None:
+            db = get_db()
+            with db.session() as session:
+                user_settings = (
+                    session.query(UserSettings)
+                    .filter(UserSettings.user_id == task.user_id)
+                    .first()
+                )
+                llm_provider = llm_provider_for_user_settings(user_settings)
+        else:
+            with _session_scope(session_factory) as session:
+                user_settings = (
+                    session.query(UserSettings)
+                    .filter(UserSettings.user_id == task.user_id)
+                    .first()
+                )
+                llm_provider = llm_provider_for_user_settings(user_settings)
+
+        parser = SmartParser(prefer_llm=use_llm, llm_provider=llm_provider)
         parsed, parse_method = parser.parse(text_content, extension)
 
         task.message = "正在保存画像..."
@@ -680,14 +710,8 @@ def execute_student_profile_generation(
             user_settings = (
                 session.query(UserSettings).filter(UserSettings.user_id == task.user_id).first()
             )
-            api_key = (
-                user_settings.deepseek_api_key if user_settings else None
-            ) or app_settings.deepseek_api_key
-            base_url = (
-                user_settings.deepseek_base_url if user_settings else None
-            ) or app_settings.deepseek_base_url
+            provider = _llm_provider_for_user_settings_row(user_settings)
         task.message = "正在生成学生学术画像..."
-        provider = LLMProvider(api_key=api_key, base_url=base_url)
         result = generate_student_profile(
             materials=materials,
             manual_inputs=manual_inputs,
@@ -1038,13 +1062,12 @@ def execute_single_letter(
     task_id: str,
     professor_id: int,
     profile_id: int,
-    api_key: str,
+    user_id: int,
     language: str,
 ) -> None:
     """Generate a contact letter for one professor."""
     from ..db.database import get_db
-    from ..models.schema import MatchRecord, Professor, UserProfile
-    from ..ai_workflows.provider import LLMProvider
+    from ..models.schema import MatchRecord, Professor, UserProfile, UserSettings
     from ..ai_workflows.workflows import generate_letter
 
     task = get_task(task_id)
@@ -1056,6 +1079,10 @@ def execute_single_letter(
 
     try:
         with db.session() as session:
+            user_settings = (
+                session.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+            )
+            provider = _llm_provider_for_user_settings_row(user_settings)
             result = (
                 session.query(MatchRecord, Professor, UserProfile)
                 .join(Professor, MatchRecord.professor_id == Professor.id)
@@ -1096,7 +1123,6 @@ def execute_single_letter(
             }
             reasons = match_record.match_reasons or []
 
-        provider = LLMProvider(api_key=api_key)
         letter_content = generate_letter(
             student_info=profile_data,
             professor_info=prof_data,
@@ -1702,15 +1728,9 @@ def execute_generic_university_crawl(task_id: str, config_id: int, cache_key: st
             .filter(UserSettings.user_id == task.user_id)
             .first()
         )
-        api_key = (
-            user_settings.deepseek_api_key if user_settings else None
-        ) or app_settings.deepseek_api_key
-        base_url = (
-            user_settings.deepseek_base_url if user_settings else None
-        ) or app_settings.deepseek_base_url
-        model = (
-            user_settings.deepseek_model if user_settings else None
-        ) or app_settings.deepseek_model
+        from ..llm.config import resolve_llm_config
+
+        llm_config = resolve_llm_config(user_settings, app_settings)
         request_delay = float(
             user_settings.request_delay if user_settings and user_settings.request_delay is not None
             else app_settings.request_delay
@@ -1736,9 +1756,10 @@ def execute_generic_university_crawl(task_id: str, config_id: int, cache_key: st
             extraction_mode=config_data["extraction_mode"],
             css_selectors=config_data["css_selectors"],
             affiliation=config_data["affiliation"] or config_data["university"],
-            api_key=api_key,
-            base_url=base_url,
-            model=model,
+            api_key=llm_config.api_key,
+            base_url=llm_config.base_url,
+            model=llm_config.model,
+            llm_provider=llm_config.provider,
         )
 
         task.message = f"正在爬取 {crawler.display_name}..."
@@ -1764,7 +1785,7 @@ def execute_generic_university_crawl(task_id: str, config_id: int, cache_key: st
     if total == 0:
         task.status = TaskStatus.FAILED
         if config_data["extraction_mode"] == "llm":
-            task.error_message = "AI 提取未返回结果，请检查 DeepSeek API Key 是否正确，或切换为 CSS 选择器模式重试"
+            task.error_message = "AI 提取未返回结果，请检查 LLM API Key 与模型配置是否正确，或切换为 CSS 选择器模式重试"
         else:
             task.error_message = "未提取到教授信息，请检查 CSS 选择器配置是否正确"
         task.message = "爬取失败"
@@ -1945,13 +1966,7 @@ def _enrich_professor_core(
                     .filter(UserSettings.user_id == user_id)
                     .first()
                 )
-                api_key = (
-                    user_settings.deepseek_api_key if user_settings else None
-                ) or app_settings.deepseek_api_key
-                base_url = (
-                    user_settings.deepseek_base_url if user_settings else None
-                ) or app_settings.deepseek_base_url
-            provider = LLMProvider(api_key=api_key, base_url=base_url)
+                provider = _llm_provider_for_user_settings_row(user_settings)
         return provider
 
     if _cancelled():
@@ -2280,13 +2295,7 @@ def execute_professor_source_summary(
         user_settings = (
             session.query(UserSettings).filter(UserSettings.user_id == task.user_id).first()
         )
-        api_key = (
-            user_settings.deepseek_api_key if user_settings else None
-        ) or app_settings.deepseek_api_key
-        base_url = (
-            user_settings.deepseek_base_url if user_settings else None
-        ) or app_settings.deepseek_base_url
-    provider = LLMProvider(api_key=api_key, base_url=base_url)
+        provider = _llm_provider_for_user_settings_row(user_settings)
 
     for idx, source_id in enumerate(source_input_ids, start=1):
         if task.cancel_requested:
@@ -2443,18 +2452,11 @@ def execute_professor_profile_generation(
             user_settings = (
                 session.query(UserSettings).filter(UserSettings.user_id == task.user_id).first()
             )
-            api_key = (
-                user_settings.deepseek_api_key if user_settings else None
-            ) or app_settings.deepseek_api_key
-            base_url = (
-                user_settings.deepseek_base_url if user_settings else None
-            ) or app_settings.deepseek_base_url
+            provider = _llm_provider_for_user_settings_row(user_settings)
 
         task.current = 1
         task.message = "正在分析教授科研画像..."
         persist_task(task)
-
-        provider = LLMProvider(api_key=api_key, base_url=base_url)
         result = generate_professor_profile(prof_data, language="en", provider=provider)
         task.current = 2
         task.message = "正在保存教授科研画像..."
@@ -2532,14 +2534,7 @@ def execute_batch_professor_profiles(
         user_settings = (
             session.query(UserSettings).filter(UserSettings.user_id == task.user_id).first()
         )
-        api_key = (
-            user_settings.deepseek_api_key if user_settings else None
-        ) or app_settings.deepseek_api_key
-        base_url = (
-            user_settings.deepseek_base_url if user_settings else None
-        ) or app_settings.deepseek_base_url
-
-    provider = LLMProvider(api_key=api_key, base_url=base_url)
+        provider = _llm_provider_for_user_settings_row(user_settings)
 
     for i, professor_id in enumerate(professor_ids):
         if task.cancel_requested:
@@ -2652,15 +2647,9 @@ def execute_professor_homepage_crawl(
                 .filter(UserSettings.user_id == task.user_id)
                 .first()
             )
-            api_key = (
-                user_settings.deepseek_api_key if user_settings else None
-            ) or app_settings.deepseek_api_key
-            base_url = (
-                user_settings.deepseek_base_url if user_settings else None
-            ) or app_settings.deepseek_base_url
-            model = (
-                user_settings.deepseek_model if user_settings else None
-            ) or app_settings.deepseek_model
+            from ..llm.config import resolve_llm_config
+
+            llm_config = resolve_llm_config(user_settings, app_settings)
 
             professor = (
                 session.query(Professor)
@@ -2687,9 +2676,10 @@ def execute_professor_homepage_crawl(
             homepage,
             name=prof_name,
             affiliation=affiliation,
-            api_key=api_key,
-            base_url=base_url,
-            model=model,
+            api_key=llm_config.api_key,
+            base_url=llm_config.base_url,
+            model=llm_config.model,
+            llm_provider=llm_config.provider,
             send_progress=lambda m: setattr(task, "message", m),
             cancel_checker=lambda: task.cancel_requested,
         )
@@ -3242,12 +3232,7 @@ def execute_profile_chat_refinement(
                 .filter(UserSettings.user_id == task.user_id)
                 .first()
             )
-            api_key = (
-                user_settings.deepseek_api_key if user_settings else None
-            ) or app_settings.deepseek_api_key
-            base_url = (
-                user_settings.deepseek_base_url if user_settings else None
-            ) or app_settings.deepseek_base_url
+            provider = _llm_provider_for_user_settings_row(user_settings)
 
             profile = (
                 session.query(UserProfile)
@@ -3278,7 +3263,6 @@ def execute_profile_chat_refinement(
         task.message = "正在重新生成学生画像..."
         persist_task(task)
 
-        provider = LLMProvider(api_key=api_key, base_url=base_url)
         profile_result = refine_profile_from_chat(
             materials=materials,
             manual_inputs=manual_inputs,

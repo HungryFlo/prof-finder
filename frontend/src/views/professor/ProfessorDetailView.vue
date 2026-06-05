@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, inject, ref, watch } from 'vue'
+import { computed, h, inject, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -181,7 +181,7 @@ const publicationColumns = computed<DataTableColumns<Publication>>(() => [
   },
 ])
 
-async function fetchData() {
+async function fetchData(options?: { initial?: boolean }) {
   const id = professorId.value
   if (id == null) {
     if (route.name === 'ProfessorDetail') {
@@ -190,6 +190,7 @@ async function fetchData() {
     }
     return
   }
+  const isInitial = options?.initial ?? professor.value == null
   loading.value = true
   try {
     const [data, inputs] = await Promise.all([
@@ -215,10 +216,18 @@ async function fetchData() {
     sourceInputs.value = inputs
   } catch (error: unknown) {
     handleApiError(error, t('professor.loadFailed'))
-    router.push('/professor')
+    if (isInitial) {
+      router.push('/professor')
+    }
   } finally {
     loading.value = false
   }
+}
+
+/** Refresh professor after background tasks without clearing the page. */
+function reloadProfessorAfterTask() {
+  if (route.name !== 'ProfessorDetail') return
+  void fetchData()
 }
 
 function normalizeScholarUrl(url: string): string {
@@ -242,7 +251,7 @@ async function applyScholarUrlIfChanged(): Promise<void> {
     'single-crawl',
     t('professor.importProfessorTask'),
     1,
-    () => fetchData(),
+    reloadProfessorAfterTask,
   )
 }
 
@@ -346,9 +355,7 @@ async function handleCrawlHomepage() {
       'professor-homepage-crawl',
       t('professor.crawlHomepageTask', { name: professor.value.name }),
       1,
-      () => {
-        fetchData()
-      },
+      reloadProfessorAfterTask,
     )
   } catch (error: unknown) {
     handleApiError(error, t('professor.startTaskFailed'))
@@ -369,9 +376,7 @@ async function handleFillPublications() {
       'fill-publications',
       t('professor.fetchAbstractsTask', { name: professor.value.name }),
       total ?? 0,
-      () => {
-        fetchData()
-      }
+      reloadProfessorAfterTask,
     )
   } catch (error: unknown) {
     handleApiError(error, t('professor.startTaskFailed'))
@@ -406,9 +411,7 @@ async function handleSummarizeSources() {
       'paper-summary',
       t('professor.summarizeTask', { name: professor.value.name }),
       pendingIds.length,
-      () => {
-        fetchData()
-      }
+      reloadProfessorAfterTask,
     )
   } catch (error: unknown) {
     handleApiError(error, t('professor.paperSummaryStartFailed'))
@@ -429,9 +432,7 @@ async function handleGenerateProfile() {
       'professor-profile',
       t('professor.researchProfileGenTask', { name: professor.value.name }),
       3,
-      () => {
-        fetchData()
-      }
+      reloadProfessorAfterTask,
     )
   } catch (error: unknown) {
     handleApiError(error, t('professor.generateProfileStartFailed'))
@@ -462,7 +463,7 @@ async function handleApplyDblpUrl() {
   try {
     const { task_id } = await professorsApi.setDblp(professor.value.id, url)
     message.success(t('professor.setDblpSuccess'))
-    taskStore.addTask(task_id, 'single-dblp-crawl', t('professor.importProfessorTask'), 1, () => fetchData())
+    taskStore.addTask(task_id, 'single-dblp-crawl', t('professor.importProfessorTask'), 1, reloadProfessorAfterTask)
   } catch (error: unknown) {
     handleApiError(error, t('professor.startTaskFailed'))
   } finally {
@@ -483,7 +484,7 @@ async function handleRefreshDblp() {
         'professor-enrichment',
         t('professor.enrichmentTask'),
         updated.enrichment_task_total ?? 0,
-        () => fetchData(),
+        reloadProfessorAfterTask,
       )
     }
   } catch (error: unknown) {
@@ -502,7 +503,7 @@ async function handleConfirmDblp() {
       selectedDblpCandidateId.value,
     )
     message.success(t('professor.confirmDblpSuccess'))
-    taskStore.addTask(task_id, 'single-dblp-crawl', t('professor.importProfessorTask'), 1, () => fetchData())
+    taskStore.addTask(task_id, 'single-dblp-crawl', t('professor.importProfessorTask'), 1, reloadProfessorAfterTask)
   } catch (error: unknown) {
     handleApiError(error, t('professor.startTaskFailed'))
   } finally {
@@ -510,12 +511,35 @@ async function handleConfirmDblp() {
   }
 }
 
+let unregisterDetailTaskHandlers: (() => void) | undefined
+
+onMounted(() => {
+  unregisterDetailTaskHandlers = taskStore.registerTaskTypeCompleteHandler(
+    [
+      'professor-profile',
+      'professor-enrichment',
+      'single-dblp-crawl',
+      'single-crawl',
+      'paper-summary',
+      'fill-publications',
+      'professor-homepage-crawl',
+    ],
+    reloadProfessorAfterTask
+  )
+})
+
+onUnmounted(() => {
+  unregisterDetailTaskHandlers?.()
+})
+
 watch(
   () => [route.name, route.params.id] as const,
-  ([name]) => {
+  ([name, id], [, prevId]) => {
     if (name !== 'ProfessorDetail') return
-    professor.value = null
-    fetchData()
+    if (id !== prevId) {
+      professor.value = null
+    }
+    void fetchData({ initial: id !== prevId })
   },
   { immediate: true },
 )

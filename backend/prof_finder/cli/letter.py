@@ -27,7 +27,7 @@ def generate_letter(
 ) -> None:
     """Generate a contact letter for a professor."""
     # Check API key
-    if not settings.deepseek_api_key:
+    if not settings.llm_api_key:
         console.print("[red]错误: 未配置 DEEPSEEK_API_KEY[/red]")
         console.print("请在 .env 文件中配置 API Key")
         raise typer.Exit(1)
@@ -165,7 +165,7 @@ def batch_generate(
 ) -> None:
     """Generate letters for top matched professors."""
     # Check API key
-    if not settings.deepseek_api_key:
+    if not settings.llm_api_key:
         console.print("[red]错误: 未配置 DEEPSEEK_API_KEY[/red]")
         raise typer.Exit(1)
 

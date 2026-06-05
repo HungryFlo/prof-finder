@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义每用户个性化设置：DeepSeek API Key 与 Base URL、爬虫请求延时、教授自动增强开关、LLM 输出语言等；设置保存在本地数据库，读取接口仅返回脱敏后的 API Key。
+定义每用户个性化设置：LLM API（OpenAI 兼容或 Anthropic）、爬虫请求延时、教授自动增强开关等；设置保存在本地数据库，读取接口仅返回脱敏后的 API Key。
 ## Requirements
 ### Requirement: UserSettings Model
 
@@ -13,8 +13,10 @@
 - **THEN** 包含以下字段：
   - `id`: 主键
   - `user_id`: 所属用户ID（外键，唯一）
-  - `deepseek_api_key`: DeepSeek API Key（本地 SQLite 存储，接口脱敏返回）
-  - `deepseek_base_url`: API Base URL（默认为 https://api.deepseek.com/v1）
+  - `llm_provider`: API 类型，`openai`（OpenAI 兼容 Chat Completions）或 `anthropic`（Anthropic Messages API）
+  - `llm_api_key`: LLM API Key（本地 SQLite 存储，接口脱敏返回）
+  - `llm_base_url`: API Base URL（由用户填写，如 DeepSeek/OpenAI/Anthropic 或自建网关）
+  - `llm_model`: 模型名称（由用户填写，如 `deepseek-chat`、`gpt-4o-mini`、`claude-sonnet-4-20250514`）
   - `request_delay`: 爬虫请求延时（默认 3 秒）
   - `auto_enrich_on_save_fetch_publication_details`: 是否在写入或从 Scholar 同步教授后自动执行出版物详情拉取子步（布尔，默认 true）
   - `auto_enrich_on_save_paper_summaries`: 是否在上述时机自动执行英文论文摘要 LLM 子步（布尔，默认 true）
@@ -33,7 +35,7 @@
 - **THEN** 更新对应字段
 - **AND** 刷新 `updated_at` 时间戳
 
-**Note:** 历史数据库可能仍存在 `profile_language` 列；应用层不再读取或暴露该字段。学生/教授学术画像与论文摘要管线固定使用英文输出；套磁信语言由生成请求指定，与界面语言（vue-i18n）无关。
+**Note:** 历史数据库可能仍存在 `profile_language` 或 `deepseek_*` 列；应用层读取时以 `llm_*` 为准并对旧列做迁移回填。学生/教授学术画像与论文摘要管线固定使用英文输出；套磁信语言由生成请求指定，与界面语言（vue-i18n）无关。
 
 ### Requirement: API Key Security
 
@@ -48,10 +50,10 @@
 - **THEN** 仅显示脱敏形式（如 `sk-xxxx...xxxx`）
 
 #### Scenario: Use API key
-- **WHEN** 系统需要调用 DeepSeek API
-- **THEN** 优先使用用户配置的 Key
+- **WHEN** 系统需要调用 LLM API
+- **THEN** 优先使用用户配置的 `llm_provider`、`llm_api_key`、`llm_base_url`、`llm_model`
 - **IF** 用户未配置
-- **THEN** 使用环境变量中的默认 Key（如有）
+- **THEN** 使用环境变量中的默认 LLM 配置（`LLM_*`，兼容 legacy `DEEPSEEK_*`）
 - **OTHERWISE** 返回错误提示
 
 ---
@@ -67,4 +69,3 @@
 #### Scenario: Settings per user
 - **WHEN** 用户请求设置
 - **THEN** 仅返回当前用户的设置
-

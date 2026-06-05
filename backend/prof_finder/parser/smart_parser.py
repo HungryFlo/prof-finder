@@ -4,6 +4,7 @@ import logging
 from typing import Optional, Tuple
 
 from .base import BaseParser, ParsedResume
+from ..ai_workflows.provider import LLMProvider
 from .llm_parser import LLMParser, LLMParserError
 from .latex_parser import LaTeXParser
 from .markdown_parser import MarkdownParser
@@ -20,13 +21,19 @@ class SmartParser:
     - Regex parsing as a reliable offline fallback
     """
 
-    def __init__(self, prefer_llm: bool = True):
+    def __init__(
+        self,
+        prefer_llm: bool = True,
+        llm_provider: Optional[LLMProvider] = None,
+    ):
         """Initialize the smart parser.
         
         Args:
             prefer_llm: If True, try LLM parsing first. If False, use regex only.
+            llm_provider: Optional pre-configured LLM provider (e.g. per-user settings).
         """
         self.prefer_llm = prefer_llm
+        self._llm_provider = llm_provider
         self._llm_parser: Optional[LLMParser] = None
         self._latex_parser = LaTeXParser()
         self._markdown_parser = MarkdownParser()
@@ -36,7 +43,7 @@ class SmartParser:
         """Lazy initialization of LLM parser."""
         if self._llm_parser is None and self.prefer_llm:
             try:
-                self._llm_parser = LLMParser()
+                self._llm_parser = LLMParser(provider=self._llm_provider)
             except Exception as e:
                 # Any initialization failure should gracefully fall back to regex parser.
                 logger.warning(f"Could not initialize LLM parser: {e}")

@@ -248,8 +248,10 @@ export interface ProfileChatResponse {
 
 // Settings types
 export interface UserSettings {
-  deepseek_api_key_masked?: string | null
-  deepseek_base_url: string
+  llm_provider: 'openai' | 'anthropic'
+  llm_api_key_masked?: string | null
+  llm_base_url: string
+  llm_model: string
   request_delay: number
   auto_enrich_on_save_fetch_publication_details?: boolean
   auto_enrich_on_save_paper_summaries?: boolean

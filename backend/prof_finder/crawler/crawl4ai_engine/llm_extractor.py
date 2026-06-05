@@ -33,13 +33,14 @@ def extract_professors_llm(
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
     model: Optional[str] = None,
+    llm_provider: Optional[str] = None,
     send_progress: Optional[Callable[[str], None]] = None,
     cancel_checker: Optional[Callable[[], bool]] = None,
 ) -> list[dict]:
     """Extract professors from a page using LLM analysis.
 
     Crawls the page with auto_tab_click enabled (for AJAX-loaded content),
-    then sends the structured HTML to DeepSeek for extraction.
+    then sends the structured HTML to the configured LLM for extraction.
 
     Args:
         url: Professor list page URL.
@@ -91,7 +92,14 @@ def extract_professors_llm(
     if send_progress:
         send_progress("正在使用 AI 分析页面内容...")
 
-    professors = _llm_extract(content, affiliation, api_key=api_key, base_url=base_url, model=model)
+    professors = _llm_extract(
+        content,
+        affiliation,
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        llm_provider=llm_provider,
+    )
 
     for prof in professors:
         for key in ("url", "homepage"):
@@ -173,29 +181,30 @@ def _llm_extract(
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
     model: Optional[str] = None,
+    llm_provider: Optional[str] = None,
 ) -> list[dict]:
-    """Use LLM to extract professor data from page content.
-
-    Sends the content to DeepSeek with a structured prompt and parses the
-    JSON response.  Retries up to 3 times on transient failures.
-    """
+    """Use LLM to extract professor data from page content."""
+    from ...ai_workflows.provider import LLMProvider
     from ...config import settings as app_settings
+    from ...llm.config import LLMConfig, resolve_llm_config
 
-    if not api_key:
-        api_key = app_settings.deepseek_api_key
-    if not base_url:
-        base_url = app_settings.deepseek_base_url
-    if not model:
-        model = getattr(app_settings, "deepseek_model", None) or "deepseek-chat"
+    if api_key or base_url or model or llm_provider:
+        resolved = resolve_llm_config(app_settings=app_settings)
+        config = LLMConfig(
+            provider=llm_provider or resolved.provider,
+            api_key=api_key or resolved.api_key,
+            base_url=base_url or resolved.base_url,
+            model=model or resolved.model,
+        )
+    else:
+        config = resolve_llm_config(app_settings=app_settings)
 
-    if not api_key:
-        logger.error("No DeepSeek API key configured for LLM extraction")
+    provider = LLMProvider(config=config)
+    if not provider.enabled:
+        logger.error("No LLM API key/model configured for LLM extraction")
         return []
 
-    # DeepSeek has ~64K token context (~128K chars), but output tokens are limited
-    # Use at most 200K chars of content to leave room for output
-    max_input = _MAX_CONTENT_CHARS
-    truncated = content[:max_input]
+    truncated = content[:_MAX_CONTENT_CHARS]
 
     prompt = f"""从以下网页 HTML 中提取所有教授/教师的信息，返回 JSON 数组。
 默认机构：{affiliation if affiliation else "未知"}
@@ -227,80 +236,28 @@ HTML 内容：
 {truncated}
 """
 
-    import time
-    import httpx
-    from openai import OpenAI, APIConnectionError, APITimeoutError, RateLimitError, APIStatusError
-
-    last_error: Optional[Exception] = None
-
-    for attempt in range(_LLM_MAX_RETRIES):
-        try:
-            client = OpenAI(
-                api_key=api_key,
-                base_url=base_url,
-                timeout=httpx.Timeout(120.0, connect=30.0),
-            )
-            response = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=65536,
-            )
-
-            content_text = response.choices[0].message.content or ""
-            professors = _parse_llm_response(content_text)
-
-            # Ensure all entries have required fields
-            for prof in professors:
-                if not prof.get("affiliation"):
-                    prof["affiliation"] = affiliation
-                if not isinstance(prof.get("research_interests"), list):
-                    prof["research_interests"] = []
-
-            return [p for p in professors if p.get("name")]
-
-        except (APIConnectionError, APITimeoutError, RateLimitError) as exc:
-            # Transient errors — retry with backoff
-            last_error = exc
-            if attempt < _LLM_MAX_RETRIES - 1:
-                delay = _LLM_RETRY_BASE_DELAY * (2 ** attempt)
-                logger.warning(
-                    "LLM extraction attempt %d/%d failed (transient): %s — retrying in %.1fs",
-                    attempt + 1, _LLM_MAX_RETRIES, exc, delay,
-                )
-                time.sleep(delay)
-                continue
-            # Final attempt failed
-            logger.error("LLM extraction failed after %d attempts: %s", _LLM_MAX_RETRIES, exc)
-
-        except APIStatusError as exc:
-            if exc.status_code in (401, 403):
-                logger.error("LLM extraction failed: API key 无效，请在设置中检查 DeepSeek API Key")
-                return []  # No point retrying auth errors
-            if exc.status_code == 429:
-                last_error = exc
-                if attempt < _LLM_MAX_RETRIES - 1:
-                    delay = _LLM_RETRY_BASE_DELAY * (2 ** attempt)
-                    logger.warning("LLM rate limited, retrying in %.1fs", delay)
-                    time.sleep(delay)
-                    continue
-            logger.error("LLM extraction failed with HTTP %d: %s", exc.status_code, exc)
-            return []
-
-        except Exception as exc:
-            error_msg = str(exc)
-            if "401" in error_msg or "authentication" in error_msg.lower() or "invalid" in error_msg.lower():
-                logger.error("LLM extraction failed: API key 无效，请在设置中检查 DeepSeek API Key")
-            elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
-                logger.error("LLM extraction failed: 请求超时，请检查网络连接或稍后重试")
-            else:
-                logger.exception("LLM extraction failed")
-            return []
-
-    # All retries exhausted
-    if last_error:
-        logger.error("LLM extraction failed after %d retries: %s", _LLM_MAX_RETRIES, last_error)
-    return []
+    try:
+        content_text = provider.chat_completion(
+            [{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=65536,
+        )
+        professors = _parse_llm_response(content_text)
+        for prof in professors:
+            if not prof.get("affiliation"):
+                prof["affiliation"] = affiliation
+            if not isinstance(prof.get("research_interests"), list):
+                prof["research_interests"] = []
+        return [p for p in professors if p.get("name")]
+    except Exception as exc:
+        error_msg = str(exc)
+        if "401" in error_msg or "authentication" in error_msg.lower():
+            logger.error("LLM extraction failed: API key 无效，请在设置中检查 LLM API Key")
+        elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+            logger.error("LLM extraction failed: 请求超时，请检查网络连接或稍后重试")
+        else:
+            logger.exception("LLM extraction failed")
+        return []
 
 
 def _parse_llm_response(content: str) -> list[dict]:
