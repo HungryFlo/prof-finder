@@ -18,7 +18,6 @@ import {
   NRadioGroup,
   NRadio,
   NAlert,
-  NSwitch,
   NSelect,
   useMessage,
   useDialog,

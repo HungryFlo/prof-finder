@@ -276,6 +276,8 @@ async function handleApplyScholarUrl() {
 }
 
 async function handleSave() {
+  const id = professorId.value
+  if (id == null) return
   saving.value = true
   try {
     const nl: Record<string, string> = {}
@@ -283,7 +285,7 @@ async function handleSave() {
     const e = form.value.name_locales.en?.trim()
     if (z) nl.zh = z
     if (e) nl.en = e
-    const updated = await professorsApi.update(professorId.value, {
+    const updated = await professorsApi.update(id, {
       name: form.value.name,
       name_locales: nl,
       affiliation: form.value.affiliation || undefined,
@@ -305,9 +307,11 @@ async function handleSave() {
 }
 
 async function handleRefreshScholar() {
+  const id = professorId.value
+  if (id == null) return
   refreshLoading.value = true
   try {
-    const updated = await professorsApi.refresh(professorId.value)
+    const updated = await professorsApi.refresh(id)
     professor.value = updated
     setBreadcrumbTitle(updated.name)
     form.value = {
@@ -320,13 +324,14 @@ async function handleRefreshScholar() {
       email: updated.email || '',
       homepage: updated.homepage || '',
       google_scholar_url: updated.google_scholar_url || '',
+      dblp_url: updated.dblp_url || '',
       research_interests: [...(updated.research_interests || [])],
       manual_notes: updated.manual_notes || '',
     }
     message.success(t('professor.scholarSynced'))
     // Re-fetch only source inputs (professor data already updated from refresh response)
     try {
-      sourceInputs.value = await sourceInputsApi.listByProfessor(professorId.value)
+      sourceInputs.value = await sourceInputsApi.listByProfessor(id)
     } catch {
       // non-critical
     }
@@ -534,7 +539,10 @@ onUnmounted(() => {
 
 watch(
   () => [route.name, route.params.id] as const,
-  ([name, id], [, prevId]) => {
+  (current, previous) => {
+    if (!current) return
+    const [name, id] = current
+    const prevId = previous?.[1]
     if (name !== 'ProfessorDetail') return
     if (id !== prevId) {
       professor.value = null

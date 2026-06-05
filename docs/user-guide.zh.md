@@ -68,7 +68,7 @@
 - 解压并运行 `Prof-Finder` / `Prof-Finder.exe`；不要求安装 Python、Node.js、Poetry 或 npm。
 - 解压包内附有 `README-PORTABLE.txt`，含便携版专用说明。
 - 首次启动需选择数据存储目录；配置保存在解压目录旁的 `install.json`。
-- 卸载：关闭应用后运行 `uninstall-prof-finder.bat`（Windows）或 `./uninstall-prof-finder.sh`（macOS/Linux），输入 `DELETE` 确认。
+- 卸载：关闭应用后运行 `uninstall-prof-finder.bat`（Windows）或 `./uninstall-prof-finder.sh`（macOS），输入 `DELETE` 确认。
 
 ## 如何配置 LLM API
 

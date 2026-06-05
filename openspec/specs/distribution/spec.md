@@ -44,7 +44,7 @@ The system SHALL provide release automation for portable artifacts.
 
 #### Scenario: Tag release
 - **WHEN** a GitHub release tag workflow runs
-- **THEN** Windows, macOS, and Linux jobs build the frontend and packaged executable
+- **THEN** Windows and macOS jobs build the frontend and packaged executable
 - **AND** upload platform-specific portable archives as release artifacts.
 
 #### Scenario: Artifact contents

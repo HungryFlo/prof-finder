@@ -15,7 +15,7 @@ Prof-Finder 是一款**在本机运行**的研究生导师匹配助手：简历�
 
 ## 快速开始（便携版）
 
-1. 在 [GitHub Releases](https://github.com/HungryFlo/prof-finder/releases) 下载对应系统压缩包（Windows / macOS arm64 / Linux）。
+1. 在 [GitHub Releases](https://github.com/HungryFlo/prof-finder/releases) 下载对应系统压缩包（Windows / macOS arm64）。
 2. 解压后运行 `Prof-Finder`（Windows 为 `Prof-Finder.exe`），按引导选择数据目录并登录。
 3. 默认账号 `root` / `root123`（**首次登录须改密**），在「设置」中配置 LLM API（类型、Key、Base URL、模型名）。
 

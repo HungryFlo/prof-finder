@@ -22,7 +22,7 @@ See `README-PORTABLE.txt` inside the extracted package for portable-specific ins
 
 **First run:** Choose a data directory (database, logs, embedding model). Settings are stored in `install.json` next to the executable.
 
-**Uninstall:** Close the app, run `uninstall-prof-finder.bat` (Windows) or `./uninstall-prof-finder.sh` (macOS/Linux), type `DELETE` to confirm.
+**Uninstall:** Close the app, run `uninstall-prof-finder.bat` (Windows) or `./uninstall-prof-finder.sh` (macOS), type `DELETE` to confirm.
 
 ## Recommended Workflow
 

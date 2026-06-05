@@ -123,7 +123,7 @@ python -m pip install pyinstaller
 python scripts/build_portable.py
 ```
 
-产物在 `dist/portable/`。三平台 Release 由 [`.github/workflows/portable-release.yml`](../.github/workflows/portable-release.yml) 在 tag 时构建。
+产物在 `dist/portable/`。Windows 与 macOS 的 Release 由 [`.github/workflows/portable-release.yml`](../.github/workflows/portable-release.yml) 在 tag 时构建。
 
 ## API 文档
 
