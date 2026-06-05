@@ -240,6 +240,17 @@ reference/
 
 *.DS_Store
 
+# Coursework / internal docs (not for open source)
+docs/测试分析报告*
+docs/测试计划*
+docs/软件需求说明书*
+docs/项目开发总结报告*
+docs/项目结构和组内分工*
+docs/项目范围说明书*
+docs/report.tex
+docs/tech-selection-and-architecture.*
+tech-selection-and-architecture.*
+
 # Claude Code
 .claude/
 
