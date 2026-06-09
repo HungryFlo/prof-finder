@@ -18,6 +18,7 @@ import uvicorn
 from prof_finder.runtime import (
     PACKAGE_ENV,
     apply_install_config,
+    install_dir,
     is_configured,
     is_packaged,
     logs_dir,
@@ -58,6 +59,8 @@ def _wait_for_health(url: str, timeout_seconds: float) -> None:
 def run(host: str = "127.0.0.1", port: int = 8000, open_browser: bool = True) -> None:
     """Start the local server and optionally open the system browser."""
     os.environ.setdefault(PACKAGE_ENV, "1")
+    if is_packaged():
+        os.chdir(install_dir())
     apply_install_config()
 
     log_file = None

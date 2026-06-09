@@ -21,6 +21,20 @@ Prof-Finder 是一款**在本机运行**的研究生导师匹配助手：简历�
 
 详细步骤、FAQ 与使用建议见 **[用户使用指南（中文）](docs/user-guide.zh.md)**。英文说明见 **[User Guide (English)](docs/user-guide.en.md)**。解压包内另有 `README-PORTABLE.txt`。
 
+## 干净卸载
+
+Prof-Finder 便携版**无需安装程序、不写注册表、不往系统目录散落文件**——解压即用，用完可彻底清走。
+
+首次启动选择数据目录后，便携包内的卸载脚本会自动记录你的**应用目录、数据目录与嵌入模型目录**（见 `install.json`）。一键卸载时会一并删除这三处，不会留下 SQLite 数据库、下载的模型或配置文件。
+
+1. **关闭**所有 Prof-Finder 窗口。
+2. 在解压目录运行卸载脚本：
+   - **Windows**：`uninstall-prof-finder.bat`
+   - **macOS / Linux**：`./uninstall-prof-finder.sh`
+3. 按提示输入 `DELETE` 确认（输入其他内容则取消）。
+
+> **注意**：仅删除解压文件夹**不会**清除你在首次启动时自选的数据目录；要彻底移除，请使用上述卸载脚本。该操作不可恢复。
+
 ## 文档
 
 | 文档 | 说明 |

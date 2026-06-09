@@ -11,8 +11,25 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
     },
   },
+  optimizeDeps: {
+    include: [
+      'vue',
+      'vue-router',
+      'pinia',
+      'vue-i18n',
+      'axios',
+      'naive-ui',
+      'lucide-vue-next',
+      '@vueuse/core',
+      'reka-ui',
+      'clsx',
+      'tailwind-merge',
+      'class-variance-authority',
+    ],
+  },
   server: {
     port: 5173,
+    strictPort: false,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',

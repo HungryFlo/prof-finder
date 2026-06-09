@@ -217,6 +217,7 @@ data/
 scholarly/
 
 # local model
+models/
 backend/allenai-specter/
 backend/qwen3-embedding-0.6b/
 

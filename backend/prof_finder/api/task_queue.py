@@ -7,14 +7,59 @@ from huey import SqliteHuey
 from huey.consumer import Consumer
 
 from ..config import settings
+from ..runtime import is_configured, is_packaged
 
 # ---------------------------------------------------------------------------
-# Huey instance
+# Huey instance (lazy — packaged first-run must not open SQLite before setup)
 # ---------------------------------------------------------------------------
-huey = SqliteHuey(
-    name="prof-finder",
-    filename=settings.huey_db_path,
-)
+_huey: SqliteHuey | None = None
+_huey_run_task_fn: Callable | None = None
+
+
+def _huey_run_task(task_type: str, task_id: str, args: List[Any], kwargs: Dict[str, Any]):
+    """Dispatcher: looks up the registered executor and calls it in the consumer thread.
+
+    All task types share this single ``@huey.task()`` wrapper so that we can
+    keep the registry flat and avoid import-ordering problems between the
+    Huey instance and the executor module.
+    """
+    executor = TASK_REGISTRY.get(task_type)
+    if executor is None:
+        import logging
+
+        logging.getLogger(__name__).error("Unknown task type: %s", task_type)
+        return
+    executor(task_id, *args, **kwargs)
+
+
+def _ensure_huey() -> SqliteHuey:
+    """Create the Huey instance on first use after setup paths are available."""
+    global _huey, _huey_run_task_fn
+    if _huey is None:
+        if is_packaged() and not is_configured():
+            raise RuntimeError("Task queue unavailable before setup completes")
+        _huey = SqliteHuey(
+            name="prof-finder",
+            filename=settings.huey_db_path,
+        )
+        _huey_run_task_fn = _huey.task()(_huey_run_task)
+    return _huey
+
+
+class _LazyHuey:
+    """Defer SqliteHuey creation until first use."""
+
+    def _instance(self) -> SqliteHuey:
+        return _ensure_huey()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._instance(), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        setattr(self._instance(), name, value)
+
+
+huey = _LazyHuey()
 
 # ---------------------------------------------------------------------------
 # Task executor registry
@@ -32,26 +77,6 @@ def register_task(task_type: str):
     return decorator
 
 
-# ---------------------------------------------------------------------------
-# Generic Huey task dispatcher
-# ---------------------------------------------------------------------------
-@huey.task()
-def _huey_run_task(task_type: str, task_id: str, args: List[Any], kwargs: Dict[str, Any]):
-    """Dispatcher: looks up the registered executor and calls it in the consumer thread.
-
-    All task types share this single ``@huey.task()`` wrapper so that we can
-    keep the registry flat and avoid import-ordering problems between the
-    Huey instance and the executor module.
-    """
-    executor = TASK_REGISTRY.get(task_type)
-    if executor is None:
-        import logging
-
-        logging.getLogger(__name__).error("Unknown task type: %s", task_type)
-        return
-    executor(task_id, *args, **kwargs)
-
-
 def enqueue_task(task_type: str, task_id: str, *args, **kwargs):
     """Enqueue a background task for execution via Huey.
 
@@ -59,8 +84,9 @@ def enqueue_task(task_type: str, task_id: str, *args, **kwargs):
     ``asyncio.create_task()``.  Returns the Huey result and stores
     ``result.id`` on the TaskState for later revocation.
     """
+    _ensure_huey()
     args_list = list(args)
-    result = _huey_run_task(task_type, task_id, args_list, kwargs)
+    result = _huey_run_task_fn(task_type, task_id, args_list, kwargs)
     # Store Huey result ID and args so /api/tasks/{id}/cancel can revoke
     # and _rehydrate_tasks can re-enqueue with the same args.
     from .task_manager import get_task, persist_task
@@ -97,7 +123,7 @@ def start_consumer():
         return  # already started
 
     _consumer = _ThreadConsumer(
-        huey,
+        _ensure_huey(),
         workers=settings.huey_consumer_workers,
         periodic=False,
     )
