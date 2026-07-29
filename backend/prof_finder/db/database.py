@@ -275,6 +275,11 @@ class Database:
                         text("ALTER TABLE background_tasks ADD COLUMN enqueue_kwargs JSON")
                     )
                     conn.commit()
+                if "parent_task_id" not in bg_cols:
+                    conn.execute(
+                        text("ALTER TABLE background_tasks ADD COLUMN parent_task_id VARCHAR(36)")
+                    )
+                    conn.commit()
 
     @contextmanager
     def session(self) -> Generator[Session, None, None]:

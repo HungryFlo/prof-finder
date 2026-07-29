@@ -27,6 +27,7 @@ from ..task_manager import (
     create_task,
     get_task,
     get_user_tasks,
+    get_child_tasks,
     cleanup_old_tasks,
     enqueue_task,
     persist_task,
@@ -267,6 +268,16 @@ async def get_task_progress(
                     "completed_count": task.success_count,
                 }),
             }
+        elif task.status == TaskStatus.INTERRUPTED:
+            yield {
+                "event": "interrupted",
+                "data": json.dumps({
+                    "status": task.status.value,
+                    "current": task.current,
+                    "total": task.total,
+                    "message": task.message,
+                }),
+            }
 
     return EventSourceResponse(event_generator())
 
@@ -276,12 +287,36 @@ async def get_task_progress(
 # ---------------------------------------------------------------------------
 
 
+def _cancel_single(task: TaskState) -> None:
+    """Apply cancellation to one task (PENDING / RUNNING / INTERRUPTED)."""
+    task.cancel_requested = True
+
+    if task.status == TaskStatus.PENDING:
+        # Also revoke from Huey queue if not yet started.
+        if task.huey_result_id:
+            huey.revoke_by_id(task.huey_result_id)
+        task.status = TaskStatus.CANCELLED
+        task.message = "任务已取消"
+    elif task.status == TaskStatus.INTERRUPTED:
+        # Nothing is actually running (process already died); this is a
+        # user decision to discard rather than resume.
+        task.status = TaskStatus.CANCELLED
+        task.message = "任务已放弃"
+    else:
+        task.message = task.message or "取消请求已发送，当前步骤完成后停止"
+    persist_task(task)
+
+
 @router.post("/{task_id}/cancel", response_model=TaskCancelResponse)
 async def cancel_task(
     task_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    """Request cancellation of a running task.
+    """Request cancellation of a task (or discard an interrupted one).
+
+    Cancellation cascades to any child tasks spawned by this task (e.g. a
+    batch-crawl's auto-enrichment follow-up), since the user's intent when
+    cancelling a parent is to stop the whole chain, not just its first leg.
 
     Args:
         task_id: Task to cancel.
@@ -301,27 +336,77 @@ async def cancel_task(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="无权取消此任务",
         )
-    if task.status not in (TaskStatus.PENDING, TaskStatus.RUNNING):
+    if task.status not in (TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.INTERRUPTED):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="任务已完成或已取消",
         )
 
-    task.cancel_requested = True
+    _cancel_single(task)
 
-    # Also revoke from Huey queue if not yet started
-    if task.huey_result_id:
-        huey.revoke_by_id(task.huey_result_id)
-    if task.status == TaskStatus.PENDING:
-        task.status = TaskStatus.CANCELLED
-        task.message = "任务已取消"
-    else:
-        task.message = task.message or "取消请求已发送，当前步骤完成后停止"
-    persist_task(task)
+    to_visit = get_child_tasks(task_id)
+    while to_visit:
+        child = to_visit.pop()
+        if child.status in (TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.INTERRUPTED):
+            _cancel_single(child)
+        to_visit.extend(get_child_tasks(child.task_id))
 
     return TaskCancelResponse(
         message="取消请求已发送",
         completed_count=task.success_count,
+    )
+
+
+@router.post("/{task_id}/resume", response_model=TaskStartResponse)
+async def resume_task(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Resume a task that was INTERRUPTED by an ungraceful shutdown.
+
+    Re-enqueues the task with its originally stored arguments. Executors
+    that process a list of items are expected to skip indices below
+    ``task.current`` (already recorded before the interruption) so no work
+    is duplicated.
+
+    Args:
+        task_id: Interrupted task to resume.
+        current_user: Authenticated user.
+
+    Returns:
+        Confirmation that the task has been re-queued.
+    """
+    task = get_task(task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="任务不存在",
+        )
+    if task.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权操作此任务",
+        )
+    if task.status != TaskStatus.INTERRUPTED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="只能继续因程序中断而停止的任务",
+        )
+    if not (task.enqueue_args or task.enqueue_kwargs):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="任务缺少重放参数，无法继续",
+        )
+
+    task.status = TaskStatus.PENDING
+    task.cancel_requested = False
+    task.message = "任务已重新排队，将从上次进度继续"
+    persist_task(task)
+    enqueue_task(task.task_type, task.task_id, *task.enqueue_args, **task.enqueue_kwargs)
+
+    return TaskStartResponse(
+        task_id=task.task_id,
+        message="任务已继续，将从上次进度继续执行",
     )
 
 

@@ -9,6 +9,61 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 
+def _normalize_http_proxy_url(proxy_url: str) -> str:
+    """Normalize a proxy URL to an http:// endpoint for httpx CONNECT.
+
+    Local HTTP proxies (Clash / V2Ray / mitmproxy) speak HTTP CONNECT for
+    HTTPS targets, so both http:// and https:// session keys must point at
+    an ``http://host:port`` URL — not ``https://host:port``.
+    """
+    proxy_url = proxy_url.strip()
+    if proxy_url.startswith("https://"):
+        return "http://" + proxy_url[len("https://"):]
+    if not proxy_url.startswith("http://"):
+        return "http://" + proxy_url
+    return proxy_url
+
+
+def _make_forced_proxy_generator(proxy_url: str):
+    """Build a scholarly ProxyGenerator that actually uses ``proxy_url``.
+
+    scholarly's ``SingleProxy`` has two failure modes that break Scholar
+    access from mainland China:
+
+    1. It validates the proxy against ``http://httpbin.org/ip`` and requires
+       HTTP 200. When httpbin is down / returns 5xx (common), it silently
+       discards the proxy and subsequent Scholar requests go **direct**.
+    2. When ``https=http://...`` is passed, its URL munging rewrites it to
+       ``https://http://...``, which httpx cannot use.
+
+    We therefore always force-apply the configured proxy with correct httpx
+    keys after calling ``SingleProxy``.
+    """
+    from scholarly import ProxyGenerator
+    from scholarly.data_types import ProxyMode
+
+    http_proxy = _normalize_http_proxy_url(proxy_url)
+    # httpx expects scheme-suffixed keys; both point at the HTTP proxy.
+    proxies = {"http://": http_proxy, "https://": http_proxy}
+
+    pg = ProxyGenerator()
+    ok = pg.SingleProxy(http=http_proxy, https=http_proxy)
+    if not ok:
+        logger.warning(
+            "scholarly httpbin proxy check failed for %s; "
+            "forcing configured proxy anyway",
+            http_proxy,
+        )
+
+    # Always overwrite — even on "success", scholarly may have mangled the
+    # https proxy URL into ``https://http://...``.
+    pg._proxies = proxies
+    pg._proxy_works = True
+    pg.proxy_mode = ProxyMode.SINGLEPROXY
+    pg._new_session(proxies=proxies)
+    return pg
+
+
 class ScholarCrawler:
     """Crawler for Google Scholar data using scholarly."""
 
@@ -25,13 +80,14 @@ class ScholarCrawler:
             )
 
         if settings.scholarly_proxy:
-            from scholarly import ProxyGenerator
-            pg = ProxyGenerator()
-            pg.SingleProxy(
-                http=settings.scholarly_proxy,
-                https=settings.scholarly_proxy,
-            )
-            self._scholarly.use_proxy(pg)
+            pg = _make_forced_proxy_generator(settings.scholarly_proxy)
+            pg2 = _make_forced_proxy_generator(settings.scholarly_proxy)
+            # Pass an explicit secondary proxy generator (reusing the same
+            # proxy) so scholarly doesn't fall back to its FreeProxies()
+            # mode, which fetches a free-proxy list from sslproxies.org —
+            # unreachable from within mainland China and would otherwise
+            # raise on init.
+            self._scholarly.use_proxy(pg, pg2)
 
     def get_author(self, scholar_id: str) -> Optional[dict]:
         """Get author information by Google Scholar ID.

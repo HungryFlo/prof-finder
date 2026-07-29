@@ -10,7 +10,7 @@ import asyncio
 import logging
 import threading
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +112,7 @@ def crawl_url(
     timeout: int = 60000,
     js_code: Optional[str] = None,
     auto_tab_click: bool = False,
+    cancel_checker: Optional[Callable[[], bool]] = None,
 ) -> str:
     """Crawl a URL and return its markdown content.
 
@@ -123,6 +124,7 @@ def crawl_url(
         js_code: Optional JavaScript to execute before extraction.
         auto_tab_click: If True, automatically click tab elements to
             trigger AJAX content loading (useful for Chinese university sites).
+        cancel_checker: Optional callback returning True to abort mid-crawl.
 
     Returns:
         Markdown string of the page content.  Empty string on failure.
@@ -134,6 +136,7 @@ def crawl_url(
         timeout=timeout,
         js_code=js_code,
         auto_tab_click=auto_tab_click,
+        cancel_checker=cancel_checker,
     )
     return result.markdown
 
@@ -146,6 +149,7 @@ def crawl_url_full(
     timeout: int = 60000,
     js_code: Optional[str] = None,
     auto_tab_click: bool = False,
+    cancel_checker: Optional[Callable[[], bool]] = None,
 ) -> CrawlResult:
     """Crawl a URL and return both markdown and HTML content.
 
@@ -156,10 +160,18 @@ def crawl_url_full(
         timeout: Page load timeout in milliseconds.
         js_code: Optional JavaScript to execute before extraction.
         auto_tab_click: If True, automatically click tab elements.
+        cancel_checker: Optional callback returning True to abort mid-crawl.
+            When set, the crawl races against a cancel watcher; on cancel the
+            Playwright browser is closed immediately instead of waiting for
+            the page load / tab-click sequence to finish.
 
     Returns:
         CrawlResult with markdown, html, and success flag.
+        On cancellation, returns an empty unsuccessful CrawlResult.
     """
+    if cancel_checker is not None and cancel_checker():
+        return CrawlResult()
+
     return asyncio.run(
         _async_crawl(
             url,
@@ -168,8 +180,13 @@ def crawl_url_full(
             timeout=timeout,
             js_code=js_code,
             auto_tab_click=auto_tab_click,
+            cancel_checker=cancel_checker,
         )
     )
+
+
+class CrawlCancelled(Exception):
+    """Raised internally when cancel_checker fires during an async crawl."""
 
 
 async def _async_crawl(
@@ -180,8 +197,24 @@ async def _async_crawl(
     timeout: int = 60000,
     js_code: Optional[str] = None,
     auto_tab_click: bool = False,
+    max_retries: int = 1,
+    cancel_checker: Optional[Callable[[], bool]] = None,
 ) -> CrawlResult:
-    """Async implementation of URL crawling using crawl4ai."""
+    """Async implementation of URL crawling using crawl4ai.
+
+    Args:
+        url: Target URL.
+        wait_for: Optional CSS selector to wait for before extracting.
+        css_selector: Optional CSS selector to restrict extraction scope.
+        timeout: Page load timeout in milliseconds.
+        js_code: Optional JavaScript to execute before extraction.
+        auto_tab_click: If True, automatically click tab elements.
+        max_retries: Number of retries on connection errors (default 1).
+        cancel_checker: Optional callback returning True to abort.
+
+    Returns:
+        CrawlResult with markdown, html, and success flag.
+    """
     try:
         from crawl4ai import CrawlerRunConfig
     except ImportError:
@@ -212,23 +245,126 @@ async def _async_crawl(
 
     run_config = CrawlerRunConfig(**run_kwargs)
 
-    try:
-        # Reuse the per-thread browser if available; otherwise create a new one.
-        crawler = await _get_or_create_crawler()
-        try:
-            result = await crawler.arun(url=url, config=run_config)
-            if result and result.success:
-                return CrawlResult(
-                    markdown=result.markdown or "",
-                    html=result.cleaned_html or result.html or "",
-                    success=True,
-                )
-            logger.warning("crawl4ai failed for %s: %s", url, getattr(result, "error_message", "unknown"))
-            return CrawlResult()
-        finally:
-            # Always clean up the browser after this event loop finishes,
-            # since asyncio.run() creates a new loop each time.
+    last_error: Optional[str] = None
+    for attempt in range(max_retries + 1):
+        if cancel_checker is not None and cancel_checker():
             await _cleanup_crawler()
-    except Exception:
-        logger.exception("crawl4ai error for %s", url)
+            return CrawlResult()
+
+        crawl_task = asyncio.create_task(
+            _run_single_crawl(url, run_config)
+        )
+        cancel_task: Optional[asyncio.Task] = None
+        if cancel_checker is not None:
+            cancel_task = asyncio.create_task(_watch_cancel(cancel_checker))
+
+        try:
+            if cancel_task is None:
+                result, error = await crawl_task
+            else:
+                done, pending = await asyncio.wait(
+                    {crawl_task, cancel_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if cancel_task in done:
+                    for t in pending:
+                        t.cancel()
+                    await _cleanup_crawler()
+                    return CrawlResult()
+                for t in pending:
+                    t.cancel()
+                result, error = crawl_task.result()
+        except CrawlCancelled:
+            await _cleanup_crawler()
+            return CrawlResult()
+        except Exception as e:
+            last_error = str(e)
+            await _cleanup_crawler()
+            if _is_connection_error(last_error) and attempt < max_retries:
+                logger.warning(
+                    "crawl4ai connection error for %s (attempt %d/%d), will retry...",
+                    url, attempt + 1, max_retries + 1,
+                )
+                await asyncio.sleep(1.0)
+                continue
+            logger.exception("crawl4ai error for %s", url)
+            return CrawlResult()
+
+        if error is not None:
+            last_error = error
+            await _cleanup_crawler()
+            if _is_connection_error(last_error) and attempt < max_retries:
+                logger.warning(
+                    "crawl4ai connection error for %s (attempt %d/%d), will retry...",
+                    url, attempt + 1, max_retries + 1,
+                )
+                await asyncio.sleep(1.0)
+                continue
+            logger.exception("crawl4ai error for %s", url)
+            return CrawlResult()
+
+        if result and result.success:
+            await _cleanup_crawler()
+            return CrawlResult(
+                markdown=result.markdown or "",
+                html=result.cleaned_html or result.html or "",
+                success=True,
+            )
+
+        last_error = str(getattr(result, "error_message", "unknown"))
+        await _cleanup_crawler()
+        if _is_connection_error(last_error) and attempt < max_retries:
+            logger.warning(
+                "crawl4ai connection error for %s (attempt %d/%d), will retry...",
+                url, attempt + 1, max_retries + 1,
+            )
+            await asyncio.sleep(1.0)
+            continue
+        logger.warning("crawl4ai failed for %s: %s", url, last_error)
         return CrawlResult()
+
+    logger.warning("crawl4ai failed for %s after %d retries: %s", url, max_retries, last_error)
+    return CrawlResult()
+
+
+async def _run_single_crawl(url: str, run_config) -> tuple:
+    """Run one crawl attempt; returns (result, error_str_or_None)."""
+    try:
+        crawler = await _get_or_create_crawler()
+        result = await crawler.arun(url=url, config=run_config)
+        return result, None
+    except Exception as e:
+        return None, str(e)
+
+
+async def _watch_cancel(cancel_checker: Callable[[], bool]) -> None:
+    """Poll cancel_checker until it returns True, then raise CrawlCancelled."""
+    while True:
+        if cancel_checker():
+            raise CrawlCancelled()
+        await asyncio.sleep(0.25)
+
+
+def _is_connection_error(error_msg: str) -> bool:
+    """Check if error message indicates a connection-related error.
+
+    These errors might be transient and benefit from a retry with a fresh
+    browser instance.
+    """
+    connection_error_patterns = [
+        "ERR_CONNECTION_CLOSED",
+        "ERR_CONNECTION_RESET",
+        "ERR_CONNECTION_REFUSED",
+        "ERR_NAME_NOT_RESOLVED",
+        "ERR_NETWORK_CHANGED",
+        "ERR_INTERNET_DISCONNECTED",
+        "net::ERR",
+        "Failed on navigating",
+        "page.goto",
+        "Navigation failed",
+        "Target page, context or browser has been closed",
+        "Browser has been closed",
+        "Protocol error",
+    ]
+    error_lower = error_msg.lower()
+    return any(pattern.lower() in error_lower for pattern in connection_error_patterns)

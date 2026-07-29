@@ -26,7 +26,7 @@ export interface TaskLifecycleEvent {
   taskId: string
   taskType: TaskType
   taskName: string
-  status: 'completed' | 'failed' | 'cancelled'
+  status: 'completed' | 'failed' | 'cancelled' | 'interrupted'
   message: string
 }
 
@@ -60,7 +60,11 @@ export const useTaskStore = defineStore('tasks', () => {
   const runningCount = computed(
     () =>
       taskList.value.filter(
-        (t) => t.status === 'running' || t.status === 'pending' || t.status === 'cancelling'
+        (t) =>
+          t.status === 'running' ||
+          t.status === 'pending' ||
+          t.status === 'cancelling' ||
+          t.status === 'interrupted'
       ).length
   )
 
@@ -171,7 +175,7 @@ export const useTaskStore = defineStore('tasks', () => {
 
   function _pushTaskEvent(
     entry: TaskEntry,
-    status: 'completed' | 'failed' | 'cancelled',
+    status: 'completed' | 'failed' | 'cancelled' | 'interrupted',
     message: string
   ): void {
     taskEvents.value.push({
@@ -281,6 +285,24 @@ export const useTaskStore = defineStore('tasks', () => {
       es.close()
     })
 
+    es.addEventListener('interrupted', (e: MessageEvent) => {
+      const entry = activeTasks.value.get(taskId)
+      if (entry) {
+        let data: { current?: number; total?: number; message?: string } = {}
+        try {
+          data = JSON.parse(e.data)
+        } catch {
+          data = {}
+        }
+        entry.current = data.current ?? entry.current
+        entry.total = data.total ?? entry.total
+        entry.status = 'interrupted'
+        entry.message = data.message ?? t('task.interruptedMessage')
+        _pushTaskEvent(entry, 'interrupted', entry.message)
+      }
+      es.close()
+    })
+
     es.addEventListener('failed', (e: MessageEvent) => {
       const entry = activeTasks.value.get(taskId)
       if (!entry) return
@@ -349,19 +371,50 @@ export const useTaskStore = defineStore('tasks', () => {
 
   async function requestCancel(taskId: string): Promise<void> {
     const entry = activeTasks.value.get(taskId)
-    if (!entry || !['pending', 'running'].includes(entry.status)) return
+    if (!entry || !['pending', 'running', 'interrupted'].includes(entry.status)) return
 
     const previousStatus = entry.status
     const previousMessage = entry.message
-    entry.status = 'cancelling'
-    entry.message = t('task.cancellingMessage')
+    if (entry.status === 'interrupted') {
+      // Discarding an interrupted task — cancel endpoint finalizes immediately.
+      entry.status = 'cancelling'
+      entry.message = t('task.discardingMessage')
+    } else {
+      entry.status = 'cancelling'
+      entry.message = t('task.cancellingMessage')
+    }
 
     try {
       const result = await tasksApi.cancel(taskId)
       entry.current = result.completed_count ?? entry.current
-      entry.message = t('task.cancellingMessage')
+      if (previousStatus === 'interrupted') {
+        entry.status = 'cancelled'
+        entry.message = t('task.discardedMessage')
+        _pushTaskEvent(entry, 'cancelled', entry.message)
+      } else {
+        entry.message = t('task.cancellingMessage')
+      }
     } catch (error) {
       entry.status = previousStatus
+      entry.message = previousMessage
+      throw error
+    }
+  }
+
+  async function resumeTask(taskId: string): Promise<void> {
+    const entry = activeTasks.value.get(taskId)
+    if (!entry || entry.status !== 'interrupted') return
+
+    const previousMessage = entry.message
+    entry.status = 'pending'
+    entry.message = t('task.resumingMessage')
+
+    try {
+      await tasksApi.resume(taskId)
+      entry.eventSource?.close()
+      _connectSSE(taskId)
+    } catch (error) {
+      entry.status = 'interrupted'
       entry.message = previousMessage
       throw error
     }
@@ -425,13 +478,13 @@ export const useTaskStore = defineStore('tasks', () => {
         const entry = _buildEntry(t.task_id, t.task_type as TaskType, t.task_name, t.total)
         entry.status = t.cancel_requested && (t.status === 'running' || t.status === 'pending')
           ? 'cancelling'
-          : t.status
+          : (t.status as TaskEntry['status'])
         entry.current = t.current
         entry.message = t.message
         entry.errorMessage = t.error_message
         activeTasks.value.set(t.task_id, entry)
 
-        // For running/pending tasks, reconnect SSE; failed tasks need no SSE
+        // For running/pending tasks, reconnect SSE; interrupted/failed need no SSE
         if (t.status === 'running' || t.status === 'pending') {
           _connectSSE(t.task_id)
         }
@@ -463,6 +516,7 @@ export const useTaskStore = defineStore('tasks', () => {
     addTask,
     removeTask,
     requestCancel,
+    resumeTask,
     retryTask,
     clearCompleted,
     consumeTaskEvents,

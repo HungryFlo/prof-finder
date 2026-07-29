@@ -20,6 +20,9 @@ markdown-it-py = "^3.0.0"
 pylatexenc = "^2.10"
 rich = "^13.0.0"
 scholarly = "^1.7.0"
+# scholarly 1.7.x calls httpx.Client(proxies=...), a kwarg removed in httpx 0.28;
+# pin below that until scholarly upstream fixes it.
+httpx = "<0.28"
 pyyaml = "^6.0"
 # Web API dependencies
 fastapi = "^0.109.0"
@@ -29,6 +32,8 @@ passlib = {extras = ["bcrypt"], version = "^1.7.4"}
 python-multipart = "^0.0.6"
 sse-starlette = "^2.0.0"
 sentence-transformers = ">=3.0.0"
+# SciPy 1.15.x macOS wheels fail dlopen on macOS 27 (__thread_bss zero-fill).
+scipy = ">=1.16.0"
 modelscope = ">=1.20.0"
 numpy = ">=1.24"
 huey = "^3.0.0"

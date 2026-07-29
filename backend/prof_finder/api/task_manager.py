@@ -38,6 +38,13 @@ class TaskStatus(str, Enum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     FAILED = "failed"
+    # Process was killed/crashed while this task was running and it had not
+    # been cancelled by the user.  Distinct from CANCELLED (explicit user
+    # intent) and FAILED (an exception during execution).  Surfaced to the
+    # user on next startup so they can explicitly choose to resume or discard
+    # it, rather than silently re-running (which would duplicate work) or
+    # silently disappearing.
+    INTERRUPTED = "interrupted"
 
 
 class TaskCancelled(Exception):
@@ -67,6 +74,10 @@ class TaskState:
     # Original enqueue arguments for rehydration on restart
     enqueue_args: list = field(default_factory=list)
     enqueue_kwargs: dict = field(default_factory=dict)
+    # If this task was spawned by another task (e.g. batch-crawl spawning a
+    # batch-professor-enrichment follow-up), cancelling/resolving the parent
+    # cascades to the child.
+    parent_task_id: Optional[str] = None
 
 
 # In-memory task registry (primary for SSE reads; backed by background_tasks DB table)
@@ -95,7 +106,14 @@ def _session_scope(session_factory: Callable[[], Any]) -> Iterator[Any]:
 # ---------------------------------------------------------------------------
 
 
-def create_task(task_type: str, task_name: str, user_id: int, total: int) -> TaskState:
+def create_task(
+    task_type: str,
+    task_name: str,
+    user_id: int,
+    total: int,
+    *,
+    parent_task_id: Optional[str] = None,
+) -> TaskState:
     """Create and register a new task (in-memory + DB)."""
     task_id = str(uuid.uuid4())
     task = TaskState(
@@ -105,11 +123,33 @@ def create_task(task_type: str, task_name: str, user_id: int, total: int) -> Tas
         user_id=user_id,
         status=TaskStatus.PENDING,
         total=total,
+        parent_task_id=parent_task_id,
     )
     with _tasks_lock:
         _tasks[task_id] = task
     persist_task(task)
     return task
+
+
+def get_child_tasks(parent_task_id: str) -> List[TaskState]:
+    """Return all known tasks spawned by the given parent task."""
+    with _tasks_lock:
+        return [t for t in _tasks.values() if t.parent_task_id == parent_task_id]
+
+
+def _finalize(task: TaskState, success_status: Optional["TaskStatus"] = None) -> None:
+    """Set the terminal status of a task, giving cancellation priority.
+
+    This is the single place where a task's success-path final status is
+    decided.  It MUST be used instead of writing ``task.status = ...``
+    directly at the end of an executor, because a cancel request may have
+    arrived after the last cooperative cancel-check but before the executor
+    finished its current step — without this re-check here, that cancel
+    request would silently be overwritten by ``COMPLETED``.
+    """
+    success_status = success_status or TaskStatus.COMPLETED
+    task.status = TaskStatus.CANCELLED if task.cancel_requested else success_status
+    persist_task(task)
 
 
 def get_task(task_id: str) -> Optional[TaskState]:
@@ -119,13 +159,19 @@ def get_task(task_id: str) -> Optional[TaskState]:
 
 
 def get_user_tasks(user_id: int) -> List[TaskState]:
-    """Return PENDING / RUNNING / FAILED tasks for a user (for UI recovery)."""
+    """Return PENDING / RUNNING / FAILED / INTERRUPTED tasks for a user (for UI recovery)."""
     with _tasks_lock:
         return [
             t
             for t in _tasks.values()
             if t.user_id == user_id
-            and t.status in (TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.FAILED)
+            and t.status
+            in (
+                TaskStatus.PENDING,
+                TaskStatus.RUNNING,
+                TaskStatus.FAILED,
+                TaskStatus.INTERRUPTED,
+            )
         ]
 
 
@@ -154,6 +200,7 @@ def persist_task(task: TaskState) -> None:
                 row.cancel_requested = task.cancel_requested
                 row.enqueue_args = task.enqueue_args
                 row.enqueue_kwargs = task.enqueue_kwargs
+                row.parent_task_id = task.parent_task_id
                 row.updated_at = datetime.now(timezone.utc)
             else:
                 session.add(
@@ -173,6 +220,7 @@ def persist_task(task: TaskState) -> None:
                         cancel_requested=task.cancel_requested,
                         enqueue_args=task.enqueue_args,
                         enqueue_kwargs=task.enqueue_kwargs,
+                        parent_task_id=task.parent_task_id,
                     )
                 )
     except Exception:
@@ -351,6 +399,8 @@ def execute_batch_crawl(task_id: str, scholar_urls: List[str]) -> None:
     new_professor_ids: List[int] = []
 
     for i, url in enumerate(scholar_urls):
+        if i < task.current:
+            continue  # already processed before an interruption; resuming
         if task.cancel_requested:
             break
 
@@ -406,8 +456,7 @@ def execute_batch_crawl(task_id: str, scholar_urls: List[str]) -> None:
             task.failed_count += 1
             task.results.append({"url": url, "success": False, "error": str(e)})
 
-    task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
-    persist_task(task)
+    _finalize(task)
 
     if new_professor_ids and task.status == TaskStatus.COMPLETED:
         with db.session() as session:
@@ -423,6 +472,7 @@ def execute_batch_crawl(task_id: str, scholar_urls: List[str]) -> None:
                 f"教授信息增强 ({len(new_professor_ids)} 位)",
                 task.user_id,
                 total=len(new_professor_ids),
+                parent_task_id=task.task_id,
             )
             enqueue_task(
                 "batch-professor-enrichment",
@@ -457,6 +507,8 @@ def execute_batch_letters(
         provider = _llm_provider_for_user_settings_row(user_settings)
 
     for i, professor_id in enumerate(professor_ids):
+        if i < task.current:
+            continue  # already processed before an interruption; resuming
         if task.cancel_requested:
             break
 
@@ -513,6 +565,7 @@ def execute_batch_letters(
                 match_reasons=reasons,
                 language=language,
                 provider=provider,
+                cancel_checker=lambda: task.cancel_requested,
             )
 
             with db.session() as session:
@@ -534,11 +587,14 @@ def execute_batch_letters(
             )
 
         except Exception as e:
+            from ..ai_workflows.provider import LLMCancelled
+
+            if isinstance(e, LLMCancelled):
+                break
             task.failed_count += 1
             task.results.append({"professor_id": professor_id, "success": False, "error": str(e)})
 
-    task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
-    persist_task(task)
+    _finalize(task)
 
 
 @register_task("profile-parse")
@@ -588,6 +644,9 @@ def execute_profile_parse(
 
         parser = SmartParser(prefer_llm=use_llm, llm_provider=llm_provider)
         parsed, parse_method = parser.parse(text_content, extension)
+
+        if task.cancel_requested:
+            raise TaskCancelled()
 
         task.message = "正在保存画像..."
         if session_factory is None:
@@ -653,6 +712,10 @@ def execute_profile_parse(
         task.status = TaskStatus.COMPLETED
         persist_task(task)
 
+    except TaskCancelled:
+        task.status = TaskStatus.CANCELLED
+        task.message = "画像解析已取消"
+        persist_task(task)
     except Exception as e:
         task.failed_count = 1
         task.status = TaskStatus.FAILED
@@ -699,6 +762,9 @@ def execute_student_profile_generation(
         task.current = 1
         persist_task(task)
 
+        if task.cancel_requested:
+            raise TaskCancelled()
+
         if session_factory is None:
             session_context = get_db().session
         else:
@@ -721,6 +787,10 @@ def execute_student_profile_generation(
         task.current = 2
         task.message = "正在保存学生画像..."
         persist_task(task)
+
+        if task.cancel_requested:
+            raise TaskCancelled()
+
         with session_context() as session:
             has_active_profile = (
                 session.query(UserProfile)
@@ -768,6 +838,10 @@ def execute_student_profile_generation(
         task.status = TaskStatus.COMPLETED
         persist_task(task)
 
+    except TaskCancelled:
+        task.status = TaskStatus.CANCELLED
+        task.message = "学生画像生成已取消"
+        persist_task(task)
     except Exception as e:
         task.failed_count = 1
         task.status = TaskStatus.FAILED
@@ -800,6 +874,11 @@ def execute_single_crawl(task_id: str, scholar_url: str) -> None:
         if not author_data:
             task.status = TaskStatus.FAILED
             task.error_message = "未找到该学者信息"
+            persist_task(task)
+            return
+
+        if task.cancel_requested:
+            task.status = TaskStatus.CANCELLED
             persist_task(task)
             return
 
@@ -882,6 +961,7 @@ def execute_single_crawl(task_id: str, scholar_url: str) -> None:
                 "教授信息增强",
                 task.user_id,
                 total=enrich_planned,
+                parent_task_id=task.task_id,
             )
             enqueue_task(
                 "professor-enrichment",
@@ -1009,6 +1089,8 @@ def execute_match(task_id: str, profile_id: int) -> None:
             task.message = "正在语义匹配..."
 
             for i, professor in enumerate(professors):
+                if i < task.current:
+                    continue
                 if task.cancel_requested:
                     break
 
@@ -1046,10 +1128,9 @@ def execute_match(task_id: str, profile_id: int) -> None:
                     )
                 task.success_count += 1
 
-        task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
-        if task.status == TaskStatus.COMPLETED:
+        if not task.cancel_requested:
             task.message = f"匹配完成，共 {task.success_count} 位教授"
-        persist_task(task)
+        _finalize(task)
 
     except Exception as e:
         task.status = TaskStatus.FAILED
@@ -1123,13 +1204,24 @@ def execute_single_letter(
             }
             reasons = match_record.match_reasons or []
 
+        if task.cancel_requested:
+            task.status = TaskStatus.CANCELLED
+            persist_task(task)
+            return
+
         letter_content = generate_letter(
             student_info=profile_data,
             professor_info=prof_data,
             match_reasons=reasons,
             language=language,
             provider=provider,
+            cancel_checker=lambda: task.cancel_requested,
         )
+
+        if task.cancel_requested:
+            task.status = TaskStatus.CANCELLED
+            persist_task(task)
+            return
 
         with db.session() as session:
             mr = (
@@ -1150,7 +1242,18 @@ def execute_single_letter(
         task.status = TaskStatus.COMPLETED
         persist_task(task)
 
+    except TaskCancelled:
+        task.status = TaskStatus.CANCELLED
+        task.message = "邮件生成已取消"
+        persist_task(task)
     except Exception as e:
+        from ..ai_workflows.provider import LLMCancelled
+
+        if isinstance(e, LLMCancelled):
+            task.status = TaskStatus.CANCELLED
+            task.message = "邮件生成已取消"
+            persist_task(task)
+            return
         task.status = TaskStatus.FAILED
         task.error_message = f"生成失败: {str(e)}"
         persist_task(task)
@@ -1180,6 +1283,11 @@ def execute_university_crawl(task_id: str, university_id: str) -> None:
     except KeyError:
         task.status = TaskStatus.FAILED
         task.error_message = f"未找到院校爬虫: {university_id}"
+        persist_task(task)
+        return
+
+    if task.cancel_requested:
+        task.status = TaskStatus.CANCELLED
         persist_task(task)
         return
 
@@ -1213,6 +1321,8 @@ def execute_university_crawl(task_id: str, university_id: str) -> None:
         )
 
     for i, prof_data in enumerate(professors_data):
+        if i < task.current:
+            continue  # already processed before an interruption; resuming
         if task.cancel_requested:
             break
 
@@ -1257,18 +1367,20 @@ def execute_university_crawl(task_id: str, university_id: str) -> None:
                 {"name": prof_data.get("name", "?"), "success": False, "error": str(e)}
             )
 
-    task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
-    if task.status == TaskStatus.COMPLETED:
+    will_complete = not task.cancel_requested
+    if will_complete:
         skipped = sum(1 for r in task.results if r.get("skipped"))
         task.message = f"完成！新增 {task.success_count} 位，跳过重复 {skipped} 位，失败 {task.failed_count} 位"
-        if new_professor_ids:
-            _enqueue_batch_professor_enrichment_if_enabled(
-                task.user_id, new_professor_ids
-            )
-    persist_task(task)
+    _finalize(task)
+    if will_complete and new_professor_ids:
+        _enqueue_batch_professor_enrichment_if_enabled(
+            task.user_id, new_professor_ids, parent_task_id=task.task_id
+        )
 
 
-def _enqueue_batch_professor_enrichment_if_enabled(user_id: int, professor_ids: List[int]) -> None:
+def _enqueue_batch_professor_enrichment_if_enabled(
+    user_id: int, professor_ids: List[int], *, parent_task_id: Optional[str] = None
+) -> None:
     """Chain batch enrichment when user auto-enrich flags are on."""
     if not professor_ids:
         return
@@ -1290,6 +1402,7 @@ def _enqueue_batch_professor_enrichment_if_enabled(user_id: int, professor_ids: 
         f"教授信息增强 ({len(professor_ids)} 位)",
         user_id,
         total=len(professor_ids),
+        parent_task_id=parent_task_id,
     )
     enqueue_task(
         "batch-professor-enrichment",
@@ -1369,6 +1482,8 @@ def execute_batch_dblp_match(
         persist_task(task)
 
     for i, pid in enumerate(professor_ids):
+        if i < task.current:
+            continue
         if task.cancel_requested:
             _finish_cancelled()
             return
@@ -1463,13 +1578,15 @@ def execute_batch_dblp_match(
 
     matched = sum(1 for r in task.results if r.get("dblp_status") == "matched")
     ambiguous = sum(1 for r in task.results if r.get("dblp_status") == "ambiguous")
-    task.status = TaskStatus.COMPLETED
     task.message = (
         f"DBLP 匹配完成：自动匹配 {matched} 位，待确认 {ambiguous} 位，"
         f"未找到 {task.success_count - matched - ambiguous} 位"
     )
-    persist_task(task)
-    _enqueue_batch_professor_enrichment_if_enabled(task.user_id, matched_ids)
+    _finalize(task)
+    if matched_ids and task.status == TaskStatus.COMPLETED:
+        _enqueue_batch_professor_enrichment_if_enabled(
+            task.user_id, matched_ids, parent_task_id=task.task_id
+        )
 
 
 @register_task("single-dblp-crawl")
@@ -1495,6 +1612,11 @@ def execute_single_dblp_crawl(task_id: str, dblp_url: str) -> None:
         if not author_data:
             task.status = TaskStatus.FAILED
             task.error_message = "未找到该 DBLP 学者信息"
+            persist_task(task)
+            return
+
+        if task.cancel_requested:
+            task.status = TaskStatus.CANCELLED
             persist_task(task)
             return
 
@@ -1567,6 +1689,7 @@ def execute_single_dblp_crawl(task_id: str, dblp_url: str) -> None:
                 "教授信息增强",
                 task.user_id,
                 total=enrich_planned,
+                parent_task_id=task.task_id,
             )
             enqueue_task(
                 "professor-enrichment",
@@ -1602,6 +1725,8 @@ def execute_batch_dblp_crawl(task_id: str, dblp_urls: List[str]) -> None:
     new_professor_ids: List[int] = []
 
     for i, url in enumerate(dblp_urls):
+        if i < task.current:
+            continue
         if task.cancel_requested:
             break
         task.current = i + 1
@@ -1651,10 +1776,12 @@ def execute_batch_dblp_crawl(task_id: str, dblp_urls: List[str]) -> None:
             task.failed_count += 1
             task.results.append({"url": url, "success": False, "error": str(e)})
 
-    task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
-    persist_task(task)
-    if new_professor_ids and task.status == TaskStatus.COMPLETED:
-        _enqueue_batch_professor_enrichment_if_enabled(task.user_id, new_professor_ids)
+    will_complete = not task.cancel_requested
+    _finalize(task)
+    if will_complete and new_professor_ids and task.status == TaskStatus.COMPLETED:
+        _enqueue_batch_professor_enrichment_if_enabled(
+            task.user_id, new_professor_ids, parent_task_id=task.task_id
+        )
 
 
 @register_task("generic-university-crawl")
@@ -1825,6 +1952,8 @@ def execute_generic_university_crawl(task_id: str, config_id: int, cache_key: st
         )
 
     for i, prof_data in enumerate(professors_data):
+        if i < task.current:
+            continue
         if task.cancel_requested:
             break
 
@@ -1880,8 +2009,8 @@ def execute_generic_university_crawl(task_id: str, config_id: int, cache_key: st
                 {"name": prof_name, "success": False, "error": str(e)}
             )
 
-    task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
-    if task.status == TaskStatus.COMPLETED:
+    will_complete = not task.cancel_requested
+    if will_complete:
         skipped = sum(1 for r in task.results if r.get("skipped"))
         task.message = (
             f"完成！新增 {task.success_count} 位，跳过重复 {skipped} 位，失败 {task.failed_count} 位"
@@ -1892,6 +2021,7 @@ def execute_generic_university_crawl(task_id: str, config_id: int, cache_key: st
                 f"DBLP 匹配 ({len(new_professor_ids)} 位)",
                 task.user_id,
                 total=len(new_professor_ids),
+                parent_task_id=task.task_id,
             )
             enqueue_task(
                 "batch-dblp-match",
@@ -1901,7 +2031,7 @@ def execute_generic_university_crawl(task_id: str, config_id: int, cache_key: st
                 department_affiliation=department_affiliation,
             )
             task.message += f"，已启动 DBLP 匹配任务（{len(new_professor_ids)} 位）"
-    persist_task(task)
+    _finalize(task)
 
 
 def _enrich_professor_core(
@@ -2170,8 +2300,7 @@ def execute_professor_enrichment(task_id: str, professor_id: int) -> None:
             {"success": True, "professor_id": professor_id, "name": name}
         )
         task.message = f"教授信息增强完成：{name}"
-        task.status = TaskStatus.COMPLETED
-        persist_task(task)
+        _finalize(task)
     except TaskCancelled:
         task.status = TaskStatus.CANCELLED
         persist_task(task)
@@ -2212,10 +2341,10 @@ def execute_batch_professor_enrichment(task_id: str, professor_ids: List[int]) -
         _flags = flags_from_user_settings_row(_settings_row)
 
     for i, pid in enumerate(professor_ids):
+        if i < task.current:
+            continue
         if task.cancel_requested:
-            task.status = TaskStatus.CANCELLED
-            persist_task(task)
-            return
+            break
         task.current = i + 1
         task.message = f"正在增强第 {i + 1}/{len(professor_ids)} 位教授..."
         try:
@@ -2229,26 +2358,20 @@ def execute_batch_professor_enrichment(task_id: str, professor_ids: List[int]) -
             task.success_count += 1
             task.results.append({"professor_id": pid, "success": True})
         except TaskCancelled:
-            task.status = TaskStatus.CANCELLED
-            persist_task(task)
-            return
+            break
         except Exception as exc:
             task.failed_count += 1
             task.results.append({"professor_id": pid, "success": False, "error": str(exc)})
 
-    if task.cancel_requested:
-        task.status = TaskStatus.CANCELLED
-        persist_task(task)
-        return
-    if task.success_count == 0 and task.failed_count > 0:
+    if not task.cancel_requested and task.success_count == 0 and task.failed_count > 0:
         task.status = TaskStatus.FAILED
         task.error_message = "批量教授信息增强失败"
         task.message = f"失败：成功 {task.success_count}，失败 {task.failed_count}"
         persist_task(task)
         return
-    task.status = TaskStatus.COMPLETED
-    task.message = f"批量教授信息增强完成：成功 {task.success_count}，失败 {task.failed_count}"
-    persist_task(task)
+    if not task.cancel_requested:
+        task.message = f"批量教授信息增强完成：成功 {task.success_count}，失败 {task.failed_count}"
+    _finalize(task)
 
 
 @register_task("paper-summary")
@@ -2298,6 +2421,8 @@ def execute_professor_source_summary(
         provider = _llm_provider_for_user_settings_row(user_settings)
 
     for idx, source_id in enumerate(source_input_ids, start=1):
+        if idx - 1 < task.current:
+            continue
         if task.cancel_requested:
             break
 
@@ -2379,20 +2504,16 @@ def execute_professor_source_summary(
             task.failed_count += 1
             task.results.append({"source_input_id": source_id, "success": False, "error": str(exc)})
 
-    if task.cancel_requested:
-        task.status = TaskStatus.CANCELLED
-        persist_task(task)
-        return
-    if task.success_count == 0 and task.failed_count > 0:
+    if not task.cancel_requested and task.success_count == 0 and task.failed_count > 0:
         task.status = TaskStatus.FAILED
         task.error_message = "论文总结失败，请检查任务详情后重试"
         task.message = f"论文总结失败：成功 {task.success_count}，失败 {task.failed_count}"
         persist_task(task)
         return
 
-    task.status = TaskStatus.COMPLETED
-    task.message = f"论文总结完成：成功 {task.success_count}，失败 {task.failed_count}"
-    persist_task(task)
+    if not task.cancel_requested:
+        task.message = f"论文总结完成：成功 {task.success_count}，失败 {task.failed_count}"
+    _finalize(task)
 
 
 @register_task("professor-profile")
@@ -2457,10 +2578,18 @@ def execute_professor_profile_generation(
         task.current = 1
         task.message = "正在分析教授科研画像..."
         persist_task(task)
+
+        if task.cancel_requested:
+            raise TaskCancelled()
+
         result = generate_professor_profile(prof_data, language="en", provider=provider)
         task.current = 2
         task.message = "正在保存教授科研画像..."
         persist_task(task)
+
+        if task.cancel_requested:
+            raise TaskCancelled()
+
         with session_context() as session:
             professor = (
                 session.query(Professor)
@@ -2495,6 +2624,10 @@ def execute_professor_profile_generation(
         task.status = TaskStatus.COMPLETED
         persist_task(task)
 
+    except TaskCancelled:
+        task.status = TaskStatus.CANCELLED
+        task.message = "教授科研画像生成已取消"
+        persist_task(task)
     except Exception as e:
         task.failed_count = 1
         task.status = TaskStatus.FAILED
@@ -2537,6 +2670,8 @@ def execute_batch_professor_profiles(
         provider = _llm_provider_for_user_settings_row(user_settings)
 
     for i, professor_id in enumerate(professor_ids):
+        if i < task.current:
+            continue
         if task.cancel_requested:
             break
 
@@ -2595,20 +2730,16 @@ def execute_batch_professor_profiles(
             task.failed_count += 1
             task.results.append({"professor_id": professor_id, "success": False, "error": str(exc)})
 
-    if task.cancel_requested:
-        task.status = TaskStatus.CANCELLED
-        persist_task(task)
-        return
-    if task.success_count == 0 and task.failed_count > 0:
+    if not task.cancel_requested and task.success_count == 0 and task.failed_count > 0:
         task.status = TaskStatus.FAILED
         task.error_message = "教授画像生成失败，请检查任务详情后重试"
         task.message = f"教授画像批量生成失败：成功 {task.success_count}，失败 {task.failed_count}"
         persist_task(task)
         return
 
-    task.status = TaskStatus.COMPLETED
-    task.message = f"教授科研画像批量生成完成：成功 {task.success_count}，失败 {task.failed_count}"
-    persist_task(task)
+    if not task.cancel_requested:
+        task.message = f"教授科研画像批量生成完成：成功 {task.success_count}，失败 {task.failed_count}"
+    _finalize(task)
 
 
 @register_task("professor-homepage-crawl")
@@ -2779,6 +2910,8 @@ def execute_fill_publications(
             task.total = len(to_fill)
 
             for idx, (orig_index, pub) in enumerate(to_fill):
+                if idx < task.current:
+                    continue
                 if task.cancel_requested:
                     break
 
@@ -2808,12 +2941,11 @@ def execute_fill_publications(
             flag_modified(professor, "publications")
             professor.embedding = None
 
-        task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
-        if task.status == TaskStatus.COMPLETED:
+        if not task.cancel_requested:
             task.message = (
                 f"论文详情获取完成：成功 {task.success_count}，失败 {task.failed_count}"
             )
-        persist_task(task)
+        _finalize(task)
     except Exception as exc:
         task.status = TaskStatus.FAILED
         task.error_message = f"获取论文详情失败: {str(exc)}"
@@ -2850,6 +2982,8 @@ def execute_batch_refresh(
     enrichment_ids: list[int] = []
 
     for i, professor_id in enumerate(professor_ids):
+        if i < task.current:
+            continue
         if task.cancel_requested:
             break
 
@@ -2934,8 +3068,7 @@ def execute_batch_refresh(
             })
 
     if task.cancel_requested:
-        task.status = TaskStatus.CANCELLED
-        persist_task(task)
+        _finalize(task)
         return
     if task.success_count == 0 and task.failed_count > 0:
         task.status = TaskStatus.FAILED
@@ -2944,10 +3077,9 @@ def execute_batch_refresh(
         persist_task(task)
         return
 
-    task.status = TaskStatus.COMPLETED
     task.message = f"批量更新完成：成功 {task.success_count}，失败 {task.failed_count}"
-    persist_task(task)
-    if enrichment_ids:
+    _finalize(task)
+    if enrichment_ids and task.status == TaskStatus.COMPLETED:
         with get_db().session() as session:
             row = (
                 session.query(UserSettings)
@@ -2961,6 +3093,7 @@ def execute_batch_refresh(
                 f"教授信息增强 ({len(enrichment_ids)} 位)",
                 task.user_id,
                 total=len(enrichment_ids),
+                parent_task_id=task.task_id,
             )
             enqueue_task(
                 "batch-professor-enrichment",
@@ -3001,6 +3134,8 @@ def execute_batch_refresh_dblp(
     enrichment_ids: list[int] = []
 
     for i, professor_id in enumerate(professor_ids):
+        if i < task.current:
+            continue
         if task.cancel_requested:
             break
         task.current = i + 1
@@ -3052,11 +3187,13 @@ def execute_batch_refresh_dblp(
             task.failed_count += 1
             task.results.append({"professor_id": professor_id, "success": False, "error": str(exc)})
 
-    task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
-    task.message = f"DBLP 批量更新完成：成功 {task.success_count}，失败 {task.failed_count}"
-    persist_task(task)
-    if enrichment_ids:
-        _enqueue_batch_professor_enrichment_if_enabled(task.user_id, enrichment_ids)
+    if not task.cancel_requested:
+        task.message = f"DBLP 批量更新完成：成功 {task.success_count}，失败 {task.failed_count}"
+    _finalize(task)
+    if enrichment_ids and task.status == TaskStatus.COMPLETED:
+        _enqueue_batch_professor_enrichment_if_enabled(
+            task.user_id, enrichment_ids, parent_task_id=task.task_id
+        )
 
 
 @register_task("batch-refresh-external")
@@ -3095,6 +3232,8 @@ def execute_batch_refresh_external(
     enrichment_ids: list[int] = []
 
     for i, professor_id in enumerate(professor_ids):
+        if i < task.current:
+            continue
         if task.cancel_requested:
             break
         task.current = i + 1
@@ -3183,11 +3322,13 @@ def execute_batch_refresh_external(
             task.failed_count += 1
             task.results.append({"professor_id": professor_id, "error": str(exc)})
 
-    task.status = TaskStatus.CANCELLED if task.cancel_requested else TaskStatus.COMPLETED
-    task.message = f"外部档案更新完成：成功 {task.success_count}，失败 {task.failed_count}"
-    persist_task(task)
-    if enrichment_ids:
-        _enqueue_batch_professor_enrichment_if_enabled(task.user_id, enrichment_ids)
+    if not task.cancel_requested:
+        task.message = f"外部档案更新完成：成功 {task.success_count}，失败 {task.failed_count}"
+    _finalize(task)
+    if enrichment_ids and task.status == TaskStatus.COMPLETED:
+        _enqueue_batch_professor_enrichment_if_enabled(
+            task.user_id, enrichment_ids, parent_task_id=task.task_id
+        )
 
 
 @register_task("profile-refine")
@@ -3263,6 +3404,9 @@ def execute_profile_chat_refinement(
         task.message = "正在重新生成学生画像..."
         persist_task(task)
 
+        if task.cancel_requested:
+            raise TaskCancelled()
+
         profile_result = refine_profile_from_chat(
             materials=materials,
             manual_inputs=manual_inputs,
@@ -3276,6 +3420,9 @@ def execute_profile_chat_refinement(
         task.current = 3
         task.message = "正在保存优化结果..."
         persist_task(task)
+
+        if task.cancel_requested:
+            raise TaskCancelled()
 
         with session_context() as session:
             profile = (
@@ -3297,6 +3444,10 @@ def execute_profile_chat_refinement(
         task.message = "学生画像优化完成"
         persist_task(task)
 
+    except TaskCancelled:
+        task.status = TaskStatus.CANCELLED
+        task.message = "学生画像优化已取消"
+        persist_task(task)
     except ValueError as exc:
         task.status = TaskStatus.FAILED
         task.error_message = str(exc)
@@ -3331,6 +3482,8 @@ def execute_download_model(task_id: str) -> None:
             self._last_pct = -1
 
         def update(self, size: int):
+            if task.cancel_requested:
+                raise TaskCancelled()
             if "model.safetensors" not in self.filename or self.file_size <= 0:
                 return
             self.downloaded += size
@@ -3347,10 +3500,16 @@ def execute_download_model(task_id: str) -> None:
             pass
 
     try:
+        if task.cancel_requested:
+            raise TaskCancelled()
         _get_model(progress_callbacks=[_DownloadProgress])
         task.current = 100
         task.status = TaskStatus.COMPLETED
         task.message = "模型下载完成"
+        persist_task(task)
+    except TaskCancelled:
+        task.status = TaskStatus.CANCELLED
+        task.message = "模型下载已取消"
         persist_task(task)
     except Exception as exc:
         task.status = TaskStatus.FAILED

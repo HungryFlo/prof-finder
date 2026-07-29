@@ -26,6 +26,13 @@ watch(
           meta: event.taskName,
           duration: 8000,
         })
+      } else if (event.status === 'interrupted') {
+        notification.warning({
+          title: t('task.taskInterrupted'),
+          content: event.message,
+          meta: event.taskName,
+          duration: 8000,
+        })
       } else {
         notification.warning({
           title: t('task.taskCancelled'),

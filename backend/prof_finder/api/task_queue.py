@@ -77,6 +77,21 @@ def register_task(task_type: str):
     return decorator
 
 
+def flush_queue() -> None:
+    """Discard all pending/scheduled jobs in the persistent Huey queue.
+
+    Huey's SqliteStorage persists queued jobs to disk across restarts.
+    On startup we always rebuild the set of jobs to run from the
+    ``background_tasks`` table (the single source of truth), so any job
+    still sitting in Huey's own queue from before an ungraceful shutdown
+    (crash, force-quit, power loss) must be discarded first — otherwise it
+    would be executed a second time alongside the freshly re-enqueued job
+    for the same task_id, causing duplicate work and duplicated results.
+    """
+    _ensure_huey()
+    huey.flush()
+
+
 def enqueue_task(task_type: str, task_id: str, *args, **kwargs):
     """Enqueue a background task for execution via Huey.
 

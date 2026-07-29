@@ -48,6 +48,11 @@ export const tasksApi = {
     return response.data
   },
 
+  async resume(taskId: string): Promise<TaskStartResponse> {
+    const response = await client.post<TaskStartResponse>(`/tasks/${taskId}/resume`)
+    return response.data
+  },
+
   async retry(taskId: string): Promise<TaskStartResponse> {
     const response = await client.post<TaskStartResponse>(`/tasks/${taskId}/retry`)
     return response.data

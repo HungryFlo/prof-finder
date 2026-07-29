@@ -22,7 +22,7 @@ from .routes.settings import router as settings_router
 from .routes.tasks import router as tasks_router
 from .routes.source_inputs import router as source_inputs_router
 from .routes.universities import router as universities_router
-from .task_queue import start_consumer, stop_consumer, enqueue_task
+from .task_queue import start_consumer, stop_consumer, enqueue_task, flush_queue
 from .task_manager import (
     TaskStatus,
     TaskState,
@@ -34,17 +34,66 @@ from .task_manager import (
 
 
 def _rehydrate_tasks():
-    """Load PENDING/RUNNING tasks from DB into in-memory dict on startup."""
+    """Reconcile task state from the DB on startup after a (possibly
+    ungraceful) shutdown.
+
+    The ``background_tasks`` table is the single source of truth; anything
+    still sitting in Huey's own persistent queue or in memory from before
+    this process started is untrustworthy and must be discarded/recomputed
+    from it. Three cases, decided per row that was PENDING/RUNNING when the
+    process went away:
+
+    1. ``cancel_requested`` is set — the user's cancel intent is durable
+       (it was fsync'd to SQLite before the cancel endpoint responded), so
+       we honor it unconditionally and finalize as CANCELLED. This also
+       cascades to any child tasks spawned by this task.
+    2. Status was PENDING (never actually started executing) — safe to
+       simply re-enqueue with the original arguments; no partial work could
+       have happened.
+    3. Status was RUNNING and not cancelled — the process died mid-flight.
+       We do NOT silently re-run it from scratch: most executors record
+       results/success_count incrementally and restarting the loop from
+       index 0 would duplicate every already-recorded item. Instead we mark
+       it INTERRUPTED and leave the last-persisted progress (`current`,
+       `results`) untouched, surfacing it to the user so they can
+       explicitly choose to resume (continue from `current`) or discard it.
+    """
     from ..models.background_task import BackgroundTask
+
+    # Discard anything left over in Huey's own persistent queue from before
+    # this process started. We are about to recompute what needs to run
+    # purely from `background_tasks`; any stale job left in Huey's queue
+    # would otherwise be executed a second time once the consumer starts,
+    # racing the freshly re-enqueued job for the same task_id.
+    flush_queue()
 
     db = get_db()
     rehydrated = 0
+    interrupted = 0
     with db.session() as session:
         pending = (
             session.query(BackgroundTask)
             .filter(BackgroundTask.status.in_(["pending", "running"]))
             .all()
         )
+        # Cancel intent cascades to children: pre-compute which tasks are
+        # (transitively) cancelled so a child whose parent was cancelled is
+        # cancelled too, even if the child itself was never asked to cancel.
+        rows_by_id = {row.task_id: row for row in pending}
+        cancelled_ids: set[str] = set()
+
+        def _is_cancelled(row) -> bool:
+            if row.task_id in cancelled_ids:
+                return True
+            if row.cancel_requested:
+                cancelled_ids.add(row.task_id)
+                return True
+            parent = rows_by_id.get(row.parent_task_id) if row.parent_task_id else None
+            if parent is not None and _is_cancelled(parent):
+                cancelled_ids.add(row.task_id)
+                return True
+            return False
+
         for row in pending:
             task = TaskState(
                 task_id=row.task_id,
@@ -53,7 +102,7 @@ def _rehydrate_tasks():
                 user_id=row.user_id,
                 status=TaskStatus.PENDING,
                 total=row.total,
-                current=0,
+                current=row.current,
                 success_count=row.success_count,
                 failed_count=row.failed_count,
                 message=row.message,
@@ -63,36 +112,44 @@ def _rehydrate_tasks():
                 created_at=row.created_at,
                 enqueue_args=row.enqueue_args or [],
                 enqueue_kwargs=row.enqueue_kwargs or {},
+                parent_task_id=row.parent_task_id,
             )
             with _tasks_lock:
                 _tasks[task.task_id] = task
 
-            if task.cancel_requested:
-                row.status = "cancelled"
+            if _is_cancelled(row):
+                task.cancel_requested = True
                 task.status = TaskStatus.CANCELLED
                 task.message = task.message or "任务已取消"
                 persist_task(task)
                 continue
 
-            # Only re-enqueue tasks that have stored arguments from the
-            # Huey-powered system.  Tasks created before the migration have
-            # no enqueue_args and cannot be replayed — mark them failed.
-            if task.enqueue_args or task.enqueue_kwargs:
-                row.status = "pending"
-                persist_task(task)
-                enqueue_task(
-                    task.task_type, task.task_id,
-                    *task.enqueue_args, **task.enqueue_kwargs,
-                )
-                rehydrated += 1
-            else:
-                row.status = "failed"
-                task.status = TaskStatus.FAILED
-                task.error_message = "任务缺少重放参数（迁移前的旧任务），无法恢复"
-                persist_task(task)
+            if row.status == "pending":
+                # Never actually started — safe to replay from scratch.
+                if task.enqueue_args or task.enqueue_kwargs:
+                    persist_task(task)
+                    enqueue_task(
+                        task.task_type, task.task_id,
+                        *task.enqueue_args, **task.enqueue_kwargs,
+                    )
+                    rehydrated += 1
+                else:
+                    task.status = TaskStatus.FAILED
+                    task.error_message = "任务缺少重放参数（迁移前的旧任务），无法恢复"
+                    persist_task(task)
+                continue
+
+            # row.status == "running": process died mid-execution without a
+            # cancel request. Do not auto-resume — surface it instead.
+            task.status = TaskStatus.INTERRUPTED
+            task.message = "程序上次退出时该任务尚未完成，可选择继续或放弃"
+            persist_task(task)
+            interrupted += 1
 
     if rehydrated:
-        print(f"已在数据库中恢复 {rehydrated} 个未完成的任务")
+        print(f"已在数据库中恢复 {rehydrated} 个待执行的任务")
+    if interrupted:
+        print(f"检测到 {interrupted} 个因程序中断而停止的任务，等待用户处理")
 
 
 @asynccontextmanager

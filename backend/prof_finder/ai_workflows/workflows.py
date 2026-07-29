@@ -6,7 +6,7 @@ LLM generator classes internally but present a clean, framework-agnostic interfa
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Callable, Optional
 
 from ..llm.letter_generator import LetterGenerator
 from ..llm.paper_summarizer import PaperSummarizer
@@ -92,6 +92,7 @@ def generate_letter(
     match_reasons: list[str] | None = None,
     language: str = "en",
     provider: LLMProvider | None = None,
+    cancel_checker: Callable[[], bool] | None = None,
 ) -> str:
     """Generate an academic contact email.
 
@@ -101,6 +102,7 @@ def generate_letter(
         match_reasons: Optional list of match highlight strings.
         language: 'zh' or 'en'.
         provider: Optional LLM provider.
+        cancel_checker: If given, allows aborting the LLM call mid-stream.
 
     Returns:
         Generated email body string.
@@ -119,6 +121,7 @@ def generate_letter(
         professor=_to_dict(professor_info),
         match_reasons=match_reasons,
         language=language,
+        cancel_checker=cancel_checker,
     )
 
 

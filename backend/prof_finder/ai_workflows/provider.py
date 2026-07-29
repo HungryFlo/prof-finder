@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Generator, Optional
+from typing import TYPE_CHECKING, Callable, Generator, Optional
 
 from openai import OpenAI
 
@@ -14,6 +14,15 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+
+class LLMCancelled(Exception):
+    """Raised when a ``cancel_checker`` reports cancellation mid-call.
+
+    Deliberately independent of the API layer's ``TaskCancelled`` (this
+    module must not depend on ``api.task_manager``); executors catch this
+    and translate it into their own cancellation status.
+    """
 
 
 class LLMProvider:
@@ -118,8 +127,31 @@ class LLMProvider:
         temperature: float = 0.3,
         model: Optional[str] = None,
         max_tokens: Optional[int] = None,
+        cancel_checker: Optional[Callable[[], bool]] = None,
     ) -> str:
-        """Call the configured provider with retry on transient failures."""
+        """Call the configured provider with retry on transient failures.
+
+        Args:
+            cancel_checker: If given, the call is executed as a stream
+                internally (regardless of the caller's needs) so that
+                cancellation can take effect mid-generation instead of only
+                before/after the whole (potentially slow) completion.
+                Raises ``LLMCancelled`` as soon as ``cancel_checker()``
+                returns True, aborting the underlying HTTP stream rather
+                than waiting for it to finish.
+        """
+        if cancel_checker is not None:
+            chunks: list[str] = []
+            for chunk in self.chat_completion_stream(
+                messages,
+                temperature=temperature,
+                model=model,
+                max_tokens=max_tokens,
+                cancel_checker=cancel_checker,
+            ):
+                chunks.append(chunk)
+            return "".join(chunks).strip()
+
         last_exc: Optional[Exception] = None
         for attempt in range(self.MAX_RETRIES + 1):
             try:
@@ -203,8 +235,16 @@ class LLMProvider:
         temperature: float = 0.3,
         model: Optional[str] = None,
         max_tokens: Optional[int] = None,
+        cancel_checker: Optional[Callable[[], bool]] = None,
     ) -> Generator[str, None, None]:
-        """Streaming variant; no retry (would duplicate tokens)."""
+        """Streaming variant; no retry (would duplicate tokens).
+
+        Args:
+            cancel_checker: If given, checked between chunks; raises
+                ``LLMCancelled`` and actively closes the underlying HTTP
+                stream as soon as it returns True, instead of reading the
+                response to completion.
+        """
         use_model = model or self._config.model
         if not use_model:
             raise ValueError("未配置 LLM 模型名称，请在设置中填写模型")
@@ -215,6 +255,7 @@ class LLMProvider:
                 model=use_model,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                cancel_checker=cancel_checker,
             )
             return
 
@@ -225,10 +266,24 @@ class LLMProvider:
             stream=True,
             **({"max_tokens": max_tokens} if max_tokens is not None else {}),
         )
-        for chunk in response:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta and delta.content:
-                yield delta.content
+        try:
+            for chunk in response:
+                if cancel_checker is not None and cancel_checker():
+                    raise LLMCancelled()
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    yield delta.content
+        except LLMCancelled:
+            self._close_stream(response)
+            raise
+
+    @staticmethod
+    def _close_stream(response) -> None:
+        """Best-effort close of an OpenAI SDK streaming response's HTTP connection."""
+        try:
+            response.close()
+        except Exception:
+            pass
 
     def _anthropic_chat_stream(
         self,
@@ -237,6 +292,7 @@ class LLMProvider:
         model: str,
         temperature: float,
         max_tokens: Optional[int],
+        cancel_checker: Optional[Callable[[], bool]] = None,
     ) -> Generator[str, None, None]:
         system, conversation = self._split_messages(messages)
         client = self._anthropic_client_instance()
@@ -250,5 +306,9 @@ class LLMProvider:
             kwargs["system"] = system
         with client.messages.stream(**kwargs) as stream:
             for text in stream.text_stream:
+                if cancel_checker is not None and cancel_checker():
+                    # Exiting the `with` block (via the raise below) closes
+                    # the underlying connection for us.
+                    raise LLMCancelled()
                 if text:
                     yield text

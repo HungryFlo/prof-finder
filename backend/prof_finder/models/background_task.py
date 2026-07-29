@@ -25,6 +25,7 @@ class BackgroundTask(Base):
     cancel_requested = Column(Boolean, default=False)
     enqueue_args = Column(JSON, default=list)
     enqueue_kwargs = Column(JSON, default=dict)
+    parent_task_id = Column(String(36), ForeignKey("background_tasks.task_id"), nullable=True, index=True)
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now)
 

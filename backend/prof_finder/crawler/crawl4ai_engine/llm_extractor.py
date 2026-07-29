@@ -62,7 +62,7 @@ def extract_professors_llm(
     if send_progress:
         send_progress("正在爬取页面内容（含动态加载）...")
 
-    crawl_result = crawl_url_full(url, auto_tab_click=True)
+    crawl_result = crawl_url_full(url, auto_tab_click=True, cancel_checker=cancel_checker)
     if not crawl_result.success:
         logger.warning("Failed to crawl %s", url)
         return []

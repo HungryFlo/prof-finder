@@ -34,6 +34,7 @@ const runningTasks = computed(() =>
     (t) => t.status === 'running' || t.status === 'pending' || t.status === 'cancelling'
   )
 )
+const interruptedTasks = computed(() => taskStore.taskList.filter((t) => t.status === 'interrupted'))
 const failedTasks = computed(() => taskStore.taskList.filter((t) => t.status === 'failed'))
 const cancelledTasks = computed(() => taskStore.taskList.filter((t) => t.status === 'cancelled'))
 const completedTasks = computed(() => taskStore.taskList.filter((t) => t.status === 'completed'))
@@ -41,7 +42,9 @@ const clearableCount = computed(
   () => taskStore.taskList.filter((t) => t.status === 'completed' || t.status === 'cancelled').length
 )
 const badgeValue = computed(() => taskStore.runningCount + taskStore.failedCount || undefined)
-const badgeType = computed(() => (taskStore.failedCount > 0 ? 'error' : 'info'))
+const badgeType = computed(() =>
+  taskStore.failedCount > 0 || interruptedTasks.value.length > 0 ? 'error' : 'info'
+)
 
 function progressPercent(task: TaskEntry): number {
   if (task.total === 0) return 0
@@ -52,6 +55,7 @@ function progressLabel(task: TaskEntry): string {
   if (task.status === 'completed') return task.message || t('task.completed')
   if (task.status === 'cancelled') return task.message || t('task.cancelledMessage')
   if (task.status === 'cancelling') return task.message || t('task.cancellingMessage')
+  if (task.status === 'interrupted') return task.message || t('task.interruptedMessage')
   if (task.total <= 1) return task.message || ''
   if (task.taskType === 'download-model') return `${task.current}%`
   return `${task.current} / ${task.total}`
@@ -62,6 +66,7 @@ function statusLabel(task: TaskEntry): string {
   if (task.status === 'completed') return t('task.completed')
   if (task.status === 'cancelled') return t('task.cancelled')
   if (task.status === 'cancelling') return t('task.cancelling')
+  if (task.status === 'interrupted') return t('task.interrupted')
   if (task.status === 'pending') return t('task.pending')
   return t('task.running')
 }
@@ -70,6 +75,7 @@ function statusTagType(task: TaskEntry): 'default' | 'success' | 'warning' | 'er
   if (task.status === 'failed') return 'error'
   if (task.status === 'completed') return 'success'
   if (task.status === 'cancelled') return 'warning'
+  if (task.status === 'interrupted') return 'warning'
   return 'info'
 }
 
@@ -78,6 +84,22 @@ function isCancellable(task: TaskEntry): boolean {
 }
 
 async function handleCancel(taskId: string) {
+  try {
+    await taskStore.requestCancel(taskId)
+  } catch (error: unknown) {
+    handleApiError(error, t('task.cancelFailed'))
+  }
+}
+
+async function handleResume(taskId: string) {
+  try {
+    await taskStore.resumeTask(taskId)
+  } catch (error: unknown) {
+    handleApiError(error, t('task.resumeFailed'))
+  }
+}
+
+async function handleDiscard(taskId: string) {
   try {
     await taskStore.requestCancel(taskId)
   } catch (error: unknown) {
@@ -139,6 +161,7 @@ function handleDismiss(taskId: string) {
       <template
         v-for="section in [
           { key: 'running', title: t('task.running'), tasks: runningTasks },
+          { key: 'interrupted', title: t('task.interrupted'), tasks: interruptedTasks },
           { key: 'failed', title: t('task.failed'), tasks: failedTasks },
           { key: 'cancelled', title: t('task.cancelled'), tasks: cancelledTasks },
           { key: 'completed', title: t('task.completed'), tasks: completedTasks },
@@ -155,6 +178,7 @@ function handleDismiss(taskId: string) {
               'task-failed': task.status === 'failed',
               'task-cancelled': task.status === 'cancelled',
               'task-completed': task.status === 'completed',
+              'task-interrupted': task.status === 'interrupted',
             }"
           >
             <n-space justify="space-between" align="center" style="width: 100%;">
@@ -164,6 +188,9 @@ function handleDismiss(taskId: string) {
                   :size="14"
                 />
                 <n-icon v-else-if="task.status === 'failed'" color="#e03131" size="16">
+                  <AlertCircleOutline />
+                </n-icon>
+                <n-icon v-else-if="task.status === 'interrupted'" color="#f08c00" size="16">
                   <AlertCircleOutline />
                 </n-icon>
                 <n-icon v-else-if="task.status === 'cancelled'" color="#f08c00" size="16">
@@ -183,6 +210,24 @@ function handleDismiss(taskId: string) {
                 >
                   {{ statusLabel(task) }}
                 </n-tag>
+                <n-button
+                  v-if="task.status === 'interrupted'"
+                  quaternary
+                  size="tiny"
+                  style="font-size: 11px;"
+                  @click="handleResume(task.taskId)"
+                >
+                  {{ t('task.resume') }}
+                </n-button>
+                <n-button
+                  v-if="task.status === 'interrupted'"
+                  quaternary
+                  size="tiny"
+                  style="font-size: 11px; color: var(--muted-foreground);"
+                  @click="handleDiscard(task.taskId)"
+                >
+                  {{ t('task.discard') }}
+                </n-button>
                 <n-button
                   v-if="task.status === 'failed'"
                   quaternary
@@ -296,6 +341,10 @@ function handleDismiss(taskId: string) {
 }
 
 .task-cancelled {
+  background-color: var(--status-warn-bg);
+}
+
+.task-interrupted {
   background-color: var(--status-warn-bg);
 }
 

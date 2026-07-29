@@ -50,7 +50,9 @@ def extract_professor_profile(
     if send_progress:
         send_progress("正在爬取个人主页...")
 
-    crawl_result = crawl_url_full(crawl_url, auto_tab_click=True)
+    crawl_result = crawl_url_full(
+        crawl_url, auto_tab_click=True, cancel_checker=cancel_checker
+    )
     if not crawl_result.success:
         logger.warning("Failed to crawl profile %s", url)
         return {}

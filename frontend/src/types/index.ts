@@ -291,6 +291,7 @@ export type TaskStatus =
   | 'completed'
   | 'failed'
   | 'cancelled'
+  | 'interrupted'
 
 export interface TaskListItem {
   task_id: string

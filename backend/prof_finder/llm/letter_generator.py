@@ -1,6 +1,6 @@
 """Letter generation using LLM (DeepSeek API)."""
 
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 from ..ai_workflows.provider import LLMProvider
 from ..prompts import get_prompt
@@ -45,6 +45,7 @@ class LetterGenerator:
         professor: Union[dict, object],
         match_reasons: Optional[list[str]] = None,
         language: str = "en",
+        cancel_checker: Optional[Callable[[], bool]] = None,
     ) -> str:
         """Generate a contact letter.
 
@@ -53,6 +54,7 @@ class LetterGenerator:
             professor: Professor to contact (object or dict).
             match_reasons: Optional list of matching reasons.
             language: "zh" for Chinese, "en" for English.
+            cancel_checker: If given, allows the LLM call to be aborted mid-stream.
 
         Returns:
             Generated letter content.
@@ -87,6 +89,7 @@ class LetterGenerator:
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.7,
+            cancel_checker=cancel_checker,
         )
 
     def _format_student_info(self, profile: Union[dict, object], language: str) -> str:
