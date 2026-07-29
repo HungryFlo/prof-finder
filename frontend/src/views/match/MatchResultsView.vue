@@ -33,7 +33,7 @@ import type { MatchResult, MatchDetail, PaginatedResponse } from '@/types'
 const message = useMessage()
 const dialog = useDialog()
 const taskStore = useTaskStore()
-const { handleApiError } = useApiError()
+const { handleApiError, parseApiError } = useApiError()
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
@@ -258,7 +258,8 @@ async function handleRunMatch() {
     })
   } catch (error: unknown) {
     // Backend returns MODEL_NOT_DOWNLOADED if model was removed after page load
-    if ((error as any)?.response?.data?.detail === 'MODEL_NOT_DOWNLOADED') {
+    const parsed = parseApiError(error)
+    if (parsed.code === 'MODEL_NOT_DOWNLOADED') {
       modelReady.value = false
       promptDownloadModel()
       return

@@ -3,15 +3,23 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..db.database import get_db
 from ..runtime import frontend_dist_dir, is_configured, is_packaged
 from .bootstrap import init_admin_user
+from .errors import (
+    ApiError,
+    ErrorCode,
+    error_body,
+    format_validation_errors,
+)
 from .routes.auth import router as auth_router, admin_router
 from .routes.setup import router as setup_router
 from .routes.profiles import router as profiles_router
@@ -200,11 +208,14 @@ def create_app() -> FastAPI:
             ):
                 return JSONResponse(
                     status_code=403,
-                    content={
-                        "detail": "请先完成首次存储路径配置",
-                    },
+                    content=error_body(
+                        ErrorCode.SETUP_REQUIRED,
+                        "请先完成首次存储路径配置",
+                    ),
                 )
         return await call_next(request)
+
+    _register_exception_handlers(app)
 
     # Register routers
     app.include_router(setup_router, prefix="/api")
@@ -229,6 +240,66 @@ def create_app() -> FastAPI:
     return app
 
 
+def _register_exception_handlers(app: FastAPI) -> None:
+    """Register handlers that always return ``{code, detail}``."""
+
+    @app.exception_handler(ApiError)
+    async def api_error_handler(_request: Request, exc: ApiError) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=error_body(exc.code, exc.detail),
+            headers=exc.headers,
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(
+        _request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content=error_body(
+                ErrorCode.VALIDATION_ERROR,
+                format_validation_errors(exc.errors()),
+            ),
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(
+        _request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        detail = exc.detail
+        if isinstance(detail, dict) and "code" in detail:
+            code = str(detail.get("code") or ErrorCode.HTTP_ERROR)
+            message = str(detail.get("detail") or detail.get("message") or code)
+            return JSONResponse(
+                status_code=exc.status_code,
+                content=error_body(code, message),
+                headers=getattr(exc, "headers", None),
+            )
+        if isinstance(detail, str) and detail == ErrorCode.MODEL_NOT_DOWNLOADED:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content=error_body(ErrorCode.MODEL_NOT_DOWNLOADED, detail),
+                headers=getattr(exc, "headers", None),
+            )
+        message = detail if isinstance(detail, str) else str(detail)
+        code = ErrorCode.NOT_FOUND if exc.status_code == 404 else ErrorCode.HTTP_ERROR
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=error_body(code, message),
+            headers=getattr(exc, "headers", None),
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(
+        _request: Request, exc: Exception
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=500,
+            content=error_body(ErrorCode.INTERNAL_ERROR, str(exc) or "Internal server error"),
+        )
+
+
 def _configure_frontend_static(app: FastAPI) -> None:
     """Serve the built Vue app when frontend assets are available."""
     dist_dir = frontend_dist_dir()
@@ -245,7 +316,7 @@ def _configure_frontend_static(app: FastAPI) -> None:
     async def serve_frontend(full_path: str):
         """Return static files or the SPA entry point for browser routes."""
         if full_path == "api" or full_path.startswith("api/"):
-            raise HTTPException(status_code=404, detail="Not Found")
+            raise ApiError(404, ErrorCode.NOT_FOUND, "Not Found")
 
         requested = (dist_root / full_path).resolve()
         if requested.is_file() and _is_relative_to(requested, dist_root):

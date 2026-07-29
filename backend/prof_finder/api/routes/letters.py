@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from typing import List, Optional, Literal
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from ...models.schema import User, UserProfile, Professor, MatchRecord, UserSettings
@@ -18,6 +18,7 @@ from ..schemas import (
     TaskStartResponse,
 )
 from ..task_manager import create_task, cleanup_old_tasks, enqueue_task
+from ..errors import ErrorCode, raise_api_error
 
 router = APIRouter(prefix="/letters", tags=["邮件生成"])
 
@@ -29,10 +30,7 @@ def get_user_letter_generator(user: User, session: Session) -> LetterGenerator:
     )
     provider = llm_provider_for_user_settings(user_settings)
     if not provider.enabled:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=llm_not_configured_message(),
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.LLM_NOT_CONFIGURED, llm_not_configured_message())
     return LetterGenerator(provider=provider)
 
 
@@ -58,10 +56,7 @@ def list_letters(
     active_profile = get_active_profile(session, current_user.id)
 
     if not active_profile:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先激活一份简历",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.RESUME_REQUIRED, "请先激活一份简历")
 
     # Get match records with professors
     query = (
@@ -126,10 +121,7 @@ async def generate_letter(
 
     active_profile = get_active_profile(session, current_user.id)
     if not active_profile:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先激活一份简历",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.RESUME_REQUIRED, "请先激活一份简历")
 
     result = (
         session.query(MatchRecord, Professor)
@@ -141,10 +133,7 @@ async def generate_letter(
         .first()
     )
     if not result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="未找到匹配记录，请先运行匹配",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.MATCH_NOT_FOUND, "未找到匹配记录，请先运行匹配")
 
     _, professor = result
     cleanup_old_tasks()
@@ -181,10 +170,7 @@ def get_letter(
     active_profile = get_active_profile(session, current_user.id)
 
     if not active_profile:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先激活一份简历",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.RESUME_REQUIRED, "请先激活一份简历")
 
     # Get match record
     result = (
@@ -198,10 +184,7 @@ def get_letter(
     )
 
     if not result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="未找到匹配记录",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.MATCH_NOT_FOUND, "未找到匹配记录")
 
     match_record, professor = result
 
@@ -236,10 +219,7 @@ def update_letter(
     active_profile = get_active_profile(session, current_user.id)
     
     if not active_profile:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先激活一份简历",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.RESUME_REQUIRED, "请先激活一份简历")
     
     # Get match record
     result = (
@@ -253,10 +233,7 @@ def update_letter(
     )
     
     if not result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="未找到匹配记录",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.MATCH_NOT_FOUND, "未找到匹配记录")
     
     match_record, professor = result
     

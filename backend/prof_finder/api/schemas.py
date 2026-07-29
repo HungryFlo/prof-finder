@@ -759,7 +759,7 @@ class MessageResponse(BaseModel):
 
 
 class ErrorResponse(BaseModel):
-    """Error response."""
+    """Structured API error response."""
 
-    error: str
+    code: str
     detail: str

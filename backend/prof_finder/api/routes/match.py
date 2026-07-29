@@ -1,7 +1,7 @@
 """Match API routes."""
 
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, status, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,7 @@ from ..schemas import (
 )
 from ..task_manager import create_task, cleanup_old_tasks, enqueue_task
 from ...runtime import model_dir
+from ..errors import ErrorCode, raise_api_error
 
 router = APIRouter(prefix="/match", tags=["匹配"])
 
@@ -40,10 +41,7 @@ async def download_model(
 ):
     """Start a background task to download the embedding model from ModelScope."""
     if model_dir().exists():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="模型已存在，无需重复下载",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.MODEL_ALREADY_EXISTS, "模型已存在，无需重复下载")
 
     cleanup_old_tasks()
     task = create_task(
@@ -78,17 +76,11 @@ async def run_matching(
         Task ID for SSE progress tracking.
     """
     if not model_dir().exists():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="MODEL_NOT_DOWNLOADED",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.MODEL_NOT_DOWNLOADED, "MODEL_NOT_DOWNLOADED")
 
     active_profile = get_active_profile(session, current_user.id)
     if not active_profile:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先激活一份画像",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.PROFILE_REQUIRED, "请先激活一份画像")
 
     professor_count = (
         session.query(Professor)
@@ -96,10 +88,7 @@ async def run_matching(
         .count()
     )
     if professor_count == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先添加教授",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.PROFESSORS_REQUIRED, "请先添加教授")
 
     cleanup_old_tasks()
     task = create_task(
@@ -132,10 +121,7 @@ def get_match_results(
     active_profile = get_active_profile(session, current_user.id)
 
     if not active_profile:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先激活一份画像",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.PROFILE_REQUIRED, "请先激活一份画像")
 
     # Build query
     query = (
@@ -214,10 +200,7 @@ def get_match_detail(
     active_profile = get_active_profile(session, current_user.id)
 
     if not active_profile:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先激活一份画像",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.PROFILE_REQUIRED, "请先激活一份画像")
 
     # Get match record
     result = (
@@ -231,10 +214,7 @@ def get_match_detail(
     )
     
     if not result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="未找到匹配记录，请先运行匹配",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.MATCH_NOT_FOUND, "未找到匹配记录，请先运行匹配")
     
     match_record, professor = result
     

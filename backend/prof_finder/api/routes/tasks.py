@@ -4,7 +4,7 @@ import asyncio
 import json
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
@@ -33,6 +33,7 @@ from ..task_manager import (
     persist_task,
 )
 from ..task_queue import huey
+from ..errors import ErrorCode, raise_api_error
 
 router = APIRouter(prefix="/tasks", tags=["异步任务"])
 
@@ -57,10 +58,7 @@ async def start_batch_crawl(
         Task ID for progress tracking via SSE.
     """
     if not data.scholar_urls:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请提供至少一个 Scholar URL",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.SCHOLAR_URL_REQUIRED, "请提供至少一个 Scholar URL")
 
     cleanup_old_tasks()
     task = create_task(
@@ -84,10 +82,7 @@ async def start_batch_dblp_crawl(
 ):
     """Start a batch DBLP profile crawl task."""
     if not data.dblp_urls:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请提供至少一个 DBLP URL",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.DBLP_URL_REQUIRED, "请提供至少一个 DBLP URL")
 
     cleanup_old_tasks()
     task = create_task(
@@ -122,10 +117,7 @@ async def start_batch_letters(
     """
     active_profile = get_active_profile(session, current_user.id)
     if not active_profile:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先激活一份简历",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.RESUME_REQUIRED, "请先激活一份简历")
 
     from ...llm.config import llm_not_configured_message, llm_provider_for_user_settings
 
@@ -135,10 +127,7 @@ async def start_batch_letters(
         .first()
     )
     if not llm_provider_for_user_settings(user_settings).enabled:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=llm_not_configured_message(),
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.LLM_NOT_CONFIGURED, llm_not_configured_message())
 
     if data.professor_ids:
         professor_ids = data.professor_ids
@@ -154,16 +143,10 @@ async def start_batch_letters(
         )
         professor_ids = [m.professor_id for m in top_matches]
     else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请指定 professor_ids 或 top 参数",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.LETTER_TARGETS_REQUIRED, "请指定 professor_ids 或 top 参数")
 
     if not professor_ids:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="未找到需要生成邮件的教授",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.LETTER_PROFESSORS_NOT_FOUND, "未找到需要生成邮件的教授")
 
     cleanup_old_tasks()
     task = create_task(
@@ -207,15 +190,9 @@ async def get_task_progress(
     """
     task = get_task(task_id)
     if not task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="任务不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.TASK_NOT_FOUND, "任务不存在")
     if task.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="无权访问此任务",
-        )
+        raise_api_error(status.HTTP_403_FORBIDDEN, ErrorCode.TASK_ACCESS_DENIED, "无权访问此任务")
 
     async def event_generator():
         # Poll until the task leaves PENDING/RUNNING
@@ -327,20 +304,11 @@ async def cancel_task(
     """
     task = get_task(task_id)
     if not task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="任务不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.TASK_NOT_FOUND, "任务不存在")
     if task.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="无权取消此任务",
-        )
+        raise_api_error(status.HTTP_403_FORBIDDEN, ErrorCode.TASK_CANCEL_DENIED, "无权取消此任务")
     if task.status not in (TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.INTERRUPTED):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="任务已完成或已取消",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.TASK_ALREADY_FINISHED, "任务已完成或已取消")
 
     _cancel_single(task)
 
@@ -378,25 +346,13 @@ async def resume_task(
     """
     task = get_task(task_id)
     if not task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="任务不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.TASK_NOT_FOUND, "任务不存在")
     if task.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="无权操作此任务",
-        )
+        raise_api_error(status.HTTP_403_FORBIDDEN, ErrorCode.TASK_ACCESS_DENIED, "无权操作此任务")
     if task.status != TaskStatus.INTERRUPTED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="只能继续因程序中断而停止的任务",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.TASK_RESUME_INVALID_STATUS, "只能继续因程序中断而停止的任务")
     if not (task.enqueue_args or task.enqueue_kwargs):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="任务缺少重放参数，无法继续",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.TASK_MISSING_REPLAY_ARGS, "任务缺少重放参数，无法继续")
 
     task.status = TaskStatus.PENDING
     task.cancel_requested = False
@@ -461,20 +417,11 @@ async def retry_task(
     """
     task = get_task(task_id)
     if not task:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="任务不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.TASK_NOT_FOUND, "任务不存在")
     if task.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="无权重试此任务",
-        )
+        raise_api_error(status.HTTP_403_FORBIDDEN, ErrorCode.TASK_RETRY_DENIED, "无权重试此任务")
     if task.status != TaskStatus.FAILED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="只能重试失败的任务",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.TASK_RETRY_INVALID_STATUS, "只能重试失败的任务")
 
     # For tasks that use an API key (letter generation, profile generation),
     # re-fetch the current key from settings so that a newly-configured key

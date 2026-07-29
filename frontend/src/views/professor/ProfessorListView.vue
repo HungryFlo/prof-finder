@@ -26,6 +26,7 @@ import type { DataTableColumns } from 'naive-ui'
 import { professorsApi } from '@/api/professors'
 import { universitiesApi, type University } from '@/api/universities'
 import { useApiError } from '@/composables/useApiError'
+import { useErrorDetailStore } from '@/stores/errorDetail'
 import type { CrawlerTestResponse } from '@/api/professors'
 import { useTaskStore, PROFESSOR_LIST_REFRESH_TASK_TYPES } from '@/stores/tasks'
 import ProfessorSummaryDrawer from '@/components/ProfessorSummaryDrawer.vue'
@@ -33,7 +34,8 @@ import type { ProfessorListItem, PaginatedResponse } from '@/types'
 
 const message = useMessage()
 const dialog = useDialog()
-const { handleApiError } = useApiError()
+const { handleApiError, presentRawError } = useApiError()
+const errorDetail = useErrorDetailStore()
 const taskStore = useTaskStore()
 const router = useRouter()
 const { t } = useI18n()
@@ -279,7 +281,10 @@ async function handleTestCrawler() {
     if (testResult.value.success) {
       message.success(t('professor.crawlerTestSuccess', { count: testResult.value.total_found }))
     } else {
-      message.error(testResult.value.error_message || t('professor.crawlerTestFailed'))
+      presentRawError({
+        friendlyMessage: t('professor.crawlerTestFailed'),
+        detail: testResult.value.error_message || t('professor.crawlerTestFailed'),
+      })
     }
   } catch (error: unknown) {
     handleApiError(error, t('professor.crawlerTestFailed'))
@@ -803,9 +808,22 @@ onUnmounted(() => {
               :type="testResult.success ? 'success' : 'error'"
               :title="testResult.success
                 ? $t('professor.crawlerTestSuccess', { count: testResult.total_found })
-                : (testResult.error_message || $t('professor.crawlerTestFailed'))"
+                : $t('professor.crawlerTestFailed')"
               style="margin-bottom: 8px"
-            />
+            >
+              <n-button
+                v-if="!testResult.success && testResult.error_message"
+                text
+                type="primary"
+                size="tiny"
+                @click="errorDetail.openRaw({
+                  friendlyMessage: t('professor.crawlerTestFailed'),
+                  detail: testResult.error_message || '',
+                })"
+              >
+                {{ $t('common.errorDetails') }}
+              </n-button>
+            </n-alert>
             <div v-if="testResult.success && testResult.sample_results.length > 0">
               <p style="font-size: 12px; color: var(--muted-foreground); margin-bottom: 4px">
                 {{ $t('professor.crawlerTestSample') }}

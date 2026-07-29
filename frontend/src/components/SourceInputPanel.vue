@@ -14,6 +14,7 @@ import {
 } from 'naive-ui'
 import { sourceInputsApi } from '@/api/source-inputs'
 import { useApiError } from '@/composables/useApiError'
+import { useErrorDetailStore } from '@/stores/errorDetail'
 import type { SourceInput } from '@/types'
 
 const props = defineProps<{
@@ -27,12 +28,21 @@ const emit = defineEmits<{
 const message = useMessage()
 const { t } = useI18n()
 const { handleApiError } = useApiError()
+const errorDetail = useErrorDetailStore()
 
 const arxivUrl = ref('')
 const creatingArxiv = ref(false)
 
 function updateItems(nextItems: SourceInput[]) {
   emit('update:modelValue', nextItems)
+}
+
+function showSourceError(item: SourceInput) {
+  if (!item.error_message) return
+  errorDetail.openRaw({
+    friendlyMessage: t('source.failed'),
+    detail: item.error_message,
+  })
 }
 
 async function handleAddArxiv() {
@@ -80,7 +90,12 @@ async function handleAddArxiv() {
             <div v-if="item.title"><strong>{{ item.title }}</strong></div>
             <div v-if="item.source_url">{{ item.source_url }}</div>
             <n-alert v-if="item.error_message" type="warning" :show-icon="false">
-              {{ item.error_message }}
+              <n-space align="center" justify="space-between" style="width: 100%">
+                <span>{{ $t('source.failed') }}</span>
+                <n-button text type="primary" size="tiny" @click="showSourceError(item)">
+                  {{ $t('common.errorDetails') }}
+                </n-button>
+              </n-space>
             </n-alert>
           </n-space>
         </n-list-item>

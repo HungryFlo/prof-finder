@@ -15,10 +15,12 @@ import {
   PromptInputSubmit,
   PromptInputTools,
 } from '@/components/ai-elements/prompt-input'
-import { CopyIcon, RefreshCwIcon } from 'lucide-vue-next'
+import { CopyIcon, RefreshCwIcon, InfoIcon } from 'lucide-vue-next'
 import { profilesApi } from '@/api/profiles'
 import { useApiError } from '@/composables/useApiError'
 import { useTaskStore } from '@/stores/tasks'
+import { useErrorDetailStore } from '@/stores/errorDetail'
+import { resolveFriendlyMessage } from '@/utils/apiError'
 import type { ChatMessage } from '@/types'
 
 interface ChatEntry {
@@ -26,9 +28,11 @@ interface ChatEntry {
   role: 'user' | 'assistant'
   content: string
   failed?: boolean
+  errorDetail?: string
+  errorCode?: string | null
 }
 
-const { handleApiError } = useApiError()
+const { handleApiError, parseApiError } = useApiError()
 
 const props = defineProps<{
   profileId: number
@@ -42,7 +46,8 @@ const emit = defineEmits<{
 
 const message = useMessage()
 const taskStore = useTaskStore()
-const { t } = useI18n()
+const errorDetail = useErrorDetailStore()
+const { t, te } = useI18n()
 
 const messages = ref<ChatEntry[]>([])
 const status = ref<ChatStatus>('ready')
@@ -118,11 +123,23 @@ async function sendMessage(text?: string) {
         status.value = 'ready'
         abortController.value = null
       },
-      (errorMsg) => {
+      (errorInfo) => {
         const target = messages.value.find((m) => m.key === assistantKey)
         if (target) {
-          target.content = t('chat.errorLine', { msg: errorMsg })
+          const parsed = {
+            code: errorInfo.code ?? null,
+            detail: errorInfo.detail,
+            status: errorInfo.status ?? null,
+            hasRawDetail: true,
+          }
+          const friendly =
+            errorInfo.code === 'LLM_NOT_CONFIGURED' || errorInfo.status === 503
+              ? t('chat.apiKeyHint')
+              : resolveFriendlyMessage(parsed, t, te, t('chat.errorAiFailed'))
+          target.content = t('chat.errorLine', { msg: friendly })
           target.failed = true
+          target.errorDetail = errorInfo.detail
+          target.errorCode = errorInfo.code ?? null
           messages.value = [...messages.value]
         }
         status.value = 'error'
@@ -138,8 +155,12 @@ async function sendMessage(text?: string) {
     }
     const target = messages.value.find((m) => m.key === assistantKey)
     if (target && !target.content) {
-      target.content = t('chat.errorLine', { msg: t('chat.errorAiFailed') })
+      const parsed = parseApiError(err)
+      const friendly = resolveFriendlyMessage(parsed, t, te, t('chat.errorAiFailed'))
+      target.content = t('chat.errorLine', { msg: friendly })
       target.failed = true
+      target.errorDetail = parsed.detail
+      target.errorCode = parsed.code
       messages.value = [...messages.value]
     }
     status.value = 'error'
@@ -182,8 +203,20 @@ function handleRegenerate(assistantKey: string) {
   resendFromAssistantTurn(assistantKey)
 }
 
-function isApiKeyError(content: string): boolean {
-  return content.includes('LLM') || content.includes('API Key') || content.includes('503')
+function isApiKeyError(msg: ChatEntry): boolean {
+  return (
+    msg.errorCode === 'LLM_NOT_CONFIGURED' ||
+    Boolean(msg.errorDetail && (msg.errorDetail.includes('LLM') || msg.errorDetail.includes('API Key')))
+  )
+}
+
+function showChatErrorDetails(msg: ChatEntry) {
+  if (!msg.errorDetail) return
+  errorDetail.openRaw({
+    friendlyMessage: t('chat.errorAiFailed'),
+    detail: msg.errorDetail,
+    code: msg.errorCode,
+  })
 }
 
 function handleRetry(assistantKey: string) {
@@ -211,8 +244,8 @@ async function handleRefine() {
       emit('profile-refreshed')
     })
   } catch (error: unknown) {
-    const err = error as { response?: { status?: number; data?: { detail?: string } } }
-    if (err.response?.status === 503 || isApiKeyError(err.response?.data?.detail || '')) {
+    const parsed = parseApiError(error)
+    if (parsed.status === 503 || parsed.code === 'LLM_NOT_CONFIGURED') {
       message.warning(t('chat.apiKeyHint'), { duration: 5000 })
     } else {
       handleApiError(error, t('chat.refineStartFailed'))
@@ -301,10 +334,17 @@ async function handleRefine() {
                 >
                   <RefreshCwIcon class="size-4" />
                 </MessageAction>
+                <MessageAction
+                  v-if="msg.failed && msg.errorDetail"
+                  :tooltip="$t('common.errorDetails')"
+                  @click="showChatErrorDetails(msg)"
+                >
+                  <InfoIcon class="size-4" />
+                </MessageAction>
               </MessageActions>
             </MessageToolbar>
             <div
-              v-if="msg.role === 'assistant' && msg.failed && isApiKeyError(msg.content)"
+              v-if="msg.role === 'assistant' && msg.failed && isApiKeyError(msg)"
               class="text-xs text-amber-600 dark:text-amber-400 mt-1 px-1"
             >
               {{ $t('chat.apiKeyHint') }}

@@ -351,6 +351,6 @@ export interface ApiResponse<T> {
 }
 
 export interface ApiError {
-  error: string
+  code: string
   detail: string
 }

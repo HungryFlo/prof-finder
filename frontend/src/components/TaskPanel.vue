@@ -21,11 +21,13 @@ import {
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useTaskStore } from '@/stores/tasks'
+import { useErrorDetailStore } from '@/stores/errorDetail'
 import { useApiError } from '@/composables/useApiError'
 import type { TaskEntry } from '@/stores/tasks'
 
 const taskStore = useTaskStore()
 const { handleApiError } = useApiError()
+const errorDetail = useErrorDetailStore()
 const { t } = useI18n()
 
 const hasAny = computed(() => taskStore.taskList.length > 0)
@@ -77,6 +79,13 @@ function statusTagType(task: TaskEntry): 'default' | 'success' | 'warning' | 'er
   if (task.status === 'cancelled') return 'warning'
   if (task.status === 'interrupted') return 'warning'
   return 'info'
+}
+
+function showTaskErrorDetails(task: TaskEntry) {
+  errorDetail.openRaw({
+    friendlyMessage: t('task.taskFailed'),
+    detail: task.errorMessage || t('task.taskFailed'),
+  })
 }
 
 function isCancellable(task: TaskEntry): boolean {
@@ -270,13 +279,26 @@ function handleDismiss(taskId: string) {
               style="margin-top: 6px;"
             />
 
-            <n-text
+            <div
               v-if="task.status === 'failed'"
-              depth="3"
-              style="font-size: 12px; color: var(--destructive); display: block; margin-top: 4px; word-break: break-all;"
+              style="display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap;"
             >
-              {{ task.errorMessage.length > 80 ? task.errorMessage.slice(0, 80) + '…' : task.errorMessage }}
-            </n-text>
+              <n-text
+                depth="3"
+                style="font-size: 12px; color: var(--destructive);"
+              >
+                {{ $t('task.taskFailed') }}
+              </n-text>
+              <n-button
+                v-if="task.errorMessage"
+                text
+                type="primary"
+                size="tiny"
+                @click="showTaskErrorDetails(task)"
+              >
+                {{ $t('common.errorDetails') }}
+              </n-button>
+            </div>
             <n-text
               v-else
               depth="3"

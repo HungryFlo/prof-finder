@@ -2,13 +2,14 @@
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from ...models.schema import SourceInput, User
 from ..deps import get_current_user, get_db_session
 from ..schemas import MessageResponse, PaginatedResponse, SourceInputArxivCreate, SourceInputResponse
 from ..source_input_service import fetch_arxiv_metadata, normalize_arxiv_id
+from ..errors import ErrorCode, raise_api_error
 
 router = APIRouter(prefix="/source-inputs", tags=["来源输入"])
 
@@ -53,12 +54,12 @@ def create_arxiv_source_input(
     try:
         canonical_id = normalize_arxiv_id(data.url)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise_api_error(400, ErrorCode.BAD_REQUEST, str(exc))
 
     try:
         metadata = fetch_arxiv_metadata(canonical_id)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"ArXiv 元数据获取失败: {exc}")
+        raise_api_error(400, ErrorCode.ARXIV_FETCH_FAILED, f"ArXiv 元数据获取失败: {exc}")
 
     source_input = SourceInput(
         user_id=current_user.id,
@@ -91,7 +92,7 @@ def get_source_input(
         .first()
     )
     if not source_input:
-        raise HTTPException(status_code=404, detail="来源输入不存在")
+        raise_api_error(404, ErrorCode.SOURCE_INPUT_NOT_FOUND, "来源输入不存在")
     return source_input
 
 
@@ -108,7 +109,7 @@ def delete_source_input(
         .first()
     )
     if not source_input:
-        raise HTTPException(status_code=404, detail="来源输入不存在")
+        raise_api_error(404, ErrorCode.SOURCE_INPUT_NOT_FOUND, "来源输入不存在")
 
     session.delete(source_input)
     return MessageResponse(message="来源输入已删除")

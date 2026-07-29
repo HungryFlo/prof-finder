@@ -5,7 +5,7 @@ import hashlib
 import json
 import time
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, status, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -60,6 +60,7 @@ from ..enrichment_prefs import (
     planned_enrichment_step_count_for_professor,
 )
 from ...utils.scholar_match_context import resolve_scholar_match_params
+from ..errors import ErrorCode, raise_api_error
 
 router = APIRouter(prefix="/professors", tags=["教授管理"])
 
@@ -270,10 +271,7 @@ async def add_professor_by_scholar(
     try:
         extract_scholar_id_from_url(data.url)
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.BAD_REQUEST, str(e))
 
     cleanup_old_tasks()
     task = create_task(
@@ -306,10 +304,7 @@ async def search_dblp(
     try:
         results = await asyncio.to_thread(client.search_author, data.query, data.limit)
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"DBLP 搜索失败: {str(e)}",
-        )
+        raise_api_error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorCode.DBLP_SEARCH_FAILED, f"DBLP 搜索失败: {str(e)}")
 
     result_list = [
         DblpSearchResult(
@@ -333,7 +328,7 @@ async def add_professor_by_dblp(
     try:
         extract_dblp_pid(data.url)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.BAD_REQUEST, str(e))
 
     cleanup_old_tasks()
     task = create_task(
@@ -379,10 +374,7 @@ async def crawl_university(
     from ...crawler.universities.registry import REGISTRY
 
     if data.university_id not in REGISTRY:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"不支持该院校: {data.university_id}",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.UNIVERSITY_UNSUPPORTED, f"不支持该院校: {data.university_id}")
 
     crawler_cls = REGISTRY[data.university_id]
     display_name = crawler_cls.display_name
@@ -548,7 +540,7 @@ def update_crawler_config(
         .first()
     )
     if not config:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="配置不存在")
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.CONFIG_NOT_FOUND, "配置不存在")
 
     if data.name is not None:
         config.name = data.name
@@ -588,7 +580,7 @@ def delete_crawler_config(
         .first()
     )
     if not config:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="配置不存在")
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.CONFIG_NOT_FOUND, "配置不存在")
 
     session.delete(config)
     return MessageResponse(message="爬虫配置已删除")
@@ -703,10 +695,7 @@ async def crawl_with_config(
     )
 
     if not config:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="爬虫配置不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.CRAWLER_CONFIG_NOT_FOUND, "爬虫配置不存在")
 
     cleanup_old_tasks()
     task = create_task(
@@ -746,10 +735,7 @@ def get_professor(
     )
     
     if not professor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="教授不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
     
     return professor
 
@@ -779,10 +765,7 @@ def update_professor(
     )
     
     if not professor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="教授不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
     
     # Update fields
     if data.name is not None:
@@ -887,7 +870,7 @@ def preview_professor_edits(
         .first()
     )
     if not professor:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="教授不存在")
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
 
     sources: List[SourceInput] = []
     summarizer = _get_paper_summarizer(session, current_user.id)
@@ -901,7 +884,7 @@ def preview_professor_edits(
             .all()
         )
         if len(sources) != len(set(data.source_input_ids)):
-            raise HTTPException(status_code=400, detail="存在无效的来源输入 ID")
+            raise_api_error(400, ErrorCode.INVALID_SOURCE_INPUT_IDS, "存在无效的来源输入 ID")
 
     manual_preview = {
         "name": professor.name,
@@ -952,7 +935,7 @@ def apply_professor_edits(
         .first()
     )
     if not professor:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="教授不存在")
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
 
     if data.manual_patch is not None:
         _apply_manual_patch(professor, data.manual_patch)
@@ -968,7 +951,7 @@ def apply_professor_edits(
             .all()
         )
         if len(sources) != len(set(data.source_input_ids)):
-            raise HTTPException(status_code=400, detail="存在无效的来源输入 ID")
+            raise_api_error(400, ErrorCode.INVALID_SOURCE_INPUT_IDS, "存在无效的来源输入 ID")
 
         suggestions = _build_source_suggestions(sources, summarizer=summarizer, language="en")
         if suggestions["publications"]:
@@ -1014,9 +997,9 @@ async def summarize_professor_sources(
         .first()
     )
     if not professor:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="教授不存在")
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
     if not data.source_input_ids:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先选择来源输入")
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.SOURCE_INPUT_REQUIRED, "请先选择来源输入")
 
     sources = (
         session.query(SourceInput)
@@ -1024,7 +1007,7 @@ async def summarize_professor_sources(
         .all()
     )
     if len(sources) != len(set(data.source_input_ids)):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="存在无效的来源输入 ID")
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.INVALID_SOURCE_INPUT_IDS, "存在无效的来源输入 ID")
 
     summarized_source_ids = {
         item.get("source_input_id")
@@ -1035,7 +1018,7 @@ async def summarize_professor_sources(
         source_id for source_id in data.source_input_ids if source_id not in summarized_source_ids
     ]
     if not pending_source_ids:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前来源均已总结，无需重复处理")
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.SOURCES_ALREADY_SUMMARIZED, "当前来源均已总结，无需重复处理")
 
     cleanup_old_tasks()
     task = create_task(
@@ -1072,7 +1055,7 @@ async def generate_professor_profile(
         .first()
     )
     if not professor:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="教授不存在")
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
 
     cleanup_old_tasks()
     task = create_task(
@@ -1100,13 +1083,10 @@ async def crawl_professor_homepage(
         .first()
     )
     if not professor:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="教授不存在")
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
 
     if not (professor.homepage or "").strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先填写个人主页 URL",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.HOMEPAGE_URL_REQUIRED, "请先填写个人主页 URL")
 
     cleanup_old_tasks()
     task = create_task(
@@ -1153,7 +1133,7 @@ async def fill_publications(
         .first()
     )
     if not professor:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="教授不存在")
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
 
     publications = professor.publications or []
     to_fill = [
@@ -1161,10 +1141,7 @@ async def fill_publications(
         if p.get("author_pub_id") and not p.get("abstract")
     ]
     if not to_fill:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="没有需要获取详情的论文",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.NO_PAPERS_TO_FETCH, "没有需要获取详情的论文")
 
     cleanup_old_tasks()
     task = create_task(
@@ -1200,10 +1177,7 @@ async def batch_generate_professor_profiles(
         Task ID for SSE progress tracking.
     """
     if not data.ids:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请选择至少一位教授",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.PROFESSORS_REQUIRED, "请选择至少一位教授")
 
     professors = (
         session.query(Professor)
@@ -1211,10 +1185,7 @@ async def batch_generate_professor_profiles(
         .all()
     )
     if len(professors) != len(data.ids):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="存在无效的教授 ID",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.INVALID_PROFESSOR_IDS, "存在无效的教授 ID")
 
     cleanup_old_tasks()
     task = create_task(
@@ -1249,10 +1220,7 @@ async def batch_refresh_professors(
         Task ID for SSE progress tracking.
     """
     if not data.ids:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请选择至少一位教授",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.PROFESSORS_REQUIRED, "请选择至少一位教授")
 
     professors = (
         session.query(Professor)
@@ -1260,10 +1228,7 @@ async def batch_refresh_professors(
         .all()
     )
     if len(professors) != len(data.ids):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="存在无效的教授 ID",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.INVALID_PROFESSOR_IDS, "存在无效的教授 ID")
 
     cleanup_old_tasks()
     task = create_task(
@@ -1314,10 +1279,7 @@ def delete_professor(
     )
     
     if not professor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="教授不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
     
     session.delete(professor)
     
@@ -1347,32 +1309,20 @@ async def refresh_professor(
     )
     
     if not professor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="教授不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
     
     if not professor.google_scholar_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="该教授没有关联的 Google Scholar ID",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.SCHOLAR_ID_MISSING, "该教授没有关联的 Google Scholar ID")
     
     crawler = ScholarCrawler()
 
     try:
         author_data = await asyncio.to_thread(crawler.get_author, professor.google_scholar_id)
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"爬取失败: {str(e)}",
-        )
+        raise_api_error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorCode.CRAWL_FAILED, f"爬取失败: {str(e)}")
     
     if not author_data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="未找到该学者信息",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.SCHOLAR_NOT_FOUND, "未找到该学者信息")
     
     from ...utils.profile_merge import apply_external_affiliation
     from ...utils.name_locales import apply_scholar_name_update
@@ -1465,12 +1415,12 @@ def set_scholar_id_manually(
         .first()
     )
     if not professor:
-        raise HTTPException(status_code=404, detail="教授不存在")
+        raise_api_error(404, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
 
     try:
         scholar_id = extract_scholar_id_from_url(body.url)
     except ValueError:
-        raise HTTPException(status_code=400, detail="无法从 URL 中提取 Scholar ID")
+        raise_api_error(400, ErrorCode.SCHOLAR_ID_EXTRACT_FAILED, "无法从 URL 中提取 Scholar ID")
 
     professor.google_scholar_id = scholar_id
     professor.google_scholar_url = body.url
@@ -1509,9 +1459,9 @@ def match_professor_dblp_route(
         .first()
     )
     if not professor:
-        raise HTTPException(status_code=404, detail="教授不存在")
+        raise_api_error(404, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
     if professor.dblp_pid:
-        raise HTTPException(status_code=400, detail="该教授已关联 DBLP")
+        raise_api_error(400, ErrorCode.DBLP_ALREADY_LINKED, "该教授已关联 DBLP")
 
     universities = (
         session.query(University).filter(University.user_id == current_user.id).all()
@@ -1520,10 +1470,7 @@ def match_professor_dblp_route(
         professor, universities
     )
     if not university_variants and not department_affiliation:
-        raise HTTPException(
-            status_code=400,
-            detail="请填写教授单位，或在设置中配置大学名称变体",
-        )
+        raise_api_error(400, ErrorCode.UNIVERSITY_AFFILIATION_REQUIRED, "请填写教授单位，或在设置中配置大学名称变体")
 
     professor.dblp_enrichment_status = "pending"
     professor.dblp_candidates = None
@@ -1561,10 +1508,10 @@ def match_professor_external(
         .first()
     )
     if not professor:
-        raise HTTPException(status_code=404, detail="教授不存在")
+        raise_api_error(404, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
 
     if professor.dblp_pid:
-        raise HTTPException(status_code=400, detail="该教授已关联 DBLP")
+        raise_api_error(400, ErrorCode.DBLP_ALREADY_LINKED, "该教授已关联 DBLP")
 
     universities = (
         session.query(University).filter(University.user_id == current_user.id).all()
@@ -1573,10 +1520,7 @@ def match_professor_external(
         professor, universities
     )
     if not university_variants and not department_affiliation:
-        raise HTTPException(
-            status_code=400,
-            detail="请填写教授单位，或在设置中配置大学名称变体",
-        )
+        raise_api_error(400, ErrorCode.UNIVERSITY_AFFILIATION_REQUIRED, "请填写教授单位，或在设置中配置大学名称变体")
 
     professor.dblp_enrichment_status = "pending"
     professor.dblp_candidates = None
@@ -1614,20 +1558,17 @@ async def refresh_professor_dblp(
         .first()
     )
     if not professor:
-        raise HTTPException(status_code=404, detail="教授不存在")
+        raise_api_error(404, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
     if not professor.dblp_pid:
-        raise HTTPException(status_code=400, detail="该教授没有关联的 DBLP pid")
+        raise_api_error(400, ErrorCode.DBLP_PID_MISSING, "该教授没有关联的 DBLP pid")
 
     client = DblpClient()
     try:
         author_data = await asyncio.to_thread(client.get_author, professor.dblp_pid)
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"DBLP 刷新失败: {str(e)}",
-        )
+        raise_api_error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorCode.DBLP_REFRESH_FAILED, f"DBLP 刷新失败: {str(e)}")
     if not author_data:
-        raise HTTPException(status_code=404, detail="未找到 DBLP 学者信息")
+        raise_api_error(404, ErrorCode.DBLP_SCHOLAR_NOT_FOUND, "未找到 DBLP 学者信息")
 
     from ...utils.profile_merge import apply_external_affiliation
 
@@ -1676,14 +1617,14 @@ async def batch_refresh_dblp(
 ):
     """Batch refresh professors from DBLP."""
     if not data.ids:
-        raise HTTPException(status_code=400, detail="请选择至少一位教授")
+        raise_api_error(400, ErrorCode.PROFESSORS_REQUIRED, "请选择至少一位教授")
     professors = (
         session.query(Professor)
         .filter(Professor.id.in_(data.ids), Professor.user_id == current_user.id)
         .all()
     )
     if len(professors) != len(data.ids):
-        raise HTTPException(status_code=400, detail="存在无效的教授 ID")
+        raise_api_error(400, ErrorCode.INVALID_PROFESSOR_IDS, "存在无效的教授 ID")
 
     cleanup_old_tasks()
     task = create_task(
@@ -1707,14 +1648,14 @@ async def batch_refresh_external(
 ):
     """Batch refresh Scholar + DBLP sources for selected professors."""
     if not data.ids:
-        raise HTTPException(status_code=400, detail="请选择至少一位教授")
+        raise_api_error(400, ErrorCode.PROFESSORS_REQUIRED, "请选择至少一位教授")
     professors = (
         session.query(Professor)
         .filter(Professor.id.in_(data.ids), Professor.user_id == current_user.id)
         .all()
     )
     if len(professors) != len(data.ids):
-        raise HTTPException(status_code=400, detail="存在无效的教授 ID")
+        raise_api_error(400, ErrorCode.INVALID_PROFESSOR_IDS, "存在无效的教授 ID")
 
     cleanup_old_tasks()
     task = create_task(
@@ -1746,7 +1687,7 @@ def confirm_dblp_candidate(
         .first()
     )
     if not professor:
-        raise HTTPException(status_code=404, detail="教授不存在")
+        raise_api_error(404, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
 
     professor.dblp_pid = body.dblp_pid
     professor.dblp_url = dblp_profile_url(body.dblp_pid)
@@ -1788,11 +1729,11 @@ def set_dblp_manually(
         .first()
     )
     if not professor:
-        raise HTTPException(status_code=404, detail="教授不存在")
+        raise_api_error(404, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
     try:
         pid = extract_dblp_pid(body.url)
     except ValueError:
-        raise HTTPException(status_code=400, detail="无法从 URL 中提取 DBLP pid")
+        raise_api_error(400, ErrorCode.DBLP_PID_EXTRACT_FAILED, "无法从 URL 中提取 DBLP pid")
 
     professor.dblp_pid = pid
     professor.dblp_url = dblp_profile_url(pid)

@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
@@ -36,6 +36,7 @@ from ..task_manager import (
 from ...llm.config import llm_not_configured_message, llm_provider_for_user_settings
 from ...llm.student_profile_generator import StudentProfileGenerator
 from ...models.schema import UserSettings
+from ..errors import ErrorCode, raise_api_error
 
 router = APIRouter(prefix="/profiles", tags=["学生画像"])
 
@@ -49,10 +50,7 @@ def _student_profile_generator(
     )
     provider = llm_provider_for_user_settings(user_settings)
     if not provider.enabled:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=llm_not_configured_message(),
-        )
+        raise_api_error(status.HTTP_503_SERVICE_UNAVAILABLE, ErrorCode.LLM_NOT_CONFIGURED, llm_not_configured_message())
     return StudentProfileGenerator(provider=provider)
 
 SUPPORTED_PROFILE_MATERIAL_EXTENSIONS = {".md", ".markdown", ".txt", ".tex", ".latex"}
@@ -167,35 +165,23 @@ async def upload_profile(
     }
     has_manual_input = any(manual_inputs.values())
     if not uploaded_files and not has_manual_input:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请至少上传一个材料文件或填写一项画像材料",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.PROFILE_MATERIAL_REQUIRED, "请至少上传一个材料文件或填写一项画像材料")
 
     materials = []
     for upload in uploaded_files:
         filename = upload.filename or ""
         ext = Path(filename).suffix.lower()
         if ext not in SUPPORTED_PROFILE_MATERIAL_EXTENSIONS:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="仅支持 .md/.markdown/.txt/.tex/.latex 格式的文件",
-            )
+            raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.PROFILE_FILE_TYPE_UNSUPPORTED, "仅支持 .md/.markdown/.txt/.tex/.latex 格式的文件")
 
         content = await upload.read()
         try:
             text_content = content.decode("utf-8")
         except UnicodeDecodeError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"文件编码错误，请使用 UTF-8 编码：{filename}",
-            )
+            raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.PROFILE_FILE_ENCODING_ERROR, f"文件编码错误，请使用 UTF-8 编码：{filename}")
 
         if not text_content.strip():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"文件内容为空：{filename}",
-            )
+            raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.PROFILE_FILE_EMPTY, f"文件内容为空：{filename}")
 
         materials.append(
             {
@@ -210,10 +196,7 @@ async def upload_profile(
         len(value) for value in manual_inputs.values()
     )
     if total_chars > MAX_PROFILE_MATERIAL_CHARS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"画像材料过长，请控制在 {MAX_PROFILE_MATERIAL_CHARS} 字符以内",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.PROFILE_MATERIAL_TOO_LONG, f"画像材料过长，请控制在 {MAX_PROFILE_MATERIAL_CHARS} 字符以内")
 
     cleanup_old_tasks()
     task = create_task(
@@ -260,10 +243,7 @@ def get_profile(
     )
 
     if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="画像不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFILE_NOT_FOUND, "画像不存在")
 
     return profile
 
@@ -293,10 +273,7 @@ def update_profile(
     )
 
     if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="画像不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFILE_NOT_FOUND, "画像不存在")
 
     # Update fields
     if data.title is not None:
@@ -343,10 +320,7 @@ def delete_profile(
     )
 
     if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="画像不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFILE_NOT_FOUND, "画像不存在")
 
     session.delete(profile)
 
@@ -376,10 +350,7 @@ def activate_profile(
     )
 
     if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="画像不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFILE_NOT_FOUND, "画像不存在")
 
     # Deactivate all profiles
     session.query(UserProfile).filter(
@@ -443,10 +414,7 @@ def profile_chat(
         .first()
     )
     if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="画像不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFILE_NOT_FOUND, "画像不存在")
 
     generator = _student_profile_generator(session, current_user.id)
 
@@ -462,10 +430,7 @@ def profile_chat(
             locale=data.locale,
         )
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        )
+        raise_api_error(status.HTTP_503_SERVICE_UNAVAILABLE, ErrorCode.PROFILE_OPERATION_FAILED, str(exc))
 
     return ProfileChatResponse(reply=reply)
 
@@ -488,10 +453,7 @@ async def profile_chat_stream(
         .first()
     )
     if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="画像不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFILE_NOT_FOUND, "画像不存在")
 
     generator = _student_profile_generator(session, current_user.id)
 
@@ -564,18 +526,12 @@ async def profile_chat_refine(
         .first()
     )
     if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="画像不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFILE_NOT_FOUND, "画像不存在")
 
     _student_profile_generator(session, current_user.id)
 
     if not data.history:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="请先与 AI 进行至少一轮对话",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.PROFILE_CHAT_REQUIRED, "请先与 AI 进行至少一轮对话")
 
     cleanup_old_tasks()
     task = create_task(

@@ -4,11 +4,12 @@ import asyncio
 import logging
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ...db.database import get_db
 from ..deps import get_current_user, get_db_session
+from ..errors import ErrorCode, raise_api_error
 from ...models.schema import University, UniversityCrawlerConfig, User
 from ..schemas import (
     MessageResponse,
@@ -53,7 +54,7 @@ async def create_university(
         .first()
     )
     if existing:
-        raise HTTPException(status_code=409, detail="该学校已存在")
+        raise_api_error(409, ErrorCode.UNIVERSITY_EXISTS, "该学校已存在")
 
     # Generate name variants via LLM
     variants = await _generate_name_variants(body.full_name)
@@ -81,7 +82,7 @@ def get_university(
         .first()
     )
     if not university:
-        raise HTTPException(status_code=404, detail="学校不存在")
+        raise_api_error(404, ErrorCode.UNIVERSITY_NOT_FOUND, "学校不存在")
     return university
 
 
@@ -99,7 +100,7 @@ def update_university(
         .first()
     )
     if not university:
-        raise HTTPException(status_code=404, detail="学校不存在")
+        raise_api_error(404, ErrorCode.UNIVERSITY_NOT_FOUND, "学校不存在")
 
     if body.full_name is not None:
         university.full_name = body.full_name
@@ -122,7 +123,7 @@ def delete_university(
         .first()
     )
     if not university:
-        raise HTTPException(status_code=404, detail="学校不存在")
+        raise_api_error(404, ErrorCode.UNIVERSITY_NOT_FOUND, "学校不存在")
 
     # Check for referencing crawler configs
     ref_count = (
@@ -131,10 +132,7 @@ def delete_university(
         .count()
     )
     if ref_count > 0:
-        raise HTTPException(
-            status_code=409,
-            detail=f"仍有 {ref_count} 个爬虫配置引用此学校，请先解除关联",
-        )
+        raise_api_error(409, ErrorCode.UNIVERSITY_IN_USE, f"仍有 {ref_count} 个爬虫配置引用此学校，请先解除关联")
 
     session.delete(university)
     return MessageResponse(message="学校已删除")

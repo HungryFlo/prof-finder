@@ -2,13 +2,14 @@
 
 from typing import Generator, Optional
 
-from fastapi import Depends, HTTPException, Query, status
+from fastapi import Depends, Query, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from ..db.database import get_db, Database
 from ..models.schema import User
 from .auth import verify_access_token
+from .errors import ErrorCode, raise_api_error
 
 # HTTP Bearer token scheme
 security = HTTPBearer(auto_error=False)
@@ -46,39 +47,44 @@ def get_current_user(
         Authenticated User instance.
         
     Raises:
-        HTTPException: If token is missing, invalid, or user not found.
+        ApiError: If token is missing, invalid, or user not found.
     """
+    auth_headers = {"WWW-Authenticate": "Bearer"}
     if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="未提供认证信息",
-            headers={"WWW-Authenticate": "Bearer"},
+        raise_api_error(
+            status.HTTP_401_UNAUTHORIZED,
+            ErrorCode.AUTH_REQUIRED,
+            "未提供认证信息",
+            headers=auth_headers,
         )
     
     token = credentials.credentials
     payload = verify_access_token(token)
     
     if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token 无效或已过期",
-            headers={"WWW-Authenticate": "Bearer"},
+        raise_api_error(
+            status.HTTP_401_UNAUTHORIZED,
+            ErrorCode.TOKEN_INVALID,
+            "Token 无效或已过期",
+            headers=auth_headers,
         )
     
     user_id = payload.get("sub")
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token 格式无效",
-            headers={"WWW-Authenticate": "Bearer"},
+        raise_api_error(
+            status.HTTP_401_UNAUTHORIZED,
+            ErrorCode.TOKEN_MALFORMED,
+            "Token 格式无效",
+            headers=auth_headers,
         )
     
     user = session.query(User).filter(User.id == int(user_id)).first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户不存在",
-            headers={"WWW-Authenticate": "Bearer"},
+        raise_api_error(
+            status.HTTP_401_UNAUTHORIZED,
+            ErrorCode.USER_NOT_FOUND,
+            "用户不存在",
+            headers=auth_headers,
         )
     
     return user
@@ -104,8 +110,9 @@ def get_current_user_sse(
         Authenticated User instance.
 
     Raises:
-        HTTPException: If no valid token is provided.
+        ApiError: If no valid token is provided.
     """
+    auth_headers = {"WWW-Authenticate": "Bearer"}
     raw_token: Optional[str] = None
     if token:
         raw_token = token
@@ -113,34 +120,38 @@ def get_current_user_sse(
         raw_token = credentials.credentials
 
     if not raw_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="未提供认证信息",
-            headers={"WWW-Authenticate": "Bearer"},
+        raise_api_error(
+            status.HTTP_401_UNAUTHORIZED,
+            ErrorCode.AUTH_REQUIRED,
+            "未提供认证信息",
+            headers=auth_headers,
         )
 
     payload = verify_access_token(raw_token)
     if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token 无效或已过期",
-            headers={"WWW-Authenticate": "Bearer"},
+        raise_api_error(
+            status.HTTP_401_UNAUTHORIZED,
+            ErrorCode.TOKEN_INVALID,
+            "Token 无效或已过期",
+            headers=auth_headers,
         )
 
     user_id = payload.get("sub")
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token 格式无效",
-            headers={"WWW-Authenticate": "Bearer"},
+        raise_api_error(
+            status.HTTP_401_UNAUTHORIZED,
+            ErrorCode.TOKEN_MALFORMED,
+            "Token 格式无效",
+            headers=auth_headers,
         )
 
     user = session.query(User).filter(User.id == int(user_id)).first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户不存在",
-            headers={"WWW-Authenticate": "Bearer"},
+        raise_api_error(
+            status.HTTP_401_UNAUTHORIZED,
+            ErrorCode.USER_NOT_FOUND,
+            "用户不存在",
+            headers=auth_headers,
         )
     return user
 
@@ -174,11 +185,12 @@ def get_admin_user(
         Admin User instance.
         
     Raises:
-        HTTPException: If user is not an admin.
+        ApiError: If user is not an admin.
     """
     if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="权限不足，需要管理员权限",
+        raise_api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.ADMIN_REQUIRED,
+            "权限不足，需要管理员权限",
         )
     return current_user

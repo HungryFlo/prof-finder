@@ -7,11 +7,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, status
 from pydantic import BaseModel, Field
 
 from ...packaging.paths import PathValidationError, validate_data_dir
 from ...packaging.uninstall import write_uninstall_scripts
+from ..errors import ErrorCode, raise_api_error
 from ...runtime import (
     default_suggested_data_dir,
     install_dir,
@@ -46,15 +47,9 @@ class SetupCompleteResponse(BaseModel):
 
 def _require_setup_allowed() -> None:
     if not is_packaged():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Setup is only available in packaged mode",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.SETUP_PACKAGED_ONLY, "Setup is only available in packaged mode")
     if is_configured():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Setup has already been completed",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.SETUP_ALREADY_COMPLETED, "Setup has already been completed")
 
 
 @router.get("/status", response_model=SetupStatusResponse)
@@ -78,10 +73,7 @@ def pick_directory() -> PickDirectoryResponse:
         import tkinter as tk
         from tkinter import filedialog
     except ImportError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="无法打开文件夹选择对话框，请手动输入路径",
-        ) from exc
+        raise_api_error(status.HTTP_503_SERVICE_UNAVAILABLE, ErrorCode.FOLDER_PICKER_UNAVAILABLE, "无法打开文件夹选择对话框，请手动输入路径")
 
     root = tk.Tk()
     root.withdraw()
@@ -95,10 +87,7 @@ def pick_directory() -> PickDirectoryResponse:
         root.destroy()
 
     if not selected:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="未选择目录",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.NO_DIRECTORY_SELECTED, "未选择目录")
     return PickDirectoryResponse(path=str(Path(selected).resolve()))
 
 
@@ -109,10 +98,7 @@ def complete_setup(body: SetupCompleteRequest) -> SetupCompleteResponse:
     try:
         data_path = validate_data_dir(Path(body.data_dir), install_dir())
     except PathValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.SETUP_FAILED, str(exc))
 
     model_path = model_dir_for_data_root(data_path)
     model_path.parent.mkdir(parents=True, exist_ok=True)

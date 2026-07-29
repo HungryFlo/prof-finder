@@ -27,7 +27,10 @@ export interface TaskLifecycleEvent {
   taskType: TaskType
   taskName: string
   status: 'completed' | 'failed' | 'cancelled' | 'interrupted'
+  /** User-facing summary shown in notifications. */
   message: string
+  /** Raw backend / exception text for the details modal. */
+  detail?: string
 }
 
 /** Task types that should refresh the professor list when they finish. */
@@ -176,7 +179,8 @@ export const useTaskStore = defineStore('tasks', () => {
   function _pushTaskEvent(
     entry: TaskEntry,
     status: 'completed' | 'failed' | 'cancelled' | 'interrupted',
-    message: string
+    message: string,
+    detail?: string,
   ): void {
     taskEvents.value.push({
       id: nextEventId++,
@@ -185,6 +189,7 @@ export const useTaskStore = defineStore('tasks', () => {
       taskName: entry.taskName,
       status,
       message,
+      detail,
     })
   }
 
@@ -309,11 +314,16 @@ export const useTaskStore = defineStore('tasks', () => {
       entry.status = 'failed'
       try {
         const data = JSON.parse(e.data)
-        entry.errorMessage = data.error_message ?? t('task.taskFailed')
+        entry.errorMessage = data.error_message ?? ''
       } catch {
-        entry.errorMessage = t('task.taskFailed')
+        entry.errorMessage = ''
       }
-      _pushTaskEvent(entry, 'failed', entry.errorMessage)
+      _pushTaskEvent(
+        entry,
+        'failed',
+        t('task.taskFailed'),
+        entry.errorMessage || undefined,
+      )
       es.close()
     })
 
@@ -322,7 +332,7 @@ export const useTaskStore = defineStore('tasks', () => {
       if (entry && entry.status !== 'completed' && entry.status !== 'failed') {
         entry.status = 'failed'
         entry.errorMessage = t('task.taskFailed')
-        _pushTaskEvent(entry, 'failed', entry.errorMessage)
+        _pushTaskEvent(entry, 'failed', t('task.taskFailed'), entry.errorMessage)
       }
       es.close()
     }

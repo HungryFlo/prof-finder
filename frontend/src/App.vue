@@ -14,6 +14,7 @@ import {
 import type { GlobalThemeOverrides } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { useTheme } from '@/composables/useTheme'
+import ErrorDetailModal from '@/components/ErrorDetailModal.vue'
 
 const { locale } = useI18n()
 const { isDark } = useTheme()
@@ -78,6 +79,7 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => ({
       <n-dialog-provider>
         <n-notification-provider>
           <router-view />
+          <ErrorDetailModal />
         </n-notification-provider>
       </n-dialog-provider>
     </n-message-provider>

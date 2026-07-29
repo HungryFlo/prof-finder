@@ -244,26 +244,7 @@ async function handleUpload(): Promise<boolean> {
     showUploadModal.value = false
     return false
   } catch (error: unknown) {
-    const err = error as {
-      code?: string
-      message?: string
-      response?: { status?: number; data?: { detail?: string | unknown[] } }
-    }
-    const detailValue = err.response?.data?.detail
-    const detailText = Array.isArray(detailValue)
-      ? detailValue
-          .map((item) => (typeof item === 'object' && item ? (item as { msg?: string }).msg || JSON.stringify(item) : String(item)))
-          .join('; ')
-      : typeof detailValue === 'string'
-        ? detailValue
-        : ''
-
-    const detail =
-      detailText ||
-      (err.code === 'ECONNABORTED' ? t('profile.timeoutHint') : '') ||
-      err.message ||
-      t('profile.generateFailed')
-    message.error(t('profile.uploadGenerateFailed', { detail }))
+    handleApiError(error, t('profile.generateFailed'))
     return false
   } finally {
     uploadLoading.value = false

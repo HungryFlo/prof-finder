@@ -90,7 +90,7 @@ export const profilesApi = {
     history: ChatMessage[],
     onToken: (token: string) => void,
     onDone: () => void,
-    onError: (error: string) => void,
+    onError: (error: { code?: string; detail: string; status?: number }) => void,
     signal?: AbortSignal,
   ): Promise<void> {
     const authStore = useAuthStore()
@@ -106,7 +106,12 @@ export const profilesApi = {
 
     if (!response.ok) {
       const errBody = await response.json().catch(() => ({} as Record<string, unknown>))
-      onError((errBody as Record<string, string>).detail || 'Chat request failed')
+      const code = typeof errBody.code === 'string' ? errBody.code : undefined
+      const detail =
+        typeof errBody.detail === 'string'
+          ? errBody.detail
+          : code || 'Chat request failed'
+      onError({ code, detail, status: response.status })
       return
     }
 
@@ -135,7 +140,7 @@ export const profilesApi = {
             } else if (currentEvent === 'done') {
               onDone()
             } else if (currentEvent === 'error') {
-              onError(data)
+              onError({ detail: data })
             }
           }
           if (line === '') {

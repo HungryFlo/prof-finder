@@ -1,12 +1,13 @@
 """Authentication API routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from ...config import settings
 from ...models.schema import User, UserSettings
 from ..auth import hash_password, verify_password, create_access_token, create_refresh_token, verify_refresh_token
 from ..deps import get_db_session, get_current_user, get_admin_user
+from ..errors import ErrorCode, raise_api_error
 from ..schemas import (
     UserRegister,
     UserLogin,
@@ -34,22 +35,16 @@ def register(data: UserRegister, session: Session = Depends(get_db_session)):
         Created user info.
         
     Raises:
-        HTTPException: If username is taken or is reserved.
+        ApiError: If username is taken or is reserved.
     """
     # Check if username is reserved (admin username)
     if data.username.lower() == settings.admin_username.lower():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="该用户名为系统保留，无法注册",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.USERNAME_RESERVED, "该用户名为系统保留，无法注册")
     
     # Check if username already exists
     existing_user = session.query(User).filter(User.username == data.username).first()
     if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="用户名已存在",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.USERNAME_EXISTS, "用户名已存在")
     
     # Create new user
     user = User(
@@ -86,22 +81,16 @@ def login(data: UserLogin, session: Session = Depends(get_db_session)):
         Access and refresh tokens.
         
     Raises:
-        HTTPException: If credentials are invalid.
+        ApiError: If credentials are invalid.
     """
     # Find user
     user = session.query(User).filter(User.username == data.username).first()
     if not user or not user.password_hash:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户名或密码错误",
-        )
+        raise_api_error(status.HTTP_401_UNAUTHORIZED, ErrorCode.INVALID_CREDENTIALS, "用户名或密码错误")
     
     # Verify password
     if not verify_password(data.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户名或密码错误",
-        )
+        raise_api_error(status.HTTP_401_UNAUTHORIZED, ErrorCode.INVALID_CREDENTIALS, "用户名或密码错误")
     
     # Create tokens
     token_data = {"sub": str(user.id), "username": user.username}
@@ -127,22 +116,16 @@ def refresh_token(data: TokenRefresh, session: Session = Depends(get_db_session)
         New access and refresh tokens.
         
     Raises:
-        HTTPException: If refresh token is invalid.
+        ApiError: If refresh token is invalid.
     """
     payload = verify_refresh_token(data.refresh_token)
     if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh Token 无效或已过期",
-        )
+        raise_api_error(status.HTTP_401_UNAUTHORIZED, ErrorCode.REFRESH_TOKEN_INVALID, "Refresh Token 无效或已过期")
     
     user_id = payload.get("sub")
     user = session.query(User).filter(User.id == int(user_id)).first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户不存在",
-        )
+        raise_api_error(status.HTTP_401_UNAUTHORIZED, ErrorCode.USER_NOT_FOUND, "用户不存在")
     
     # Create new tokens
     token_data = {"sub": str(user.id), "username": user.username}
@@ -186,14 +169,11 @@ def change_password(
         Success message.
         
     Raises:
-        HTTPException: If current password is wrong.
+        ApiError: If current password is wrong.
     """
     # Verify current password
     if not current_user.password_hash or not verify_password(data.current_password, current_user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="当前密码错误",
-        )
+        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.CURRENT_PASSWORD_WRONG, "当前密码错误")
     
     # Update password
     user = session.query(User).filter(User.id == current_user.id).first()
@@ -245,14 +225,11 @@ def reset_user_password(
         Success message.
         
     Raises:
-        HTTPException: If user not found.
+        ApiError: If user not found.
     """
     user = session.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="用户不存在",
-        )
+        raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.USER_NOT_FOUND, "用户不存在")
     
     user.password_hash = hash_password(data.new_password)
     user.must_change_password = False
