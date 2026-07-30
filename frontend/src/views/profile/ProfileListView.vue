@@ -15,15 +15,17 @@ import {
   NInput,
   NUpload,
   NSwitch,
+  NSelect,
   useMessage,
   useDialog,
 } from 'naive-ui'
-import type { DataTableColumns, UploadFileInfo } from 'naive-ui'
+import type { DataTableColumns, UploadFileInfo, SelectOption } from 'naive-ui'
 import { useFormatDate } from '@/composables/useDateLocale'
 import { useApiError } from '@/composables/useApiError'
 import { profilesApi } from '@/api/profiles'
+import { poolsApi } from '@/api/pools'
 import { useTaskStore } from '@/stores/tasks'
-import type { Profile } from '@/types'
+import type { ExperiencePool, Profile } from '@/types'
 
 const router = useRouter()
 const message = useMessage()
@@ -38,6 +40,7 @@ const { formatDateTime } = useFormatDate()
 const loading = ref(false)
 const profiles = ref<Profile[]>([])
 const selectedRowKeys = ref<number[]>([])
+const pools = ref<ExperiencePool[]>([])
 
 // Upload modal state
 const showUploadModal = ref(false)
@@ -50,6 +53,14 @@ const researchInterests = ref('')
 const personalStatement = ref('')
 const researchPlan = ref('')
 const profileNotes = ref('')
+const selectedPoolId = ref<number | null>(null)
+
+const poolOptions = computed<SelectOption[]>(() =>
+  pools.value.map((p) => ({
+    label: `${p.title} (${p.story_count} ${t('pool.stories')})`,
+    value: p.id,
+  }))
+)
 
 function sourceFormatLabel(format: string | undefined | null): string {
   if (format === 'materials') return t('profile.sourceMaterials')
@@ -215,11 +226,12 @@ async function handleUpload(): Promise<boolean> {
     researchPlan.value,
     profileNotes.value,
   ].some((value) => value.trim())
+  const hasPool = selectedPoolId.value != null
   if (!uploadTitle.value) {
     message.warning(t('profile.pleaseEnterTitle'))
     return false
   }
-  if (uploadRawFiles.value.length === 0 && !hasManualInput) {
+  if (uploadRawFiles.value.length === 0 && !hasManualInput && !hasPool) {
     message.warning(t('profile.needFileOrManual'))
     return false
   }
@@ -235,6 +247,7 @@ async function handleUpload(): Promise<boolean> {
         personalStatement: personalStatement.value,
         researchPlan: researchPlan.value,
         notes: profileNotes.value,
+        experiencePoolId: selectedPoolId.value,
       }
     )
     taskStore.addTask(result.task_id, 'profile-generate', t('task.profileGeneratingTask', { title: uploadTitle.value }), 3, () => {
@@ -261,10 +274,20 @@ function resetUploadModal() {
   personalStatement.value = ''
   researchPlan.value = ''
   profileNotes.value = ''
+  selectedPoolId.value = null
+}
+
+async function fetchPools() {
+  try {
+    pools.value = await poolsApi.list()
+  } catch {
+    pools.value = []
+  }
 }
 
 onMounted(() => {
   fetchProfiles()
+  fetchPools()
 })
 </script>
 
@@ -311,6 +334,17 @@ onMounted(() => {
       <n-form label-placement="top">
         <n-form-item :label="$t('profile.title')">
           <n-input v-model:value="uploadTitle" :placeholder="$t('profile.titleExamplePlaceholder')" />
+        </n-form-item>
+        <n-form-item :label="$t('pool.bindPool')">
+          <n-select
+            v-model:value="selectedPoolId"
+            :options="poolOptions"
+            clearable
+            :placeholder="$t('pool.bindPoolNone')"
+          />
+          <div style="margin-top: 6px; font-size: 13px; color: var(--muted-foreground)">
+            {{ $t('pool.bindPoolHint') }}
+          </div>
         </n-form-item>
         <n-form-item :label="$t('profile.materialFilesLabel')">
           <n-upload

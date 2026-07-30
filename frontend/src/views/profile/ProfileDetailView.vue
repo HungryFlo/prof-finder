@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject, ref, onMounted, defineAsyncComponent } from 'vue'
+import { inject, ref, onMounted, defineAsyncComponent, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -15,13 +15,16 @@ import {
   NDescriptionsItem,
   NTag,
   NDivider,
+  NSelect,
   useMessage,
 } from 'naive-ui'
+import type { SelectOption } from 'naive-ui'
 import { profilesApi } from '@/api/profiles'
 const ProfileChatPanel = defineAsyncComponent(() => import('@/components/ProfileChatPanel.vue'))
+import { poolsApi } from '@/api/pools'
 import { useFormatDate } from '@/composables/useDateLocale'
 import { useApiError } from '@/composables/useApiError'
-import type { Profile, EducationItem, ResearchItem, ProjectItem } from '@/types'
+import type { ExperiencePool, Profile, EducationItem, ResearchItem, ProjectItem } from '@/types'
 
 const router = useRouter()
 const route = useRoute()
@@ -38,6 +41,8 @@ const saving = ref(false)
 const showChat = ref(false)
 const profile = ref<Profile | null>(null)
 const profileId = ref(0)
+const pools = ref<ExperiencePool[]>([])
+const boundPoolId = ref<number | null>(null)
 
 const formData = ref({
   title: '',
@@ -48,6 +53,14 @@ const formData = ref({
   research_experience: [] as ResearchItem[],
   projects: [] as ProjectItem[],
 })
+
+const poolOptions = computed<SelectOption[]>(() =>
+  pools.value.map((p) => ({ label: p.title, value: p.id }))
+)
+
+const boundPool = computed(() =>
+  pools.value.find((p) => p.id === boundPoolId.value) ?? null
+)
 
 function sourceFormatDisplay(fmt: string | null | undefined): string {
   if (fmt === 'materials') return t('profile.sourceMaterials')
@@ -67,6 +80,7 @@ async function fetchProfile() {
   try {
     profile.value = await profilesApi.get(id)
     profileId.value = id
+    boundPoolId.value = profile.value.experience_pool_id ?? null
     setBreadcrumbTitle(profile.value.title)
     formData.value = {
       title: profile.value.title,
@@ -85,6 +99,14 @@ async function fetchProfile() {
     router.push('/profile')
   } finally {
     loading.value = false
+  }
+}
+
+async function fetchPools() {
+  try {
+    pools.value = await poolsApi.list()
+  } catch {
+    pools.value = []
   }
 }
 
@@ -117,8 +139,10 @@ async function handleSave() {
       education: formData.value.education,
       research_experience: formData.value.research_experience,
       projects: formData.value.projects,
+      experience_pool_id: boundPoolId.value,
     })
     message.success(t('profile.saveSuccess'))
+    await refreshProfileSilent()
   } catch (error: unknown) {
     handleApiError(error, t('profile.saveFailed'))
   } finally {
@@ -136,6 +160,7 @@ function formatNote(note: unknown): string {
 
 onMounted(() => {
   fetchProfile()
+  fetchPools()
 })
 </script>
 
@@ -172,6 +197,27 @@ onMounted(() => {
         </n-descriptions-item>
         <n-descriptions-item :label="$t('profile.createdAt')">
           {{ formatDateTime(profile.created_at) }}
+        </n-descriptions-item>
+        <n-descriptions-item :label="$t('pool.boundPool')" :span="2">
+          <n-space align="center">
+            <n-select
+              v-model:value="boundPoolId"
+              :options="poolOptions"
+              clearable
+              style="min-width: 240px"
+              :placeholder="$t('pool.bindPoolNone')"
+            />
+            <n-button
+              v-if="boundPool"
+              size="small"
+              @click="router.push(`/pool/${boundPool.id}`)"
+            >
+              {{ $t('pool.openBoundPool') }}
+            </n-button>
+            <span v-else style="color: var(--muted-foreground); font-size: 13px">
+              {{ $t('pool.noBoundPool') }}
+            </span>
+          </n-space>
         </n-descriptions-item>
       </n-descriptions>
 

@@ -52,6 +52,7 @@ export interface Profile {
   evidence_notes?: unknown[]
   conflict_notes?: unknown[]
   profile_generated_at?: string
+  experience_pool_id?: number | null
   created_at: string
   updated_at: string
 }
@@ -66,6 +67,7 @@ export interface ProfileCreate {
   skills: string[]
   raw_content?: string
   source_format: string
+  experience_pool_id?: number | null
 }
 
 // Professor types
@@ -354,3 +356,80 @@ export interface ApiError {
   code: string
   detail: string
 }
+
+// Experience pool types
+export type PoolPhase = 'brainstorm' | 'cluster' | 'detail' | 'compose'
+export type SeedStatus = 'active' | 'discarded'
+export type StoryCompletion = 'empty' | 'partial' | 'complete'
+export type CompositionDocType =
+  | 'resume_bullet'
+  | 'personal_statement'
+  | 'research_plan'
+  | 'letter_snippet'
+
+export interface ExperiencePool {
+  id: number
+  title: string
+  description?: string | null
+  phase: PoolPhase | string
+  seed_count: number
+  story_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ExperienceSeed {
+  id: number
+  pool_id: number
+  content: string
+  status: SeedStatus | string
+  cluster_id?: number | null
+  standalone: boolean
+  sort_order: number
+  tags: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface ExperienceCluster {
+  id: number
+  pool_id: number
+  title: string
+  note?: string | null
+  color?: string | null
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ExperienceStory {
+  id: number
+  seed_id: number
+  seed_content: string
+  cluster_id?: number | null
+  cluster_title?: string | null
+  standalone: boolean
+  origin?: string | null
+  process?: string | null
+  outcome?: string | null
+  problems?: string | null
+  setbacks?: string | null
+  knowledge?: string | null
+  insights?: string | null
+  freeform?: string | null
+  completion: StoryCompletion | string
+  created_at: string
+  updated_at: string
+}
+
+export interface PoolComposition {
+  id: number
+  pool_id: number
+  doc_type: CompositionDocType | string
+  title: string
+  body: string
+  source_story_ids: number[]
+  created_at: string
+  updated_at: string
+}
+

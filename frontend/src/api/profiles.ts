@@ -10,6 +10,7 @@ export interface ProfileMaterialUploadOptions {
   personalStatement?: string
   researchPlan?: string
   notes?: string
+  experiencePoolId?: number | null
 }
 
 export const profilesApi = {
@@ -36,6 +37,9 @@ export const profilesApi = {
     formData.append('personal_statement', options.personalStatement ?? '')
     formData.append('research_plan', options.researchPlan ?? '')
     formData.append('notes', options.notes ?? '')
+    if (options.experiencePoolId != null) {
+      formData.append('experience_pool_id', String(options.experiencePoolId))
+    }
     
     const response = await client.post<TaskStartResponse>('/profiles/upload', formData)
     return response.data

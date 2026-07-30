@@ -18,6 +18,7 @@ import {
 import {
   HomeOutline,
   DocumentTextOutline,
+  LayersOutline,
   PeopleOutline,
   GitCompareOutline,
   SettingsOutline,
@@ -66,6 +67,11 @@ const menuOptions = computed<MenuOption[]>(() => {
       icon: () => h(NIcon, null, { default: () => h(HomeOutline) }),
     },
     {
+      label: t('nav.pools'),
+      key: 'pool',
+      icon: () => h(NIcon, null, { default: () => h(LayersOutline) }),
+    },
+    {
       label: t('nav.profiles'),
       key: 'profile',
       icon: () => h(NIcon, null, { default: () => h(DocumentTextOutline) }),
@@ -101,6 +107,7 @@ const menuOptions = computed<MenuOption[]>(() => {
 const activeKey = computed(() => {
   const path = route.path
   if (path === '/') return ''
+  if (path.startsWith('/pool')) return 'pool'
   if (path.startsWith('/profile')) return 'profile'
   if (path.startsWith('/professor')) return 'professor'
   if (path.startsWith('/match')) return 'match'

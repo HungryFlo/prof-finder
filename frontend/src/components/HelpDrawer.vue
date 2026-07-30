@@ -8,6 +8,7 @@ const { t } = useI18n()
 const { showHelp } = useHelpDrawer()
 
 const quickStartSteps = computed(() => [
+  { title: t('help.step0Title'), desc: t('help.step0Desc') },
   { title: t('help.step1Title'), desc: t('help.step1Desc') },
   { title: t('help.step2Title'), desc: t('help.step2Desc') },
   { title: t('help.step3Title'), desc: t('help.step3Desc') },

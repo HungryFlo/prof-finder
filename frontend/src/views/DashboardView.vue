@@ -8,6 +8,7 @@ import {
   SchoolOutline,
   GitCompareOutline,
   MailOutline,
+  LayersOutline,
   ChevronForwardOutline,
   CheckmarkCircleOutline,
   EllipseOutline,
@@ -15,6 +16,7 @@ import {
 } from '@vicons/ionicons5'
 import { useAuthStore } from '@/stores/auth'
 import { dashboardApi, type DashboardData } from '@/api/dashboard'
+import { poolsApi } from '@/api/pools'
 import { useFormatDate } from '@/composables/useDateLocale'
 import { useHelpDrawer } from '@/composables/useHelpDrawer'
 
@@ -26,6 +28,7 @@ const { openHelp } = useHelpDrawer()
 
 const loading = ref(true)
 const data = ref<DashboardData | null>(null)
+const poolStoryCount = ref(0)
 
 const username = computed(() => authStore.user?.username ?? '')
 
@@ -40,6 +43,14 @@ const dailyQuote = computed(() => {
 })
 
 const steps = computed(() => [
+  {
+    key: 'pool',
+    label: t('dashboard.stepPool'),
+    desc: t('dashboard.stepPoolDesc'),
+    done: poolStoryCount.value > 0,
+    icon: LayersOutline,
+    route: '/pool',
+  },
   {
     key: 'profile',
     label: t('dashboard.stepProfile'),
@@ -98,7 +109,12 @@ function scoreColor(score: number): string {
 
 onMounted(async () => {
   try {
-    data.value = await dashboardApi.getData()
+    const [dash, pools] = await Promise.all([
+      dashboardApi.getData(),
+      poolsApi.list().catch(() => []),
+    ])
+    data.value = dash
+    poolStoryCount.value = pools.reduce((sum, p) => sum + (p.story_count || 0), 0)
   } catch {
     // silently handle
   } finally {

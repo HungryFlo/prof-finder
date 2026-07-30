@@ -160,6 +160,15 @@ class LetterGenerator:
             label = "技能专长：" if language == "zh" else "Skills: "
             parts.append(f"{label}{', '.join(skills)}")
 
+        experience_stories = (_get_attr(profile, "experience_stories") or "").strip()
+        if experience_stories:
+            label = (
+                "信息池细化经历：\n"
+                if language == "zh"
+                else "Detailed experiences from material pool:\n"
+            )
+            parts.append(f"{label}{experience_stories}")
+
         return "\n\n".join(parts) if parts else none_detail
 
     def _format_professor_info(self, professor: Union[dict, object], language: str) -> str:

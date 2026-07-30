@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
 from ...models.schema import User, UserProfile
+from ...models.schema import ExperiencePool
 from ..deps import get_db_session, get_current_user, get_current_user_sse
 from ..schemas import (
     ProfileCreate,
@@ -37,8 +38,28 @@ from ...llm.config import llm_not_configured_message, llm_provider_for_user_sett
 from ...llm.student_profile_generator import StudentProfileGenerator
 from ...models.schema import UserSettings
 from ..errors import ErrorCode, raise_api_error
+from ..experience_pool_service import format_pool_stories_material
 
 router = APIRouter(prefix="/profiles", tags=["学生画像"])
+
+
+def _validate_experience_pool_id(
+    session: Session, user_id: int, pool_id: Optional[int]
+) -> Optional[int]:
+    if pool_id is None:
+        return None
+    pool = (
+        session.query(ExperiencePool)
+        .filter(ExperiencePool.id == pool_id, ExperiencePool.user_id == user_id)
+        .first()
+    )
+    if not pool:
+        raise_api_error(
+            status.HTTP_404_NOT_FOUND,
+            ErrorCode.EXPERIENCE_POOL_NOT_FOUND,
+            "信息池不存在",
+        )
+    return pool_id
 
 
 def _student_profile_generator(
@@ -101,6 +122,10 @@ def create_profile(
         UserProfile.is_active == True,
     ).update({"is_active": False})
 
+    pool_id = _validate_experience_pool_id(
+        session, current_user.id, data.experience_pool_id
+    )
+
     # Create new profile
     profile = UserProfile(
         user_id=current_user.id,
@@ -113,6 +138,7 @@ def create_profile(
         skills=data.skills,
         raw_content=data.raw_content,
         source_format=data.source_format,
+        experience_pool_id=pool_id,
         is_active=True,
     )
     session.add(profile)
@@ -132,6 +158,7 @@ async def upload_profile(
     personal_statement: str = Form(""),
     research_plan: str = Form(""),
     notes: str = Form(""),
+    experience_pool_id: Optional[int] = Form(None),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
 ):
@@ -146,6 +173,7 @@ async def upload_profile(
         personal_statement: Directly entered personal statement.
         research_plan: Directly entered research plan.
         notes: Directly entered free-form notes.
+        experience_pool_id: Optional bound experience pool.
         current_user: Authenticated user.
         session: Database session.
 
@@ -163,9 +191,20 @@ async def upload_profile(
         "research_plan": research_plan.strip(),
         "notes": notes.strip(),
     }
+    pool_id = _validate_experience_pool_id(
+        session, current_user.id, experience_pool_id
+    )
+    pool_material = None
+    if pool_id is not None:
+        pool_material = format_pool_stories_material(session, pool_id, language="zh")
+
     has_manual_input = any(manual_inputs.values())
-    if not uploaded_files and not has_manual_input:
-        raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.PROFILE_MATERIAL_REQUIRED, "请至少上传一个材料文件或填写一项画像材料")
+    if not uploaded_files and not has_manual_input and pool_material is None:
+        raise_api_error(
+            status.HTTP_400_BAD_REQUEST,
+            ErrorCode.PROFILE_MATERIAL_REQUIRED,
+            "请至少上传一个材料文件、填写一项画像材料，或绑定含细化经历的信息池",
+        )
 
     materials = []
     for upload in uploaded_files:
@@ -192,6 +231,9 @@ async def upload_profile(
             }
         )
 
+    if pool_material is not None:
+        materials.append(pool_material)
+
     total_chars = sum(len(item["content"]) for item in materials) + sum(
         len(value) for value in manual_inputs.values()
     )
@@ -212,6 +254,7 @@ async def upload_profile(
         materials=materials,
         manual_inputs=manual_inputs,
         use_llm=use_llm,
+        experience_pool_id=pool_id,
     )
 
     return TaskStartResponse(
@@ -290,6 +333,10 @@ def update_profile(
         profile.projects = [p.model_dump() for p in data.projects]
     if data.skills is not None:
         profile.skills = data.skills
+    if "experience_pool_id" in data.model_fields_set:
+        profile.experience_pool_id = _validate_experience_pool_id(
+            session, current_user.id, data.experience_pool_id
+        )
 
     session.flush()
     session.refresh(profile)

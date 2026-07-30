@@ -538,6 +538,16 @@ def execute_batch_letters(
                 task.message = f"正在为 {professor.name} 生成邮件..."
                 prof_name = professor.name
 
+                from .experience_pool_service import format_pool_stories_summary
+
+                experience_stories = ""
+                if profile.experience_pool_id:
+                    experience_stories = format_pool_stories_summary(
+                        session,
+                        profile.experience_pool_id,
+                        language=language if language in ("zh", "en") else "en",
+                    )
+
                 profile_data = {
                     "name": profile.name,
                     "name_locales": profile.name_locales or {},
@@ -547,6 +557,7 @@ def execute_batch_letters(
                     "skills": profile.skills or [],
                     "academic_profile": profile.academic_profile,
                     "profile_analysis": profile.profile_analysis or {},
+                    "experience_stories": experience_stories,
                 }
                 prof_data = {
                     "name": professor.name,
@@ -732,6 +743,7 @@ def execute_student_profile_generation(
     materials: list[dict],
     manual_inputs: dict,
     use_llm: bool,
+    experience_pool_id: Optional[int] = None,
     session_factory: Optional[Callable[[], Any]] = None,
 ) -> None:
     """Generate an academic student profile from uploaded and manual materials."""
@@ -815,6 +827,7 @@ def execute_student_profile_generation(
                 evidence_notes=result.evidence_notes,
                 conflict_notes=result.conflict_notes,
                 profile_generated_at=datetime.now(timezone.utc),
+                experience_pool_id=experience_pool_id,
                 is_active=not has_active_profile,
             )
             session.add(profile)
@@ -1183,6 +1196,16 @@ def execute_single_letter(
             match_record, professor, profile = result
             task.message = f"正在为 {professor.name} 生成邮件..."
 
+            from .experience_pool_service import format_pool_stories_summary
+
+            experience_stories = ""
+            if profile.experience_pool_id:
+                experience_stories = format_pool_stories_summary(
+                    session,
+                    profile.experience_pool_id,
+                    language=language if language in ("zh", "en") else "en",
+                )
+
             profile_data = {
                 "name": profile.name,
                 "name_locales": profile.name_locales or {},
@@ -1192,6 +1215,7 @@ def execute_single_letter(
                 "skills": profile.skills or [],
                 "academic_profile": profile.academic_profile,
                 "profile_analysis": profile.profile_analysis or {},
+                "experience_stories": experience_stories,
             }
             prof_data = {
                 "name": professor.name,
@@ -3399,6 +3423,19 @@ def execute_profile_chat_refinement(
                 ]
                 manual_materials = [m for m in materials if m.get("source_type") == "manual"]
                 materials = file_materials + manual_materials
+
+            if profile.experience_pool_id:
+                from .experience_pool_service import format_pool_stories_material
+
+                pool_material = format_pool_stories_material(
+                    session, profile.experience_pool_id, language="zh"
+                )
+                if pool_material is not None:
+                    materials = [
+                        m
+                        for m in materials
+                        if m.get("source_type") != "experience_pool"
+                    ] + [pool_material]
 
         task.current = 2
         task.message = "正在重新生成学生画像..."

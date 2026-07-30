@@ -149,6 +149,7 @@ class ProfileCreate(BaseModel):
     skills: List[str] = []
     raw_content: Optional[str] = None
     source_format: str = "manual"
+    experience_pool_id: Optional[int] = None
 
     @field_validator("name_locales", mode="before")
     @classmethod
@@ -169,6 +170,7 @@ class ProfileUpdate(BaseModel):
     research_experience: Optional[List[ResearchItem]] = None
     projects: Optional[List[ProjectItem]] = None
     skills: Optional[List[str]] = None
+    experience_pool_id: Optional[int] = None
 
     @field_validator("name_locales", mode="before")
     @classmethod
@@ -196,6 +198,7 @@ class ProfileResponse(BaseModel):
     evidence_notes: Optional[List[Any]] = None
     conflict_notes: Optional[List[Any]] = None
     profile_generated_at: Optional[ApiDateTime] = None
+    experience_pool_id: Optional[int] = None
     created_at: ApiDateTime
     updated_at: ApiDateTime
 
@@ -227,6 +230,216 @@ class ProfileChatRefineRequest(BaseModel):
     """Request to regenerate profile from chat Q&A."""
 
     history: List[dict] = []
+
+
+# ============= Experience Pool Schemas =============
+
+POOL_PHASES = Literal["brainstorm", "cluster", "detail", "compose"]
+SEED_STATUSES = Literal["active", "discarded"]
+COMPOSITION_DOC_TYPES = Literal[
+    "resume_bullet", "personal_statement", "research_plan", "letter_snippet"
+]
+
+
+class ExperiencePoolCreate(BaseModel):
+    """Create an experience pool."""
+
+    title: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = None
+
+
+class ExperiencePoolUpdate(BaseModel):
+    """Update an experience pool."""
+
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = None
+    phase: Optional[POOL_PHASES] = None
+
+
+class ExperiencePoolResponse(BaseModel):
+    """Experience pool response."""
+
+    id: int
+    title: str
+    description: Optional[str] = None
+    phase: str
+    seed_count: int = 0
+    story_count: int = 0
+    created_at: ApiDateTime
+    updated_at: ApiDateTime
+
+    class Config:
+        from_attributes = True
+
+
+class ExperienceSeedCreate(BaseModel):
+    """Create one brainstorm seed."""
+
+    content: str = Field(..., min_length=1)
+    tags: List[str] = []
+
+
+class ExperienceSeedBatchCreate(BaseModel):
+    """Create multiple seeds (one line each)."""
+
+    contents: List[str] = Field(..., min_length=1)
+
+
+class ExperienceSeedUpdate(BaseModel):
+    """Update a seed."""
+
+    content: Optional[str] = Field(None, min_length=1)
+    status: Optional[SEED_STATUSES] = None
+    cluster_id: Optional[int] = None
+    standalone: Optional[bool] = None
+    sort_order: Optional[int] = None
+    tags: Optional[List[str]] = None
+    clear_cluster: bool = False
+
+
+class ExperienceSeedResponse(BaseModel):
+    """Seed response."""
+
+    id: int
+    pool_id: int
+    content: str
+    status: str
+    cluster_id: Optional[int] = None
+    standalone: bool = False
+    sort_order: int = 0
+    tags: List[str] = []
+    created_at: ApiDateTime
+    updated_at: ApiDateTime
+
+    class Config:
+        from_attributes = True
+
+
+class ExperienceClusterCreate(BaseModel):
+    """Create a cluster."""
+
+    title: str = Field(..., min_length=1, max_length=200)
+    note: Optional[str] = None
+    color: Optional[str] = None
+
+
+class ExperienceClusterUpdate(BaseModel):
+    """Update a cluster."""
+
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    note: Optional[str] = None
+    color: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class ExperienceClusterResponse(BaseModel):
+    """Cluster response."""
+
+    id: int
+    pool_id: int
+    title: str
+    note: Optional[str] = None
+    color: Optional[str] = None
+    sort_order: int = 0
+    created_at: ApiDateTime
+    updated_at: ApiDateTime
+
+    class Config:
+        from_attributes = True
+
+
+class ExperienceClusterMergeRequest(BaseModel):
+    """Merge source cluster into target; seeds move to target."""
+
+    source_cluster_id: int
+    target_cluster_id: int
+
+
+class ExperienceStoryUpdate(BaseModel):
+    """Update story detail fields."""
+
+    origin: Optional[str] = None
+    process: Optional[str] = None
+    outcome: Optional[str] = None
+    problems: Optional[str] = None
+    setbacks: Optional[str] = None
+    knowledge: Optional[str] = None
+    insights: Optional[str] = None
+    freeform: Optional[str] = None
+
+
+class ExperienceStoryResponse(BaseModel):
+    """Story response with seed summary."""
+
+    id: int
+    seed_id: int
+    seed_content: str = ""
+    cluster_id: Optional[int] = None
+    cluster_title: Optional[str] = None
+    standalone: bool = False
+    origin: Optional[str] = None
+    process: Optional[str] = None
+    outcome: Optional[str] = None
+    problems: Optional[str] = None
+    setbacks: Optional[str] = None
+    knowledge: Optional[str] = None
+    insights: Optional[str] = None
+    freeform: Optional[str] = None
+    completion: str = "empty"  # empty|partial|complete
+    created_at: ApiDateTime
+    updated_at: ApiDateTime
+
+    class Config:
+        from_attributes = True
+
+
+class PoolCompositionCreate(BaseModel):
+    """Create a composition draft."""
+
+    doc_type: COMPOSITION_DOC_TYPES
+    title: str = Field(..., min_length=1, max_length=200)
+    body: str = ""
+    source_story_ids: List[int] = []
+
+
+class PoolCompositionUpdate(BaseModel):
+    """Update a composition."""
+
+    doc_type: Optional[COMPOSITION_DOC_TYPES] = None
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    body: Optional[str] = None
+    source_story_ids: Optional[List[int]] = None
+
+
+class PoolCompositionResponse(BaseModel):
+    """Composition response."""
+
+    id: int
+    pool_id: int
+    doc_type: str
+    title: str
+    body: str
+    source_story_ids: List[int] = []
+    created_at: ApiDateTime
+    updated_at: ApiDateTime
+
+    class Config:
+        from_attributes = True
+
+
+class PoolCompositionGenerateRequest(BaseModel):
+    """LLM draft generation for a composition."""
+
+    doc_type: COMPOSITION_DOC_TYPES
+    story_ids: List[int] = Field(..., min_length=1)
+    title: Optional[str] = None
+    language: Literal["zh", "en"] = "zh"
+
+
+class PoolCompositionApplyRequest(BaseModel):
+    """Apply composition body to a profile's manual_inputs / research_experience."""
+
+    profile_id: int
 
 
 # ============= Professor Schemas =============

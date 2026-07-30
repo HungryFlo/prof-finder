@@ -6,7 +6,7 @@
 
 ### 前置要求
 
-- Python 3.10+（与 `pyproject.toml` 中 `>=3.10,<4.0` 一致）
+- Python 3.11+（与 `pyproject.toml` 中 `>=3.11,<4.0` 一致）
 - Node.js **20.19+** 或 **22.12+**（见 `frontend/package.json` 的 `engines`）
 - Poetry (Python 包管理)
 - Conda (推荐，用于环境管理)

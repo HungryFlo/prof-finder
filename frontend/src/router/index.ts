@@ -40,6 +40,23 @@ const router = createRouter({
           component: () => import('@/views/DashboardView.vue'),
         },
         {
+          path: 'pool',
+          meta: { breadcrumb: { labelKey: 'breadcrumb.pools' } },
+          children: [
+            {
+              path: '',
+              name: 'PoolList',
+              component: () => import('@/views/pool/PoolListView.vue'),
+            },
+            {
+              path: ':id',
+              name: 'PoolWorkspace',
+              component: () => import('@/views/pool/PoolWorkspaceView.vue'),
+              meta: { breadcrumb: { labelKey: 'breadcrumb.poolWorkspace', dynamic: true } },
+            },
+          ],
+        },
+        {
           path: 'profile',
           meta: { breadcrumb: { labelKey: 'breadcrumb.profiles' } },
           children: [

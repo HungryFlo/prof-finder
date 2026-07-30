@@ -78,6 +78,16 @@ class Database:
                 conn.execute(text("ALTER TABLE user_profiles ADD COLUMN name_locales JSON"))
                 conn.commit()
 
+            profile_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(user_profiles)"))}
+            if "experience_pool_id" not in profile_columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE user_profiles ADD COLUMN experience_pool_id "
+                        "INTEGER REFERENCES experience_pools(id)"
+                    )
+                )
+                conn.commit()
+
             # Add professors.embedding column if missing (added in semantic-matching change)
             result = conn.execute(text("PRAGMA table_info(professors)"))
             existing_columns = {row[1] for row in result}

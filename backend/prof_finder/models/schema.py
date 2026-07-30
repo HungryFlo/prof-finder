@@ -36,6 +36,9 @@ class User(Base):
     profiles = relationship("UserProfile", back_populates="user", cascade="all, delete-orphan")
     professors = relationship("Professor", back_populates="user", cascade="all, delete-orphan")
     source_inputs = relationship("SourceInput", back_populates="user", cascade="all, delete-orphan")
+    experience_pools = relationship(
+        "ExperiencePool", back_populates="user", cascade="all, delete-orphan"
+    )
     settings = relationship("UserSettings", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
@@ -114,6 +117,11 @@ class UserProfile(Base):
     evidence_notes = Column(JSON, default=list)
     conflict_notes = Column(JSON, default=list)
     profile_generated_at = Column(DateTime)
+
+    # Optional link to one experience pool (素材信息池)
+    experience_pool_id = Column(
+        Integer, ForeignKey("experience_pools.id"), nullable=True, index=True
+    )
     
     # Timestamps
     created_at = Column(DateTime, default=utc_now)
@@ -122,9 +130,140 @@ class UserProfile(Base):
     # Relationships
     user = relationship("User", back_populates="profiles")
     match_records = relationship("MatchRecord", back_populates="profile", cascade="all, delete-orphan")
+    experience_pool = relationship("ExperiencePool", back_populates="profiles")
 
     def __repr__(self) -> str:
         return f"<UserProfile(id={self.id}, title='{self.title}', user_id={self.user_id})>"
+
+
+class ExperiencePool(Base):
+    """User-owned experience material pool (信息池)."""
+
+    __tablename__ = "experience_pools"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text)
+    phase = Column(String(20), default="brainstorm")  # brainstorm|cluster|detail|compose
+
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    user = relationship("User", back_populates="experience_pools")
+    seeds = relationship(
+        "ExperienceSeed", back_populates="pool", cascade="all, delete-orphan"
+    )
+    clusters = relationship(
+        "ExperienceCluster", back_populates="pool", cascade="all, delete-orphan"
+    )
+    compositions = relationship(
+        "PoolComposition", back_populates="pool", cascade="all, delete-orphan"
+    )
+    profiles = relationship("UserProfile", back_populates="experience_pool")
+
+    def __repr__(self) -> str:
+        return f"<ExperiencePool(id={self.id}, title='{self.title}')>"
+
+
+class ExperienceCluster(Base):
+    """A thematic cluster of experience seeds within a pool."""
+
+    __tablename__ = "experience_clusters"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    pool_id = Column(Integer, ForeignKey("experience_pools.id"), nullable=False, index=True)
+    title = Column(String(200), nullable=False)
+    note = Column(Text)
+    color = Column(String(20))
+    sort_order = Column(Integer, default=0)
+
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    pool = relationship("ExperiencePool", back_populates="clusters")
+    seeds = relationship("ExperienceSeed", back_populates="cluster")
+
+    def __repr__(self) -> str:
+        return f"<ExperienceCluster(id={self.id}, title='{self.title}')>"
+
+
+class ExperienceSeed(Base):
+    """Short brainstorm fragment in an experience pool."""
+
+    __tablename__ = "experience_seeds"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    pool_id = Column(Integer, ForeignKey("experience_pools.id"), nullable=False, index=True)
+    content = Column(Text, nullable=False)
+    status = Column(String(20), default="active")  # active|discarded
+    cluster_id = Column(Integer, ForeignKey("experience_clusters.id"), nullable=True, index=True)
+    standalone = Column(Boolean, default=False)  # keep for detail without clustering
+    sort_order = Column(Integer, default=0)
+    tags = Column(JSON, default=list)
+
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    pool = relationship("ExperiencePool", back_populates="seeds")
+    cluster = relationship("ExperienceCluster", back_populates="seeds")
+    story = relationship(
+        "ExperienceStory",
+        back_populates="seed",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self) -> str:
+        return f"<ExperienceSeed(id={self.id}, status='{self.status}')>"
+
+
+class ExperienceStory(Base):
+    """Detailed narrative for one retained seed (1:1)."""
+
+    __tablename__ = "experience_stories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    seed_id = Column(
+        Integer, ForeignKey("experience_seeds.id"), nullable=False, unique=True, index=True
+    )
+    origin = Column(Text)
+    process = Column(Text)
+    outcome = Column(Text)
+    problems = Column(Text)
+    setbacks = Column(Text)
+    knowledge = Column(Text)
+    insights = Column(Text)
+    freeform = Column(Text)
+
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    seed = relationship("ExperienceSeed", back_populates="story")
+
+    def __repr__(self) -> str:
+        return f"<ExperienceStory(id={self.id}, seed_id={self.seed_id})>"
+
+
+class PoolComposition(Base):
+    """Document fragment composed from selected stories."""
+
+    __tablename__ = "pool_compositions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    pool_id = Column(Integer, ForeignKey("experience_pools.id"), nullable=False, index=True)
+    doc_type = Column(String(40), nullable=False)  # resume_bullet|personal_statement|research_plan|letter_snippet
+    title = Column(String(200), nullable=False)
+    body = Column(Text, nullable=False, default="")
+    source_story_ids = Column(JSON, default=list)
+
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    pool = relationship("ExperiencePool", back_populates="compositions")
+
+    def __repr__(self) -> str:
+        return f"<PoolComposition(id={self.id}, doc_type='{self.doc_type}')>"
 
 
 class University(Base):

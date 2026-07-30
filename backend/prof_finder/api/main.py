@@ -30,6 +30,7 @@ from .routes.settings import router as settings_router
 from .routes.tasks import router as tasks_router
 from .routes.source_inputs import router as source_inputs_router
 from .routes.universities import router as universities_router
+from .routes.pools import router as pools_router
 from .task_queue import start_consumer, stop_consumer, enqueue_task, flush_queue
 from .task_manager import (
     TaskStatus,
@@ -229,6 +230,7 @@ def create_app() -> FastAPI:
     app.include_router(tasks_router, prefix="/api")
     app.include_router(source_inputs_router, prefix="/api")
     app.include_router(universities_router, prefix="/api")
+    app.include_router(pools_router, prefix="/api")
     
     @app.get("/api/health")
     def health_check():
