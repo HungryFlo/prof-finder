@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Prof-Finder - Your Ideal Professor Awaits</title>
-  <meta name="description" content="帮助大学生寻找未来 PhD/MPhil 导师的智能匹配系统。本地运行，隐私安全，AI 驱动。" />
-  <meta name="keywords" content="professor finder, PhD advisor, graduate supervisor, research matching, academic tools" />
+  <meta name="description" content="本地运行的研究生导师匹配助手：信息池沉淀经历、建立学术画像、导入教授、语义匹配并生成套磁信。" />
+  <meta name="keywords" content="professor finder, PhD advisor, graduate supervisor, research matching, experience pool, academic tools" />
   <meta property="og:title" content="Prof-Finder - Your Ideal Professor Awaits" />
-  <meta property="og:description" content="帮助大学生寻找未来 PhD/MPhil 导师的智能匹配系统" />
+  <meta property="og:description" content="本地优先的 PhD/MPhil 导师匹配助手：信息池、画像、匹配与套磁信一站完成" />
   <meta property="og:type" content="website" />
   <meta name="theme-color" content="#3b82a0" />
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%233b82a0'/%3E%3Ctext x='16' y='21' text-anchor='middle' font-family='system-ui' font-weight='700' font-size='16' fill='white'%3EPF%3C/text%3E%3C/svg%3E" />
@@ -202,7 +202,7 @@
 
         <!-- Subtext -->
         <p class="reveal reveal-delay-2 text-base md:text-lg text-ink-secondary leading-relaxed max-w-[50ch] mb-9">
-          帮助大学生寻找未来 PhD/MPhil 导师的智能匹配系统。上传简历，导入教授信息，AI 语义匹配，生成个性化套磁信。
+          在本机运行的 PhD/MPhil 导师匹配助手。先用信息池沉淀经历，再建立画像、导入教授，本地语义匹配后生成可审阅的套磁信。
         </p>
 
         <!-- CTAs -->
@@ -247,40 +247,52 @@
             <span class="text-sm font-medium text-ink">Prof-Finder</span>
           </div>
 
-          <!-- Steps -->
-          <div class="space-y-3">
-            <!-- Step 1: Done -->
-            <div class="flex items-center gap-3.5 p-3.5 bg-accent/8 border border-accent/15 rounded-xl">
-              <div class="shrink-0 w-9 h-9 bg-accent rounded-lg flex items-center justify-center">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          <!-- Steps (align with in-app dashboard) -->
+          <div class="space-y-2">
+            <!-- Step 1: Done — Experience pool -->
+            <div class="flex items-center gap-3 p-3 bg-accent/8 border border-accent/15 rounded-xl">
+              <div class="shrink-0 w-8 h-8 bg-accent rounded-lg flex items-center justify-center">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
               </div>
               <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium text-ink">上传简历</div>
-                <div class="text-xs text-ink-tertiary mt-0.5">Markdown / LaTeX 智能解析</div>
+                <div class="text-sm font-medium text-ink">沉淀经历</div>
+                <div class="text-xs text-ink-tertiary mt-0.5">信息池：脑暴 · 聚类 · 细化 · 文书</div>
               </div>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82a0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82a0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
             </div>
 
-            <!-- Step 2: Done -->
-            <div class="flex items-center gap-3.5 p-3.5 bg-accent/8 border border-accent/15 rounded-xl">
-              <div class="shrink-0 w-9 h-9 bg-accent rounded-lg flex items-center justify-center">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+            <!-- Step 2: Done — Profile -->
+            <div class="flex items-center gap-3 p-3 bg-accent/8 border border-accent/15 rounded-xl">
+              <div class="shrink-0 w-8 h-8 bg-accent rounded-lg flex items-center justify-center">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium text-ink">建立画像</div>
+                <div class="text-xs text-ink-tertiary mt-0.5">上传简历并可绑定信息池</div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82a0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+
+            <!-- Step 3: Done — Professors -->
+            <div class="flex items-center gap-3 p-3 bg-accent/8 border border-accent/15 rounded-xl">
+              <div class="shrink-0 w-8 h-8 bg-accent rounded-lg flex items-center justify-center">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
               </div>
               <div class="flex-1 min-w-0">
                 <div class="text-sm font-medium text-ink">添加教授</div>
-                <div class="text-xs text-ink-tertiary mt-0.5">Google Scholar / DBLP / 批量导入</div>
+                <div class="text-xs text-ink-tertiary mt-0.5">Scholar / DBLP / 院校批量</div>
               </div>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82a0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82a0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
             </div>
 
-            <!-- Step 3: In progress -->
-            <div class="flex items-center gap-3.5 p-3.5 bg-accent/5 border border-accent/20 rounded-xl">
-              <div class="shrink-0 w-9 h-9 bg-accent/90 rounded-lg flex items-center justify-center">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            <!-- Step 4: In progress — Match -->
+            <div class="flex items-center gap-3 p-3 bg-accent/5 border border-accent/20 rounded-xl">
+              <div class="shrink-0 w-8 h-8 bg-accent/90 rounded-lg flex items-center justify-center">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
               </div>
               <div class="flex-1 min-w-0">
                 <div class="text-sm font-medium text-ink">智能匹配</div>
-                <div class="text-xs text-ink-tertiary mt-0.5">Qwen3 语义相似度计算</div>
+                <div class="text-xs text-ink-tertiary mt-0.5">Qwen3 本地语义相似度</div>
               </div>
               <div class="shrink-0 flex items-center gap-1.5">
                 <span class="text-xs font-mono font-medium text-accent">73%</span>
@@ -290,14 +302,14 @@
               </div>
             </div>
 
-            <!-- Step 4: Pending -->
-            <div class="flex items-center gap-3.5 p-3.5 bg-surface-tertiary border border-accent/10 rounded-xl opacity-60">
-              <div class="shrink-0 w-9 h-9 bg-ink-muted/20 rounded-lg flex items-center justify-center">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            <!-- Step 5: Pending — Letter -->
+            <div class="flex items-center gap-3 p-3 bg-surface-tertiary border border-accent/10 rounded-xl opacity-60">
+              <div class="shrink-0 w-8 h-8 bg-ink-muted/20 rounded-lg flex items-center justify-center">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
               </div>
               <div class="flex-1 min-w-0">
                 <div class="text-sm font-medium text-ink-secondary">生成套磁信</div>
-                <div class="text-xs text-ink-muted mt-0.5">可配置 LLM API 个性化撰写</div>
+                <div class="text-xs text-ink-muted mt-0.5">结合画像与信息池经历</div>
               </div>
               <span class="text-xs text-ink-muted">等待中</span>
             </div>
@@ -314,8 +326,8 @@
     <div class="max-w-[1200px] mx-auto px-5">
       <!-- Section header -->
       <div class="reveal text-center mb-16">
-        <h2 class="text-[clamp(1.75rem,3.5vw,2.5rem)] font-bold tracking-tight-headline text-ink mb-4">四步完成导师匹配</h2>
-        <p class="text-base text-ink-secondary max-w-[50ch] mx-auto">从简历解析到套磁信生成，全流程自动化。</p>
+        <h2 class="text-[clamp(1.75rem,3.5vw,2.5rem)] font-bold tracking-tight-headline text-ink mb-4">五步完成导师匹配</h2>
+        <p class="text-base text-ink-secondary max-w-[50ch] mx-auto">与应用内工作台一致：沉淀经历 → 建立画像 → 添加教授 → 运行匹配 → 生成邮件。</p>
       </div>
 
       <!-- Timeline -->
@@ -325,58 +337,72 @@
           <div class="absolute left-[27px] top-[56px] bottom-[56px] w-[2px] bg-gradient-to-b from-accent via-accent to-accent/20"></div>
 
           <!-- Step 1 -->
-          <div class="reveal relative flex gap-5 pb-14 last:pb-0">
+          <div class="reveal relative flex gap-5 pb-12 last:pb-0">
+            <div class="shrink-0 w-[56px] h-[56px] bg-accent rounded-xl flex items-center justify-center shadow-[0_2px_10px_rgba(59,130,160,0.25)] z-10">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            </div>
+            <div class="pt-1.5">
+              <div class="flex items-center gap-2.5 mb-2">
+                <span class="text-xs font-mono font-medium text-accent bg-accent/8 px-2 py-0.5 rounded">STEP 1</span>
+                <h3 class="text-lg font-semibold text-ink tracking-tight-sub">沉淀经历</h3>
+              </div>
+              <p class="text-sm text-ink-secondary leading-relaxed">在「信息池」写下学术相关经历碎片，经脑暴、聚类、细化后取材生成文书片段，形成可复用的素材库；可创建多个独立池。</p>
+            </div>
+          </div>
+
+          <!-- Step 2 -->
+          <div class="reveal relative flex gap-5 pb-12 last:pb-0">
             <div class="shrink-0 w-[56px] h-[56px] bg-accent rounded-xl flex items-center justify-center shadow-[0_2px_10px_rgba(59,130,160,0.25)] z-10">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
             </div>
             <div class="pt-1.5">
               <div class="flex items-center gap-2.5 mb-2">
-                <span class="text-xs font-mono font-medium text-accent bg-accent/8 px-2 py-0.5 rounded">STEP 1</span>
-                <h3 class="text-lg font-semibold text-ink tracking-tight-sub">上传简历</h3>
+                <span class="text-xs font-mono font-medium text-accent bg-accent/8 px-2 py-0.5 rounded">STEP 2</span>
+                <h3 class="text-lg font-semibold text-ink tracking-tight-sub">建立画像</h3>
               </div>
-              <p class="text-sm text-ink-secondary leading-relaxed">支持 Markdown、LaTeX 和纯文本格式。LLM 语义解析提取研究兴趣、技能和经历，失败时自动回退正则匹配。</p>
+              <p class="text-sm text-ink-secondary leading-relaxed">上传 Markdown / LaTeX / 文本简历，可选绑定信息池；LLM 解析研究方向与经历，支持 AI 对话继续打磨画像。匹配前请至少激活一个画像。</p>
             </div>
           </div>
 
-          <!-- Step 2 -->
-          <div class="reveal relative flex gap-5 pb-14 last:pb-0">
+          <!-- Step 3 -->
+          <div class="reveal relative flex gap-5 pb-12 last:pb-0">
             <div class="shrink-0 w-[56px] h-[56px] bg-accent rounded-xl flex items-center justify-center shadow-[0_2px_10px_rgba(59,130,160,0.25)] z-10">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
             </div>
             <div class="pt-1.5">
               <div class="flex items-center gap-2.5 mb-2">
-                <span class="text-xs font-mono font-medium text-accent bg-accent/8 px-2 py-0.5 rounded">STEP 2</span>
+                <span class="text-xs font-mono font-medium text-accent bg-accent/8 px-2 py-0.5 rounded">STEP 3</span>
                 <h3 class="text-lg font-semibold text-ink tracking-tight-sub">添加教授</h3>
               </div>
-              <p class="text-sm text-ink-secondary leading-relaxed">多种导入方式：Google Scholar 链接、DBLP 链接、院校批量爬取、手动录入。自动抓取论文、h-index 和引用数据。</p>
+              <p class="text-sm text-ink-secondary leading-relaxed">Google Scholar、DBLP、院校批量爬取或手动录入；可关联外部档案合并 Scholar 与 DBLP 数据。后台任务抓取论文、引用与科研画像。</p>
             </div>
           </div>
 
-          <!-- Step 3 -->
-          <div class="reveal relative flex gap-5 pb-14 last:pb-0">
+          <!-- Step 4 -->
+          <div class="reveal relative flex gap-5 pb-12 last:pb-0">
             <div class="shrink-0 w-[56px] h-[56px] bg-accent rounded-xl flex items-center justify-center shadow-[0_2px_10px_rgba(59,130,160,0.25)] z-10">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
             </div>
             <div class="pt-1.5">
               <div class="flex items-center gap-2.5 mb-2">
-                <span class="text-xs font-mono font-medium text-accent bg-accent/8 px-2 py-0.5 rounded">STEP 3</span>
+                <span class="text-xs font-mono font-medium text-accent bg-accent/8 px-2 py-0.5 rounded">STEP 4</span>
                 <h3 class="text-lg font-semibold text-ink tracking-tight-sub">智能匹配</h3>
               </div>
-              <p class="text-sm text-ink-secondary leading-relaxed">Qwen3-Embedding 本地运行，计算简历与每位教授研究方向的语义相似度，输出排名和匹配理由。</p>
+              <p class="text-sm text-ink-secondary leading-relaxed">首次从 ModelScope 下载 Qwen3-Embedding（约 1.2 GB）后本地运行，对激活画像与教授科研画像做语义相似度排序，并给出匹配理由。</p>
             </div>
           </div>
 
-          <!-- Step 4 -->
-          <div class="reveal relative flex gap-5 pb-14 last:pb-0">
+          <!-- Step 5 -->
+          <div class="reveal relative flex gap-5 pb-12 last:pb-0">
             <div class="shrink-0 w-[56px] h-[56px] bg-accent rounded-xl flex items-center justify-center shadow-[0_2px_10px_rgba(59,130,160,0.25)] z-10">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
             </div>
             <div class="pt-1.5">
               <div class="flex items-center gap-2.5 mb-2">
-                <span class="text-xs font-mono font-medium text-accent bg-accent/8 px-2 py-0.5 rounded">STEP 4</span>
+                <span class="text-xs font-mono font-medium text-accent bg-accent/8 px-2 py-0.5 rounded">STEP 5</span>
                 <h3 class="text-lg font-semibold text-ink tracking-tight-sub">生成套磁信</h3>
               </div>
-              <p class="text-sm text-ink-secondary leading-relaxed">使用你自选的 LLM API（OpenAI 兼容或 Anthropic）根据研究背景和教授信息，生成个性化中英文联络邮件，支持编辑和一键复制。</p>
+              <p class="text-sm text-ink-secondary leading-relaxed">用你自选的 LLM API（OpenAI 兼容或 Anthropic）结合画像与信息池细化经历生成个性化中英文联络信；支持编辑与复制，发送前须人工审阅。</p>
             </div>
           </div>
         </div>
@@ -392,21 +418,40 @@
       <!-- Section header -->
       <div class="reveal mb-14">
         <h2 class="text-[clamp(1.75rem,3.5vw,2.5rem)] font-bold tracking-tight-headline text-ink mb-4">核心能力</h2>
-        <p class="text-base text-ink-secondary max-w-[50ch]">不只是搜索工具，而是完整的导师研究与联络工作流。</p>
+        <p class="text-base text-ink-secondary max-w-[50ch]">从经历沉淀到套磁联络，覆盖申请准备的完整工作流。</p>
       </div>
 
       <!-- Bento Grid: 2 large + 4 small -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <!-- Large: Semantic Matching -->
+        <!-- Large: Experience Pool -->
         <div class="reveal bg-surface-secondary border border-accent/10 rounded-2xl p-7 md:p-8 md:row-span-1 flex flex-col justify-between min-h-[220px]">
+          <div>
+            <div class="w-11 h-11 bg-accent/10 rounded-xl flex items-center justify-center mb-5">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            </div>
+            <h3 class="text-lg font-semibold text-ink mb-2">信息池</h3>
+            <p class="text-sm text-ink-secondary leading-relaxed">脑暴线索、聚类整理、细化过程细节，再取材生成个人陈述 / 研究计划等文书片段，并可应用到学生画像。</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 mt-6 pt-5 border-t border-accent/10">
+            <span class="text-xs font-mono text-accent bg-accent/8 px-2 py-1 rounded">脑暴</span>
+            <span class="text-xs text-ink-muted">→</span>
+            <span class="text-xs font-mono text-accent bg-accent/8 px-2 py-1 rounded">聚类</span>
+            <span class="text-xs text-ink-muted">→</span>
+            <span class="text-xs font-mono text-accent bg-accent/8 px-2 py-1 rounded">细化</span>
+            <span class="text-xs text-ink-muted">→</span>
+            <span class="text-xs font-mono text-accent bg-accent/8 px-2 py-1 rounded">文书</span>
+          </div>
+        </div>
+
+        <!-- Large: Semantic Matching -->
+        <div class="reveal reveal-delay-1 bg-surface-secondary border border-accent/10 rounded-2xl p-7 md:p-8 md:row-span-1 flex flex-col justify-between min-h-[220px]">
           <div>
             <div class="w-11 h-11 bg-accent/10 rounded-xl flex items-center justify-center mb-5">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
             </div>
             <h3 class="text-lg font-semibold text-ink mb-2">语义匹配引擎</h3>
-            <p class="text-sm text-ink-secondary leading-relaxed">Qwen3-Embedding 本地运行，将简历与教授研究画像进行深度语义比对，输出相似度排名和匹配理由。</p>
+            <p class="text-sm text-ink-secondary leading-relaxed">Qwen3-Embedding 本地运行，将学生画像与教授科研画像做深度语义比对，输出相似度排名和匹配理由。</p>
           </div>
-          <!-- Decorative match score -->
           <div class="flex items-center gap-3 mt-6 pt-5 border-t border-accent/10">
             <div class="flex-1 h-2 bg-accent/10 rounded-full overflow-hidden">
               <div class="h-full bg-accent rounded-full" style="width: 87%"></div>
@@ -415,61 +460,40 @@
           </div>
         </div>
 
-        <!-- Large: Local First -->
-        <div class="reveal reveal-delay-1 bg-surface-secondary border border-accent/10 rounded-2xl p-7 md:p-8 md:row-span-1 flex flex-col justify-between min-h-[220px]">
-          <div>
-            <div class="w-11 h-11 bg-accent/10 rounded-xl flex items-center justify-center mb-5">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-            </div>
-            <h3 class="text-lg font-semibold text-ink mb-2">本地优先架构</h3>
-            <p class="text-sm text-ink-secondary leading-relaxed">所有数据存储在你的电脑上，SQLite 本地数据库。简历、教授信息、匹配结果从不离开你的设备。</p>
+        <!-- Small: Local First -->
+        <div class="reveal bg-surface-secondary border border-accent/10 rounded-2xl p-6">
+          <div class="w-10 h-10 bg-accent/10 rounded-xl flex items-center justify-center mb-4">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
           </div>
-          <div class="flex items-center gap-4 mt-6 pt-5 border-t border-accent/10">
-            <div class="flex items-center gap-1.5 text-xs text-ink-tertiary">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              隐私安全
-            </div>
-            <div class="flex items-center gap-1.5 text-xs text-ink-tertiary">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-              离线可用
-            </div>
-          </div>
+          <h3 class="text-[15px] font-semibold text-ink mb-1.5">本地优先</h3>
+          <p class="text-sm text-ink-secondary leading-relaxed">简历、教授与匹配结果保存在本机 SQLite；便携版自选数据目录，不上传云端。</p>
         </div>
 
         <!-- Small: Multi-source Import -->
-        <div class="reveal bg-surface-secondary border border-accent/10 rounded-2xl p-6">
+        <div class="reveal reveal-delay-1 bg-surface-secondary border border-accent/10 rounded-2xl p-6">
           <div class="w-10 h-10 bg-accent/10 rounded-xl flex items-center justify-center mb-4">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           </div>
           <h3 class="text-[15px] font-semibold text-ink mb-1.5">多源导入</h3>
-          <p class="text-sm text-ink-secondary leading-relaxed">Google Scholar、DBLP、院校批量爬取、手动录入，自动抓取论文和引用数据。</p>
+          <p class="text-sm text-ink-secondary leading-relaxed">Google Scholar、DBLP、院校批量与手动录入；可关联外部档案合并多源数据。</p>
         </div>
 
         <!-- Small: Letter Generation -->
-        <div class="reveal reveal-delay-1 bg-surface-secondary border border-accent/10 rounded-2xl p-6">
+        <div class="reveal reveal-delay-2 bg-surface-secondary border border-accent/10 rounded-2xl p-6">
           <div class="w-10 h-10 bg-accent/10 rounded-xl flex items-center justify-center mb-4">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
           </div>
           <h3 class="text-[15px] font-semibold text-ink mb-1.5">智能套磁信</h3>
-          <p class="text-sm text-ink-secondary leading-relaxed">可配置 LLM API 生成个性化中英文邮件，支持 DeepSeek、OpenAI、Anthropic 等，可编辑、可复制、一键使用。</p>
+          <p class="text-sm text-ink-secondary leading-relaxed">结合画像与信息池细化经历生成个性化邮件；支持 DeepSeek、OpenAI、Anthropic 等自选 API。</p>
         </div>
 
-        <!-- Small: Bilingual -->
-        <div class="reveal reveal-delay-2 bg-surface-secondary border border-accent/10 rounded-2xl p-6">
-          <div class="w-10 h-10 bg-accent/10 rounded-xl flex items-center justify-center mb-4">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
-          </div>
-          <h3 class="text-[15px] font-semibold text-ink mb-1.5">中英双语</h3>
-          <p class="text-sm text-ink-secondary leading-relaxed">完整中英文界面和文档，套磁信支持中英文生成，适配不同申请场景。</p>
-        </div>
-
-        <!-- Small: Task System -->
+        <!-- Small: Task System + AI chat -->
         <div class="reveal reveal-delay-3 bg-surface-secondary border border-accent/10 rounded-2xl p-6">
           <div class="w-10 h-10 bg-accent/10 rounded-xl flex items-center justify-center mb-4">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
           </div>
-          <h3 class="text-[15px] font-semibold text-ink mb-1.5">后台任务</h3>
-          <p class="text-sm text-ink-secondary leading-relaxed">实时 SSE 进度推送，支持取消、重试和持久化，不阻塞其他操作。</p>
+          <h3 class="text-[15px] font-semibold text-ink mb-1.5">画像 AI 对话</h3>
+          <p class="text-sm text-ink-secondary leading-relaxed">在画像详情用对话迭代打磨材料；爬取与匹配走 Huey 后台任务，SSE 实时进度，不阻塞操作。</p>
         </div>
       </div>
     </div>
@@ -502,15 +526,15 @@
             </div>
             <div class="flex items-center gap-2 text-sm text-ink-secondary">
               <span class="w-1.5 h-1.5 bg-accent rounded-full shrink-0"></span>
-              Tailwind CSS + Naive UI
+              Naive UI + Tailwind CSS
             </div>
             <div class="flex items-center gap-2 text-sm text-ink-secondary">
               <span class="w-1.5 h-1.5 bg-accent rounded-full shrink-0"></span>
-              Pinia + Vue Router
+              shadcn-vue（画像 AI 对话）
             </div>
             <div class="flex items-center gap-2 text-sm text-ink-secondary">
               <span class="w-1.5 h-1.5 bg-accent rounded-full shrink-0"></span>
-              vue-i18n 双语支持
+              Pinia · Vue Router · vue-i18n
             </div>
           </div>
         </div>
@@ -585,7 +609,7 @@
       <div class="reveal max-w-[640px] mx-auto text-center">
         <h2 class="text-[clamp(1.75rem,3.5vw,2.5rem)] font-bold tracking-tight-headline text-ink mb-4">开始使用</h2>
         <p class="text-base text-ink-secondary leading-relaxed mb-9 max-w-[45ch] mx-auto">
-          下载对应系统的便携版，解压即用。无需 Python 环境；首次使用在设置中配置 LLM API（类型、Key、Base URL、模型名）即可。
+          下载 Windows 或 macOS arm64 便携包，解压即用。首次启动选择数据目录，登录后在「设置」配置 LLM API（类型、Key、Base URL、模型名）。
         </p>
 
         <!-- Download buttons -->
@@ -593,6 +617,9 @@
           <a href="https://github.com/HungryFlo/prof-finder/releases" target="_blank" rel="noopener" class="btn-primary inline-flex items-center gap-2.5 h-11 px-7 bg-accent text-white font-medium rounded-lg hover:bg-accent-dark transition-all duration-200 shadow-[0_2px_10px_rgba(59,130,160,0.3)] no-underline">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             GitHub Releases
+          </a>
+          <a href="https://github.com/HungryFlo/prof-finder/blob/main/docs/user-guide.zh.md" target="_blank" rel="noopener" class="btn-secondary inline-flex items-center gap-2 h-11 px-6 border border-accent/20 text-ink-secondary font-medium rounded-lg hover:border-accent/40 hover:text-ink transition-all duration-200 no-underline">
+            使用指南
           </a>
         </div>
 
@@ -606,9 +633,12 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/><path d="M12 2v20"/><path d="M2 12h20"/></svg>
             macOS (arm64)
           </span>
+          <span class="inline-flex items-center gap-1.5 h-8 px-3 bg-surface-secondary border border-accent/10 rounded-lg text-xs text-ink-tertiary">
+            中英双语界面
+          </span>
         </div>
 
-        <p class="text-xs text-ink-muted mt-6">默认账号 <code class="font-mono text-[11px] bg-surface-tertiary px-1.5 py-0.5 rounded">root / root123</code>，首次登录须改密</p>
+        <p class="text-xs text-ink-muted mt-6">默认账号 <code class="font-mono text-[11px] bg-surface-tertiary px-1.5 py-0.5 rounded">root / root123</code>，首次登录须改密 · 附一键卸载脚本</p>
       </div>
     </div>
   </section>
@@ -630,6 +660,7 @@
         <div class="flex items-center gap-6">
           <a href="https://github.com/HungryFlo/prof-finder" target="_blank" rel="noopener" class="text-sm text-ink-tertiary hover:text-accent transition-colors no-underline">GitHub</a>
           <a href="https://github.com/HungryFlo/prof-finder/releases" target="_blank" rel="noopener" class="text-sm text-ink-tertiary hover:text-accent transition-colors no-underline">Releases</a>
+          <a href="https://github.com/HungryFlo/prof-finder/blob/main/docs/user-guide.zh.md" target="_blank" rel="noopener" class="text-sm text-ink-tertiary hover:text-accent transition-colors no-underline">使用指南</a>
           <a href="https://github.com/HungryFlo/prof-finder/issues" target="_blank" rel="noopener" class="text-sm text-ink-tertiary hover:text-accent transition-colors no-underline">Issues</a>
         </div>
       </div>

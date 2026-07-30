@@ -8,7 +8,7 @@ Prof-Finder is a **locally run** assistant for finding PhD/MPhil supervisors. Yo
 
 **Who it's for:** Students preparing graduate school applications who need to organize target supervisors and draft outreach emails.
 
-**What it does:** Upload your resume to build an academic profile → add professors → get smart match recommendations → generate personalized contact letters. The four steps in the sidebar and dashboard correspond to this workflow.
+**What it does:** Capture experiences in an Experience Pool → build an academic profile → add professors → get smart match recommendations → generate personalized contact letters. The five steps on the dashboard correspond to this workflow.
 
 ## Quick Start (Portable Edition)
 
@@ -28,10 +28,11 @@ See `README-PORTABLE.txt` inside the extracted package for portable-specific ins
 
 1. **Log in** — Use default credentials, then set a new password.
 2. **Configure LLM API** — Settings → choose API type, key, base URL, and model → Save.
-3. **Build a profile** — Student Profiles → Upload resume (`.md`, `.tex`, `.txt`). Enable LLM extraction. Activate one profile for matching.
-4. **Add professors** — Professors → Add via Google Scholar URL (recommended), DBLP URL, university batch crawl, external profile linking, or manual entry. Track progress in the task panel.
-5. **Run matching** — Match Results → on first use, download **Qwen/Qwen3-Embedding-0.6B** from ModelScope (~1.2 GB; requires access to `www.modelscope.cn`) → Run Match.
-6. **Generate letters** — Open a professor from match results → Generate letter → **Review and edit before sending**.
+3. **Capture experiences** — Experience Pools → brainstorm, cluster, and detail academic-related stories; compose writing snippets and optionally apply them to a profile (binds the pool).
+4. **Build a profile** — Student Profiles → Upload resume (`.md`, `.tex`, `.txt`), optionally bind an experience pool. Enable LLM extraction; refine further with AI chat. Activate one profile for matching.
+5. **Add professors** — Professors → Add via Google Scholar URL (recommended), DBLP URL, university batch crawl, external profile linking, or manual entry. Track progress in the task panel.
+6. **Run matching** — Match Results → on first use, download **Qwen/Qwen3-Embedding-0.6B** from ModelScope (~1.2 GB; requires access to `www.modelscope.cn`) → Run Match.
+7. **Generate letters** — Open a professor from match results → Generate letter (uses detailed stories from the bound pool when available) → **Review and edit before sending**.
 
 Click **Help** in the top-right corner of the app for the full in-app guide.
 
@@ -48,10 +49,11 @@ Prof-Finder supports two API styles; you choose the provider, base URL, and mode
 2. In Prof-Finder **Settings**, enter API type, key, base URL, and model name, then save.
 3. Monitor usage and balance. Do not share your key.
 
-Features that require LLM API: resume parsing, professor profiles, paper summaries, contact letters, and profile AI chat.
+Features that require LLM API: resume parsing, experience-pool draft composition, professor profiles, paper summaries, contact letters, and profile AI chat.
 
 ## Best Practices
 
+- Capture and detail experiences in a pool before matching and letter writing when possible.
 - Complete your profile before running matches — richer data yields better results.
 - Google Scholar and DBLP complement each other; university crawls depend on site structure.
 - Ensure one profile is active and you have at least one professor before matching.

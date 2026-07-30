@@ -24,6 +24,7 @@ const apiKeySteps = computed(() => [
 ])
 
 const bestPractices = computed(() => [
+  t('help.bpExperiencePool'),
   t('help.bpCompleteProfile'),
   t('help.bpScholarUrl'),
   t('help.bpActiveProfile'),

@@ -8,7 +8,7 @@
 
 ## 总览
 
-Prof-Finder 是一款本地优先的研究生导师匹配助手。用户通过 Web 界面完成「上传简历 → 添加教授 → 智能匹配 → 生成套磁信」四步流程。其中大量操作（爬取、LLM 生成、语义匹配）耗时较长，因此系统采用**异步任务 + SSE 实时进度**的模式，前后端通过统一的任务协议解耦。
+Prof-Finder 是一款本地优先的研究生导师匹配助手。用户通过 Web 界面完成「沉淀经历 → 建立画像 → 添加教授 → 智能匹配 → 生成套磁信」五步流程。其中大量操作（爬取、LLM 生成、语义匹配）耗时较长，因此系统采用**异步任务 + SSE 实时进度**的模式，前后端通过统一的任务协议解耦。
 
 ```mermaid
 flowchart LR
@@ -52,7 +52,7 @@ flowchart LR
 
 ### 1.1 设计目标
 
-1. **流程导向**：界面结构与业务四步一致，降低首次使用成本。
+1. **流程导向**：界面结构与业务五步一致，降低首次使用成本。
 2. **任务中心化**：所有耗时操作不阻塞页面，通过全局任务面板统一反馈进度。
 3. **本地部署友好**：单用户/小团队场景，无需复杂的前端基础设施（无 SSR、无微前端）。
 4. **双语优先**：默认中文，LLM 对话等接口传递当前 locale。
@@ -105,8 +105,9 @@ frontend/src/
 
 | 路径 | 页面 | 说明 |
 |------|------|------|
-| `/` | DashboardView | 首页：四步引导 + 统计 |
-| `/profile`、`/profile/:id` | 画像列表/详情 | 上传、编辑、AI 精炼 |
+| `/` | DashboardView | 首页：五步引导 + 统计 |
+| `/pool`、`/pool/:id` | 信息池列表/工作台 | 脑暴、聚类、细化、文书 |
+| `/profile`、`/profile/:id` | 画像列表/详情 | 上传、绑定信息池、编辑、AI 精炼 |
 | `/professor`、`/professor/:id` | 教授列表/详情 | 导入、爬取、富化 |
 | `/match` | MatchResultsView | 匹配 + 套磁信（`/letter` 重定向至此） |
 | `/settings` | SettingsView | LLM 配置、密码、院校管理 |
@@ -238,8 +239,9 @@ frontend/src/
 
 | 页面 | 核心职责 | 触发的典型任务 |
 |------|----------|----------------|
-| DashboardView | 四步引导、统计、最近项、Top 匹配 | — |
-| ProfileListView | 上传 `.md`/`.tex`、手动创建、批量删除 | `profile-generate` |
+| DashboardView | 五步引导、统计、最近项、Top 匹配 | — |
+| PoolListView / PoolWorkspaceView | 信息池管理；脑暴/聚类/细化/文书 | 文书草稿生成（同步 LLM 调用） |
+| ProfileListView | 上传 `.md`/`.tex`、绑定信息池、手动创建、批量删除 | `profile-generate` |
 | ProfileDetailView | 结构化编辑；AI 对话抽屉精炼画像 | `profile-refine` |
 | ProfessorListView | 分页列表、Scholar/DBLP/院校导入 | `batch-crawl`、`university-crawl` 等 |
 | ProfessorDetailView | 论文、DBLP 关联、富化、主页爬取 | `professor-enrichment`、`paper-summary` 等 |
