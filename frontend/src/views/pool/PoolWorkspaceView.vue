@@ -188,7 +188,7 @@ async function refreshStories() {
     selectedStorySeedId.value = stories.value[0]?.seed_id ?? null
   }
   if (!selectedStorySeedId.value && stories.value.length) {
-    selectedStorySeedId.value = stories.value[0].seed_id
+    selectedStorySeedId.value = stories.value[0]?.seed_id ?? null
   }
   syncStoryDraft()
 }
@@ -396,6 +396,7 @@ function goNextStory() {
   if (!stories.value.length || selectedStorySeedId.value == null) return
   const idx = stories.value.findIndex((s) => s.seed_id === selectedStorySeedId.value)
   const next = stories.value[(idx + 1) % stories.value.length]
+  if (!next) return
   selectedStorySeedId.value = next.seed_id
 }
 
