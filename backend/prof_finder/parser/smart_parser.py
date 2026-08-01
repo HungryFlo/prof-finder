@@ -3,19 +3,18 @@
 import logging
 from typing import Optional, Tuple
 
-from .base import BaseParser, ParsedResume
 from ..ai_workflows.provider import LLMProvider
-from .llm_parser import LLMParser, LLMParserError
+from .base import ParsedResume
 from .latex_parser import LaTeXParser
+from .llm_parser import LLMParser, LLMParserError
 from .markdown_parser import MarkdownParser
-
 
 logger = logging.getLogger(__name__)
 
 
 class SmartParser:
     """Smart parser that tries LLM first, then falls back to regex parsers.
-    
+
     This parser provides the best of both worlds:
     - LLM parsing for high accuracy and semantic understanding
     - Regex parsing as a reliable offline fallback
@@ -27,7 +26,7 @@ class SmartParser:
         llm_provider: Optional[LLMProvider] = None,
     ):
         """Initialize the smart parser.
-        
+
         Args:
             prefer_llm: If True, try LLM parsing first. If False, use regex only.
             llm_provider: Optional pre-configured LLM provider (e.g. per-user settings).
@@ -55,11 +54,11 @@ class SmartParser:
         file_extension: str = ".md",
     ) -> Tuple[ParsedResume, str]:
         """Parse resume content using the best available method.
-        
+
         Args:
             content: Raw resume content string.
             file_extension: File extension to determine fallback parser.
-            
+
         Returns:
             Tuple of (ParsedResume, method_used) where method_used is
             "llm" or "regex".
@@ -84,16 +83,16 @@ class SmartParser:
 
     def _parse_with_regex(self, content: str, file_extension: str) -> ParsedResume:
         """Parse using the appropriate regex parser.
-        
+
         Args:
             content: Raw resume content string.
             file_extension: File extension to determine parser.
-            
+
         Returns:
             ParsedResume with extracted data.
         """
         ext = file_extension.lower()
-        
+
         if ext in self._latex_parser.supported_extensions():
             return self._latex_parser.parse(content)
         elif ext in self._markdown_parser.supported_extensions():
@@ -108,17 +107,17 @@ class SmartParser:
         file_path: str,
     ) -> Tuple[ParsedResume, str]:
         """Parse resume from file.
-        
+
         Args:
             file_path: Path to resume file.
-            
+
         Returns:
             Tuple of (ParsedResume, method_used).
         """
         from pathlib import Path
-        
+
         path = Path(file_path)
         with open(path, "r", encoding="utf-8") as f:
             content = f.read()
-        
+
         return self.parse(content, path.suffix)

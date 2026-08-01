@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Optional
 
-from .dblp import DblpClient, _DBLP_MIN_REQUEST_DELAY, dblp_profile_url
+from .dblp import _DBLP_MIN_REQUEST_DELAY, DblpClient, dblp_profile_url
 from .scholar_matcher import (
     _affiliation_matches,
     _name_matches,

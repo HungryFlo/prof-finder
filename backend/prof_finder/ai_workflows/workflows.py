@@ -6,7 +6,7 @@ LLM generator classes internally but present a clean, framework-agnostic interfa
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+from typing import Callable
 
 from ..llm.letter_generator import LetterGenerator
 from ..llm.paper_summarizer import PaperSummarizer

@@ -2,8 +2,8 @@
 
 from .letter_generator import LetterGenerator
 from .paper_summarizer import PaperSummarizer
-from .student_profile_generator import StudentProfileGenerator
 from .professor_profile_generator import ProfessorProfileGenerator
+from .student_profile_generator import StudentProfileGenerator
 
 __all__ = [
     "LetterGenerator",

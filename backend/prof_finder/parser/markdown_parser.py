@@ -2,11 +2,12 @@
 
 import re
 from typing import Optional
+
 from .base import (
     BaseParser,
-    ParsedResume,
     EducationEntry,
     ExperienceEntry,
+    ParsedResume,
     ProjectEntry,
 )
 
@@ -156,7 +157,7 @@ class MarkdownParser(BaseParser):
     def _parse_education(self, content: str) -> list[EducationEntry]:
         """Parse education section."""
         entries = []
-        lines = [l.strip() for l in content.split("\n") if l.strip()]
+        lines = [line.strip() for line in content.split("\n") if line.strip()]
 
         for line in lines:
             # Remove list markers
@@ -187,7 +188,7 @@ class MarkdownParser(BaseParser):
         school_match = re.search(r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s*(?:University|College|Institute))", line)
         if not school_match:
             school_match = re.search(r"([\u4e00-\u9fff]+(?:大学|学院|研究院))", line)
-        
+
         school = school_match.group(1) if school_match else line[:50]
 
         # Try to extract major
@@ -204,7 +205,7 @@ class MarkdownParser(BaseParser):
         """Parse research/work experience section."""
         entries = []
         current_entry = None
-        
+
         lines = content.split("\n")
         for line in lines:
             line = line.strip()
@@ -213,27 +214,27 @@ class MarkdownParser(BaseParser):
 
             # Check if this is a new entry (starts with list marker or bold)
             is_new_entry = bool(re.match(r"^[-*•]|\*\*", line))
-            
+
             if is_new_entry:
                 if current_entry:
                     entries.append(current_entry)
-                
+
                 # Clean the line
                 title = re.sub(r"^[-*•]\s*", "", line)
                 title = re.sub(r"\*\*(.+?)\*\*", r"\1", title)  # Remove bold markers
-                
+
                 # Try to extract organization
                 org_match = re.search(r"[@＠]\s*(.+?)(?:\s*[,，]|$)", title)
                 org = org_match.group(1).strip() if org_match else None
                 if org:
                     title = title.replace(org_match.group(0), "").strip()
-                
+
                 # Try to extract period
                 period_match = re.search(r"(\d{4}\s*[-–—]\s*\d{4}|\d{4}\s*[-–—]\s*(?:present|至今|现在))", title, re.IGNORECASE)
                 period = period_match.group(1) if period_match else None
                 if period:
                     title = title.replace(period, "").strip()
-                
+
                 current_entry = ExperienceEntry(
                     title=title.strip(" ,，"),
                     organization=org,
@@ -273,7 +274,7 @@ class MarkdownParser(BaseParser):
 
                 name = re.sub(r"^[-*•]\s*", "", line)
                 name = re.sub(r"\*\*(.+?)\*\*", r"\1", name)
-                
+
                 current_entry = ProjectEntry(name=name.strip(), description="")
             elif current_entry:
                 desc_line = re.sub(r"^\s*[-*•]\s*", "", line)
@@ -299,7 +300,7 @@ class MarkdownParser(BaseParser):
 
             # Remove list markers
             line = re.sub(r"^[-*•]\s*", "", line)
-            
+
             # Split by common delimiters
             parts = re.split(r"[,，;；、/]", line)
             for part in parts:

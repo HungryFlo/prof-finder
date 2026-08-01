@@ -1,18 +1,18 @@
 """Database connection and session management."""
 
-import os
-from pathlib import Path
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Generator, Optional
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import settings
-from ..models.schema import Base, User, University  # noqa: ensure create_all picks up table
-from ..models.background_task import BackgroundTask  # noqa: ensure create_all picks up table
-from ..models.schema import UniversityCrawlerConfig  # noqa: ensure create_all picks up table
+from ..models.schema import (  # noqa: F401 — ensure create_all picks up table
+    Base,
+    User,
+)
 
 _BUSY_TIMEOUT_SECONDS = 30
 
@@ -42,16 +42,16 @@ class Database:
 
     def __init__(self, db_path: Optional[str] = None):
         """Initialize database connection.
-        
+
         Args:
             db_path: Path to SQLite database file. Uses settings if not provided.
         """
         self.db_path = db_path or settings.database_path
-        
+
         # Ensure directory exists
         db_dir = Path(self.db_path).parent
         db_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Create engine
         self.engine = create_engine(
             f"sqlite:///{self.db_path}",
@@ -59,14 +59,14 @@ class Database:
             connect_args={"check_same_thread": False, "timeout": _BUSY_TIMEOUT_SECONDS},
         )
         _enable_sqlite_concurrency(self.engine)
-        
+
         # Create session factory
         self.SessionLocal = sessionmaker(
             autocommit=False,
             autoflush=False,
             bind=self.engine,
         )
-        
+
         # Initialize tables
         self._init_tables()
 
@@ -392,7 +392,7 @@ class Database:
     @contextmanager
     def session(self) -> Generator[Session, None, None]:
         """Get a database session with automatic cleanup.
-        
+
         Usage:
             with db.session() as session:
                 session.query(User).all()
@@ -409,10 +409,10 @@ class Database:
 
     def get_or_create_user(self, username: str) -> User:
         """Get existing user or create new one.
-        
+
         Args:
             username: Username to find or create.
-            
+
         Returns:
             User instance (detached from session, safe to use outside).
         """
@@ -423,7 +423,7 @@ class Database:
                 session.add(user)
                 session.commit()
                 session.refresh(user)
-            
+
             # Expunge to detach from session and make usable outside
             session.expunge(user)
             return user

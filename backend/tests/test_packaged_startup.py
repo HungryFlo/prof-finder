@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from prof_finder.runtime import save_install_config, model_dir_for_data_root
+from prof_finder.runtime import model_dir_for_data_root, save_install_config
 
 
 @pytest.fixture

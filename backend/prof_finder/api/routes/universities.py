@@ -7,10 +7,9 @@ from typing import List
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from ...db.database import get_db
+from ...models.schema import University, UniversityCrawlerConfig, User
 from ..deps import get_current_user, get_db_session
 from ..errors import ErrorCode, raise_api_error
-from ...models.schema import University, UniversityCrawlerConfig, User
 from ..schemas import (
     MessageResponse,
     UniversityCreate,

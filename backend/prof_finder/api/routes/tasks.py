@@ -8,34 +8,32 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
-from ...models.schema import User, UserProfile, UserSettings
-from ...config import settings as app_settings
+from ...models.schema import User, UserSettings
 from ...utils.query_cache import get_active_profile
-from ..deps import get_db_session, get_current_user
-from ..deps import get_current_user_sse
+from ..deps import get_current_user, get_current_user_sse, get_db_session
+from ..errors import ErrorCode, raise_api_error
 from ..schemas import (
-    TaskStartResponse,
-    TaskCancelResponse,
-    TaskListItemResponse,
     BatchCrawlRequest,
     BatchDblpCrawlRequest,
     BatchLetterRequest,
+    TaskCancelResponse,
+    TaskListItemResponse,
+    TaskStartResponse,
 )
 from ..task_manager import (
-    TaskStatus,
     TaskState,
-    create_task,
-    get_task,
-    get_user_tasks,
-    get_child_tasks,
-    cleanup_old_tasks,
-    enqueue_task,
-    persist_task,
+    TaskStatus,
     _tasks,
     _tasks_lock,
+    cleanup_old_tasks,
+    create_task,
+    enqueue_task,
+    get_child_tasks,
+    get_task,
+    get_user_tasks,
+    persist_task,
 )
 from ..task_queue import huey
-from ..errors import ErrorCode, raise_api_error
 
 router = APIRouter(prefix="/tasks", tags=["异步任务"])
 
@@ -537,8 +535,6 @@ def retry_task(
     # For tasks that use an API key (letter generation, profile generation),
     # re-fetch the current key from settings so that a newly-configured key
     # takes effect without requiring the user to re-trigger from the UI.
-    from ...models.schema import UserSettings
-    from ...config import settings as app_settings
 
     new_kwargs = dict(task.enqueue_kwargs)
     if "user_id" in new_kwargs:

@@ -1,15 +1,20 @@
 """Source input API routes (ArXiv)."""
 
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from ...models.schema import SourceInput, User
 from ..deps import get_current_user, get_db_session
-from ..schemas import MessageResponse, PaginatedResponse, SourceInputArxivCreate, SourceInputResponse
-from ..source_input_service import fetch_arxiv_metadata, normalize_arxiv_id
 from ..errors import ErrorCode, raise_api_error
+from ..schemas import (
+    MessageResponse,
+    PaginatedResponse,
+    SourceInputArxivCreate,
+    SourceInputResponse,
+)
+from ..source_input_service import fetch_arxiv_metadata, normalize_arxiv_id
 
 router = APIRouter(prefix="/source-inputs", tags=["来源输入"])
 

@@ -1,24 +1,24 @@
 """Letter generation API routes."""
 
 from datetime import datetime, timezone
-from typing import List, Optional, Literal
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from ...models.schema import User, UserProfile, Professor, MatchRecord, UserSettings
-from ...llm.letter_generator import LetterGenerator
 from ...llm.config import llm_not_configured_message, llm_provider_for_user_settings
+from ...llm.letter_generator import LetterGenerator
+from ...models.schema import MatchRecord, Professor, User, UserSettings
 from ...utils.query_cache import get_active_profile
-from ..deps import get_db_session, get_current_user
+from ..deps import get_current_user, get_db_session
+from ..errors import ErrorCode, raise_api_error
 from ..schemas import (
-    LetterUpdate,
     LetterResponse,
-    MessageResponse,
+    LetterUpdate,
     PaginatedResponse,
     TaskStartResponse,
 )
-from ..task_manager import create_task, cleanup_old_tasks, enqueue_task
-from ..errors import ErrorCode, raise_api_error
+from ..task_manager import cleanup_old_tasks, create_task, enqueue_task
 
 router = APIRouter(prefix="/letters", tags=["邮件生成"])
 
@@ -42,13 +42,13 @@ def list_letters(
     session: Session = Depends(get_db_session),
 ):
     """List all letters for current active profile.
-    
+
     Args:
         page: Page number.
         page_size: Items per page.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Paginated list of letters.
     """
@@ -65,18 +65,18 @@ def list_letters(
         .filter(MatchRecord.user_profile_id == active_profile.id)
         .order_by(MatchRecord.score.desc())
     )
-    
+
     total = query.count()
-    
+
     results = (
         query
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
     )
-    
+
     pages = (total + page_size - 1) // page_size if total > 0 else 1
-    
+
     items = [
         {
             "professor_id": professor.id,
@@ -87,7 +87,7 @@ def list_letters(
         }
         for match_record, professor in results
     ]
-    
+
     return PaginatedResponse(
         items=items,
         total=total,
@@ -157,12 +157,12 @@ def get_letter(
     session: Session = Depends(get_db_session),
 ):
     """Get a letter for a specific professor.
-    
+
     Args:
         professor_id: Professor ID.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Letter content.
     """
@@ -217,10 +217,10 @@ def update_letter(
     """
     # Get active profile
     active_profile = get_active_profile(session, current_user.id)
-    
+
     if not active_profile:
         raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.RESUME_REQUIRED, "请先激活一份简历")
-    
+
     # Get match record
     result = (
         session.query(MatchRecord, Professor)
@@ -231,19 +231,19 @@ def update_letter(
         )
         .first()
     )
-    
+
     if not result:
         raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.MATCH_NOT_FOUND, "未找到匹配记录")
-    
+
     match_record, professor = result
-    
+
     # Update letter
     match_record.letter_content = data.content
     if not match_record.letter_generated_at:
         match_record.letter_generated_at = datetime.now(timezone.utc)
-    
+
     session.flush()
-    
+
     return LetterResponse(
         professor_id=professor.id,
         professor_name=professor.name,

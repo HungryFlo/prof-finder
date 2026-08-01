@@ -37,9 +37,9 @@ HTML structure (as of 2025):
     </div>
 """
 
+import logging
 import re
 import time
-import logging
 from typing import Optional
 from urllib.parse import urljoin
 

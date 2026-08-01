@@ -1,23 +1,22 @@
 """Match API routes."""
 
-from typing import List, Optional
-from fastapi import APIRouter, Depends, status, Query
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from ...models.schema import User, UserProfile, Professor, MatchRecord
+from ...models.schema import MatchRecord, Professor, User
+from ...runtime import model_dir
 from ...utils.query_cache import get_active_profile
-from ..deps import get_db_session, get_current_user
+from ..deps import get_current_user, get_db_session
+from ..errors import ErrorCode, raise_api_error
 from ..schemas import (
-    MatchResultResponse,
     MatchDetailResponse,
     PaginatedResponse,
-    MessageResponse,
     TaskStartResponse,
 )
-from ..task_manager import create_task, cleanup_old_tasks, enqueue_task
-from ...runtime import model_dir
-from ..errors import ErrorCode, raise_api_error
+from ..task_manager import cleanup_old_tasks, create_task, enqueue_task
 
 router = APIRouter(prefix="/match", tags=["匹配"])
 
@@ -186,12 +185,12 @@ def get_match_detail(
     session: Session = Depends(get_db_session),
 ):
     """Get detailed match result for a specific professor.
-    
+
     Args:
         professor_id: Professor ID.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Detailed match result.
     """
@@ -211,12 +210,12 @@ def get_match_detail(
         )
         .first()
     )
-    
+
     if not result:
         raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.MATCH_NOT_FOUND, "未找到匹配记录，请先运行匹配")
-    
+
     match_record, professor = result
-    
+
     return MatchDetailResponse(
         professor_id=professor.id,
         professor_name=professor.name,

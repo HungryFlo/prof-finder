@@ -1,10 +1,10 @@
 """Authentication utilities: password hashing and JWT token management."""
 
-from datetime import datetime, timedelta, timezone
-from typing import Optional
 import base64
 import hashlib
 import secrets
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 import bcrypt
 from jose import JWTError, jwt
@@ -111,11 +111,11 @@ def verify_stream_token(token: str) -> Optional[dict]:
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT access token.
-    
+
     Args:
         data: Data to encode in the token.
         expires_delta: Optional custom expiration time.
-        
+
     Returns:
         Encoded JWT token string.
     """
@@ -124,7 +124,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
-    
+
     to_encode.update({"exp": expire, "type": "access"})
     encoded_jwt = jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
     return encoded_jwt
@@ -132,11 +132,11 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT refresh token.
-    
+
     Args:
         data: Data to encode in the token.
         expires_delta: Optional custom expiration time.
-        
+
     Returns:
         Encoded JWT token string.
     """
@@ -145,7 +145,7 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
-    
+
     to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
     return encoded_jwt
@@ -153,10 +153,10 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
 
 def decode_token(token: str) -> Optional[dict]:
     """Decode and validate a JWT token.
-    
+
     Args:
         token: JWT token string to decode.
-        
+
     Returns:
         Decoded token payload if valid, None otherwise.
     """
@@ -169,10 +169,10 @@ def decode_token(token: str) -> Optional[dict]:
 
 def verify_access_token(token: str) -> Optional[dict]:
     """Verify an access token and return its payload.
-    
+
     Args:
         token: JWT access token to verify.
-        
+
     Returns:
         Token payload if valid access token, None otherwise.
     """
@@ -184,10 +184,10 @@ def verify_access_token(token: str) -> Optional[dict]:
 
 def verify_refresh_token(token: str) -> Optional[dict]:
     """Verify a refresh token and return its payload.
-    
+
     Args:
         token: JWT refresh token to verify.
-        
+
     Returns:
         Token payload if valid refresh token, None otherwise.
     """

@@ -93,11 +93,11 @@ class UserProfile(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    
+
     # Profile metadata
     title = Column(String(200), nullable=False)  # e.g., "NLP方向申请简历"
     is_active = Column(Boolean, default=True)
-    
+
     # Parsed content
     name = Column(String(100))  # Name from resume
     name_locales = Column(JSON, default=dict)  # optional {"zh", "en"} for letters / explicit forms
@@ -105,7 +105,7 @@ class UserProfile(Base):
     research_experience = Column(JSON, default=list)  # [{title, organization, description, period}]
     projects = Column(JSON, default=list)  # [{name, description}]
     skills = Column(JSON, default=list)  # ["Python", "NLP", ...]
-    
+
     # Raw content
     raw_content = Column(Text)
     source_format = Column(String(20))  # "markdown", "latex", "manual"
@@ -123,7 +123,7 @@ class UserProfile(Base):
     experience_pool_id = Column(
         Integer, ForeignKey("experience_pools.id"), nullable=True, index=True
     )
-    
+
     # Timestamps
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
@@ -348,14 +348,14 @@ class Professor(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    
+
     # Basic info
     name = Column(String(200), nullable=False)
     name_locales = Column(JSON, default=dict)  # optional {"zh", "en"} — not set by crawler
     affiliation = Column(String(500))  # University/Department
     email = Column(String(200))
     homepage = Column(String(500))
-    
+
     # Google Scholar data
     google_scholar_id = Column(String(50))
     google_scholar_url = Column(String(500))
@@ -370,7 +370,7 @@ class Professor(Base):
     source = Column(String(20), default="manual")  # "school_crawler" | "google_scholar" | "manual"
     enrichment_status = Column(String(20))  # "pending" | "matched" | "not_found" | "ambiguous" | "user_confirmed"
     scholar_candidates = Column(JSON, nullable=True)  # [{scholar_id, name, affiliation, score, email_domain_match}]
-    
+
     # Academic data
     research_interests = Column(JSON, default=list)  # ["NLP", "Machine Learning"]
     publications = Column(JSON, default=list)  # [{title, year, citations, authors}]
@@ -417,15 +417,15 @@ class MatchRecord(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_profile_id = Column(Integer, ForeignKey("user_profiles.id"), nullable=False, index=True)
     professor_id = Column(Integer, ForeignKey("professors.id"), nullable=False, index=True)
-    
+
     # Match result
     score = Column(Float, nullable=False)  # 0-100
     match_reasons = Column(JSON, default=list)  # ["研究方向匹配: NLP", "技能匹配: Python"]
-    
+
     # Generated letter
     letter_content = Column(Text)
     letter_generated_at = Column(DateTime)
-    
+
     # Timestamp
     created_at = Column(DateTime, default=utc_now)
 

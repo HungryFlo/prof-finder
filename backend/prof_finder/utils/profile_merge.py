@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-
 _NOTES_SEP = "\n\n---\n\n"
 
 

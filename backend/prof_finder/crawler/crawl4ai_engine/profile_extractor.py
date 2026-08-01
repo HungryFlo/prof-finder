@@ -8,12 +8,10 @@ import time
 from typing import Callable, Optional
 
 from ...utils.profile_merge import merge_profile_into_dict
-from .engine import crawl_url_full
 from ...utils.url_utils import normalize_school_crawl_professor, resolve_absolute_url
+from .engine import crawl_url_full
 from .llm_extractor import (
     _MAX_CONTENT_CHARS,
-    _LLM_MAX_RETRIES,
-    _LLM_RETRY_BASE_DELAY,
     _choose_best_content,
     _clean_html_for_llm,
     _try_ajax_endpoints,

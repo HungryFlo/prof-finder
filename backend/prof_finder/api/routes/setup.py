@@ -12,7 +12,6 @@ from pydantic import BaseModel, Field
 
 from ...packaging.paths import PathValidationError, validate_data_dir
 from ...packaging.uninstall import write_uninstall_scripts
-from ..errors import ErrorCode, raise_api_error
 from ...runtime import (
     default_suggested_data_dir,
     install_dir,
@@ -21,6 +20,7 @@ from ...runtime import (
     model_dir_for_data_root,
     save_install_config,
 )
+from ..errors import ErrorCode, raise_api_error
 
 router = APIRouter(prefix="/setup", tags=["首次配置"])
 
@@ -72,7 +72,7 @@ def pick_directory() -> PickDirectoryResponse:
     try:
         import tkinter as tk
         from tkinter import filedialog
-    except ImportError as exc:
+    except ImportError:
         raise_api_error(status.HTTP_503_SERVICE_UNAVAILABLE, ErrorCode.FOLDER_PICKER_UNAVAILABLE, "无法打开文件夹选择对话框，请手动输入路径")
 
     root = tk.Tk()

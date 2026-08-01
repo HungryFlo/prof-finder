@@ -4,44 +4,41 @@ import asyncio
 import logging
 import queue
 import threading
-from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
-from ...models.schema import User, UserProfile
-from ...models.schema import ExperiencePool
+from ...llm.config import llm_not_configured_message, llm_provider_for_user_settings
+from ...llm.student_profile_generator import StudentProfileGenerator
+from ...models.schema import ExperiencePool, User, UserProfile, UserSettings
 from ...utils.query_cache import get_active_profile, invalidate_active_profile
-from ..deps import get_db_session, get_current_user, get_current_user_sse
+from ..deps import get_current_user, get_current_user_sse, get_db_session
+from ..errors import ErrorCode, raise_api_error
+from ..experience_pool_service import format_pool_stories_material
 from ..schemas import (
-    ProfileCreate,
-    ProfileUpdate,
-    ProfileResponse,
-    ProfileChatRequest,
-    ProfileChatResponse,
-    ProfileChatRefineRequest,
-    ProfileSummaryListResponse,
-    ProfileSummaryResponse,
-    TaskStartResponse,
     BatchDeleteRequest,
     MessageResponse,
+    ProfileChatRefineRequest,
+    ProfileChatRequest,
+    ProfileChatResponse,
+    ProfileCreate,
+    ProfileResponse,
+    ProfileSummaryListResponse,
+    ProfileSummaryResponse,
+    ProfileUpdate,
+    TaskStartResponse,
 )
-logger = logging.getLogger(__name__)
-
 from ..task_manager import (
     MAX_PROFILE_MATERIAL_CHARS,
     cleanup_old_tasks,
     create_task,
     enqueue_task,
 )
-from ...llm.config import llm_not_configured_message, llm_provider_for_user_settings
-from ...llm.student_profile_generator import StudentProfileGenerator
-from ...models.schema import UserSettings
-from ..errors import ErrorCode, raise_api_error
-from ..experience_pool_service import format_pool_stories_material
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/profiles", tags=["学生画像"])
 
@@ -175,7 +172,7 @@ def create_profile(
     # Deactivate other profiles
     session.query(UserProfile).filter(
         UserProfile.user_id == current_user.id,
-        UserProfile.is_active == True,
+        UserProfile.is_active.is_(True),
     ).update({"is_active": False})
 
     pool_id = _validate_experience_pool_id(

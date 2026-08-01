@@ -5,62 +5,70 @@ import hashlib
 import json
 import time
 from typing import List, Optional
-from fastapi import APIRouter, Depends, status, Query
+
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, defer
 from sqlalchemy.orm.attributes import flag_modified
 
-from ...models.schema import User, Professor, SourceInput, UserSettings, University, UniversityCrawlerConfig
+from ...crawler.dblp import DblpClient, dblp_profile_url, extract_dblp_pid_from_url
 from ...crawler.scholar import ScholarCrawler
-from ...crawler.dblp import DblpClient, extract_dblp_pid_from_url, dblp_profile_url
 from ...llm import PaperSummarizer
-from ..deps import get_db_session, get_current_user
+from ...models.schema import (
+    Professor,
+    SourceInput,
+    University,
+    UniversityCrawlerConfig,
+    User,
+    UserSettings,
+)
+from ...utils.publication_merge import merge_publications
+from ...utils.scholar_match_context import resolve_scholar_match_params
+from ...utils.time import utc_now
+from ..deps import get_current_user, get_db_session
+from ..enrichment_prefs import (
+    flags_from_user_settings_row,
+    planned_enrichment_step_count_for_professor,
+)
+from ..errors import ErrorCode, raise_api_error
 from ..schemas import (
-    ProfessorCreate,
-    ProfessorUpdate,
-    ProfessorScholarAdd,
-    ProfessorDblpAdd,
-    ProfessorSearchRequest,
-    DblpSearchResult,
-    DblpCandidateConfirm,
-    ProfessorResponse,
-    ProfessorListResponse,
-    ProfessorNameCollision,
-    ProfessorEditPreviewRequest,
-    ProfessorEditApplyRequest,
-    ProfessorSourceSummaryRequest,
-    ProfessorEditPreviewResponse,
     BatchDeleteRequest,
+    CrawlerConfigCreate,
+    CrawlerConfigResponse,
+    CrawlerConfigUpdate,
+    CrawlerConfiguredCrawlRequest,
+    CrawlerTestRequest,
+    CrawlerTestResponse,
+    DblpCandidateConfirm,
+    DblpSearchResult,
     MessageResponse,
     PaginatedResponse,
+    ProfessorCreate,
+    ProfessorDblpAdd,
+    ProfessorEditApplyRequest,
+    ProfessorEditPreviewRequest,
+    ProfessorEditPreviewResponse,
+    ProfessorNameCollision,
+    ProfessorResponse,
+    ProfessorScholarAdd,
+    ProfessorSearchRequest,
+    ProfessorSourceSummaryRequest,
+    ProfessorUpdate,
     TaskStartResponse,
     UniversityCrawlerInfo,
     UniversityCrawlRequest,
-    CrawlerConfigCreate,
-    CrawlerConfigUpdate,
-    CrawlerConfigResponse,
-    CrawlerTestRequest,
-    CrawlerTestResponse,
-    CrawlerConfiguredCrawlRequest,
-)
-from ..task_manager import (
-    create_task,
-    cleanup_old_tasks,
-    extract_scholar_id_from_url,
-    enqueue_task,
 )
 from ..source_input_service import (
     build_paper_summary_from_source,
     keep_non_scholar_paper_summaries,
     keep_paper_summaries_excluding,
 )
-from ...utils.publication_merge import merge_publications
-from ..enrichment_prefs import (
-    flags_from_user_settings_row,
-    planned_enrichment_step_count_for_professor,
+from ..task_manager import (
+    cleanup_old_tasks,
+    create_task,
+    enqueue_task,
+    extract_scholar_id_from_url,
 )
-from ...utils.scholar_match_context import resolve_scholar_match_params
-from ..errors import ErrorCode, raise_api_error
 
 router = APIRouter(prefix="/professors", tags=["教授管理"])
 
@@ -218,12 +226,12 @@ def create_professor(
     session: Session = Depends(get_db_session),
 ):
     """Create a professor manually.
-    
+
     Args:
         data: Professor data.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Created professor.
     """
@@ -343,7 +351,7 @@ def add_professor_by_dblp(
 ):
     """Start async task to add/link professor from DBLP profile URL."""
     try:
-        extract_dblp_pid(data.url)
+        extract_dblp_pid_from_url(data.url)
     except ValueError as e:
         raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.BAD_REQUEST, str(e))
 
@@ -434,7 +442,7 @@ def list_crawler_configs(
             session.query(UniversityCrawlerConfig)
             .filter(
                 UniversityCrawlerConfig.user_id == current_user.id,
-                UniversityCrawlerConfig.is_builtin == True,
+                UniversityCrawlerConfig.is_builtin.is_(True),
                 UniversityCrawlerConfig.builtin_crawler_id == uid,
             )
             .first()
@@ -518,6 +526,7 @@ def create_crawler_config(
 def _generate_variants_background(university_id: int, full_name: str):
     """Generate university name variants via LLM in a background thread."""
     import threading
+
     from ...db.database import get_db
     from .universities import _generate_name_variants
 
@@ -639,7 +648,6 @@ async def test_crawler_config(
     """
     from ...config import settings as app_settings
     from ...crawler.crawl4ai_engine.generic_crawler import GenericUniversityCrawler
-
     from ...llm.config import resolve_llm_config
 
     user_settings = (
@@ -736,12 +744,12 @@ def get_professor(
     session: Session = Depends(get_db_session),
 ):
     """Get a specific professor.
-    
+
     Args:
         professor_id: Professor ID.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Professor details.
     """
@@ -750,10 +758,10 @@ def get_professor(
         .filter(Professor.id == professor_id, Professor.user_id == current_user.id)
         .first()
     )
-    
+
     if not professor:
         raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
-    
+
     return professor
 
 
@@ -765,13 +773,13 @@ def update_professor(
     session: Session = Depends(get_db_session),
 ):
     """Update a professor.
-    
+
     Args:
         professor_id: Professor ID.
         data: Update data.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Updated professor.
     """
@@ -780,10 +788,10 @@ def update_professor(
         .filter(Professor.id == professor_id, Professor.user_id == current_user.id)
         .first()
     )
-    
+
     if not professor:
         raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
-    
+
     # Update fields
     if data.name is not None:
         professor.name = data.name
@@ -807,10 +815,10 @@ def update_professor(
         professor.manual_notes = data.manual_notes
     if invalidate_embedding:
         professor.embedding = None
-    
+
     session.flush()
     session.refresh(professor)
-    
+
     return professor
 
 
@@ -1280,12 +1288,12 @@ def delete_professor(
     session: Session = Depends(get_db_session),
 ):
     """Delete a professor.
-    
+
     Args:
         professor_id: Professor ID.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Success message.
     """
@@ -1294,12 +1302,12 @@ def delete_professor(
         .filter(Professor.id == professor_id, Professor.user_id == current_user.id)
         .first()
     )
-    
+
     if not professor:
         raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
-    
+
     session.delete(professor)
-    
+
     return MessageResponse(message="教授已删除")
 
 
@@ -1310,12 +1318,12 @@ async def refresh_professor(
     session: Session = Depends(get_db_session),
 ):
     """Refresh professor data from Google Scholar.
-    
+
     Args:
         professor_id: Professor ID.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Updated professor with fresh data.
     """
@@ -1324,25 +1332,25 @@ async def refresh_professor(
         .filter(Professor.id == professor_id, Professor.user_id == current_user.id)
         .first()
     )
-    
+
     if not professor:
         raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
-    
+
     if not professor.google_scholar_id:
         raise_api_error(status.HTTP_400_BAD_REQUEST, ErrorCode.SCHOLAR_ID_MISSING, "该教授没有关联的 Google Scholar ID")
-    
+
     crawler = ScholarCrawler()
 
     try:
         author_data = await asyncio.to_thread(crawler.get_author, professor.google_scholar_id)
     except Exception as e:
         raise_api_error(status.HTTP_500_INTERNAL_SERVER_ERROR, ErrorCode.CRAWL_FAILED, f"爬取失败: {str(e)}")
-    
+
     if not author_data:
         raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.SCHOLAR_NOT_FOUND, "未找到该学者信息")
-    
-    from ...utils.profile_merge import apply_external_affiliation
+
     from ...utils.name_locales import apply_scholar_name_update
+    from ...utils.profile_merge import apply_external_affiliation
 
     # Update professor data
     apply_scholar_name_update(professor, author_data.get("name"))
@@ -1359,7 +1367,7 @@ async def refresh_professor(
     professor.h_index = author_data.get("h_index")
     professor.total_citations = author_data.get("citations")
     professor.embedding = None
-    
+
     session.flush()
     session.refresh(professor)
 
@@ -1394,12 +1402,12 @@ def batch_delete_professors(
     session: Session = Depends(get_db_session),
 ):
     """Batch delete professors.
-    
+
     Args:
         data: List of professor IDs to delete.
         current_user: Authenticated user.
         session: Database session.
-        
+
     Returns:
         Success message with count.
     """
@@ -1408,7 +1416,7 @@ def batch_delete_professors(
         .filter(Professor.id.in_(data.ids), Professor.user_id == current_user.id)
         .delete(synchronize_session=False)
     )
-    
+
     return MessageResponse(message=f"已删除 {deleted_count} 位教授")
 
 
@@ -1748,7 +1756,7 @@ def set_dblp_manually(
     if not professor:
         raise_api_error(404, ErrorCode.PROFESSOR_NOT_FOUND, "教授不存在")
     try:
-        pid = extract_dblp_pid(body.url)
+        pid = extract_dblp_pid_from_url(body.url)
     except ValueError:
         raise_api_error(400, ErrorCode.DBLP_PID_EXTRACT_FAILED, "无法从 URL 中提取 DBLP pid")
 

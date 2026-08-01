@@ -7,8 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -21,27 +20,27 @@ from .errors import (
     error_body,
     format_validation_errors,
 )
-from .routes.auth import router as auth_router, admin_router
-from .routes.setup import router as setup_router
-from .routes.profiles import router as profiles_router
-from .routes.professors import router as professors_router
-from .routes.match import router as match_router
-from .routes.letters import router as letters_router
-from .routes.settings import router as settings_router
-from .routes.tasks import router as tasks_router
-from .routes.source_inputs import router as source_inputs_router
-from .routes.universities import router as universities_router
-from .routes.pools import router as pools_router
+from .routes.auth import admin_router
+from .routes.auth import router as auth_router
 from .routes.dashboard import router as dashboard_router
-from .task_queue import start_consumer, stop_consumer, enqueue_task, flush_queue
+from .routes.letters import router as letters_router
+from .routes.match import router as match_router
+from .routes.pools import router as pools_router
+from .routes.professors import router as professors_router
+from .routes.profiles import router as profiles_router
+from .routes.settings import router as settings_router
+from .routes.setup import router as setup_router
+from .routes.source_inputs import router as source_inputs_router
+from .routes.tasks import router as tasks_router
+from .routes.universities import router as universities_router
 from .task_manager import (
-    TaskStatus,
     TaskState,
+    TaskStatus,
     _tasks,
     _tasks_lock,
     persist_task,
-    cleanup_old_tasks,
 )
+from .task_queue import enqueue_task, flush_queue, start_consumer, stop_consumer
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +182,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application.
-    
+
     Returns:
         Configured FastAPI application instance.
     """
@@ -193,7 +192,7 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
-    
+
     # CORS middleware for frontend
     app.add_middleware(
         CORSMiddleware,
@@ -243,7 +242,7 @@ def create_app() -> FastAPI:
         return {"status": "ok", "message": "Prof-Finder API is running"}
 
     _configure_frontend_static(app)
-    
+
     return app
 
 

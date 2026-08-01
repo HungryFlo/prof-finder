@@ -283,7 +283,6 @@ def match_professor_scholar(
 
     seen_ids: set[str] = set()
     candidates: list[dict] = []
-    EMAIL_MATCH_THRESHOLD = 80  # auto-accept score when email matches
     # Accept any name-matching candidate (score >= 40).  Previously 80 was
     # too strict — professors who changed institutions would only get 40
     # (name) and be discarded even though they were the right person.

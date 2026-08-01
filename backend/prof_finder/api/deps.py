@@ -3,10 +3,10 @@
 from typing import Generator, Optional
 
 from fastapi import Depends, Query, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from ..db.database import get_db, Database
+from ..db.database import get_db
 from ..models.schema import User
 from .auth import verify_access_token, verify_stream_token
 from .errors import ErrorCode, raise_api_error
@@ -17,7 +17,7 @@ security = HTTPBearer(auto_error=False)
 
 def get_db_session() -> Generator[Session, None, None]:
     """Get a database session for FastAPI dependency injection.
-    
+
     Yields:
         SQLAlchemy session that auto-commits on success, rollbacks on error.
     """
@@ -38,14 +38,14 @@ def get_current_user(
     session: Session = Depends(get_db_session),
 ) -> User:
     """Get the current authenticated user from JWT token.
-    
+
     Args:
         credentials: HTTP Bearer credentials from request header.
         session: Database session.
-        
+
     Returns:
         Authenticated User instance.
-        
+
     Raises:
         ApiError: If token is missing, invalid, or user not found.
     """
@@ -57,10 +57,10 @@ def get_current_user(
             "未提供认证信息",
             headers=auth_headers,
         )
-    
+
     token = credentials.credentials
     payload = verify_access_token(token)
-    
+
     if not payload:
         raise_api_error(
             status.HTTP_401_UNAUTHORIZED,
@@ -68,7 +68,7 @@ def get_current_user(
             "Token 无效或已过期",
             headers=auth_headers,
         )
-    
+
     user_id = payload.get("sub")
     if not user_id:
         raise_api_error(
@@ -77,7 +77,7 @@ def get_current_user(
             "Token 格式无效",
             headers=auth_headers,
         )
-    
+
     user = session.query(User).filter(User.id == int(user_id)).first()
     if not user:
         raise_api_error(
@@ -86,7 +86,7 @@ def get_current_user(
             "用户不存在",
             headers=auth_headers,
         )
-    
+
     return user
 
 
@@ -161,13 +161,13 @@ def get_current_active_user(
     current_user: User = Depends(get_current_user),
 ) -> User:
     """Get current user and verify they don't need to change password.
-    
+
     For most endpoints, we allow access even if must_change_password is True,
     but some sensitive operations might want to check this.
-    
+
     Args:
         current_user: Current authenticated user.
-        
+
     Returns:
         User instance.
     """
@@ -178,13 +178,13 @@ def get_admin_user(
     current_user: User = Depends(get_current_user),
 ) -> User:
     """Get current user and verify they are an admin.
-    
+
     Args:
         current_user: Current authenticated user.
-        
+
     Returns:
         Admin User instance.
-        
+
     Raises:
         ApiError: If user is not an admin.
     """

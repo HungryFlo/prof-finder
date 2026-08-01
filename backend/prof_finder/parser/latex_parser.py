@@ -2,11 +2,12 @@
 
 import re
 from typing import Optional
+
 from .base import (
     BaseParser,
-    ParsedResume,
     EducationEntry,
     ExperienceEntry,
+    ParsedResume,
     ProjectEntry,
 )
 
@@ -97,10 +98,10 @@ class LaTeXParser(BaseParser):
         # \textbf{...}, \textit{...}, \emph{...}
         text = re.sub(r"\\text(?:bf|it|tt|sc|sf|rm)\{([^}]*)\}", r"\1", text)
         text = re.sub(r"\\emph\{([^}]*)\}", r"\1", text)
-        
+
         # \href{url}{text}
         text = re.sub(r"\\href\{[^}]*\}\{([^}]*)\}", r"\1", text)
-        
+
         # \url{...}
         text = re.sub(r"\\url\{([^}]*)\}", r"\1", text)
 
@@ -189,7 +190,7 @@ class LaTeXParser(BaseParser):
     def _parse_education(self, content: str) -> list[EducationEntry]:
         """Parse education section from plain text."""
         entries = []
-        lines = [l.strip() for l in content.split("\n") if l.strip()]
+        lines = [line.strip() for line in content.split("\n") if line.strip()]
 
         for line in lines:
             # Skip bullet markers

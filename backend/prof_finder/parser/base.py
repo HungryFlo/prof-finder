@@ -93,10 +93,10 @@ class BaseParser(ABC):
     @abstractmethod
     def parse(self, content: str) -> ParsedResume:
         """Parse resume content and extract structured data.
-        
+
         Args:
             content: Raw resume content string.
-            
+
         Returns:
             ParsedResume with extracted data.
         """
@@ -106,7 +106,7 @@ class BaseParser(ABC):
     @abstractmethod
     def supported_extensions() -> list[str]:
         """Return list of supported file extensions.
-        
+
         Returns:
             List of extensions like [".md", ".markdown"]
         """
@@ -114,10 +114,10 @@ class BaseParser(ABC):
 
     def parse_file(self, file_path: str) -> ParsedResume:
         """Parse resume from file.
-        
+
         Args:
             file_path: Path to resume file.
-            
+
         Returns:
             ParsedResume with extracted data.
         """

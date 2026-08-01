@@ -10,7 +10,6 @@ from typing import Optional
 
 from ..ai_workflows.provider import LLMProvider
 from ..ai_workflows.workflows import summarize_paper
-from ..llm.paper_summarizer import PaperSummarizer
 
 
 def build_paper_summary_from_scholar_publication(

@@ -9,10 +9,10 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional
 
+from ...utils.url_utils import normalize_school_crawl_professors, resolve_absolute_url
 from .css_extractor import extract_professors_css
 from .llm_extractor import extract_professors_llm
 from .profile_extractor import enrich_profiles_for_batch
-from ...utils.url_utils import normalize_school_crawl_professors, resolve_absolute_url
 
 logger = logging.getLogger(__name__)
 

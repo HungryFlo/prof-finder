@@ -72,7 +72,9 @@ src = ["backend"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
-ignore = ["E501"]
+# E712: SQLAlchemy column filters need `== True` / `.is_(True)`, not truthiness.
+# E741: short loop names like `l` appear in legacy parsers.
+ignore = ["E501", "E712", "E741"]
 
 [tool.mypy]
 python_version = "3.11"

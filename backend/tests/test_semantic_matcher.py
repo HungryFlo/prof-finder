@@ -192,8 +192,9 @@ class TestScoreBatch:
 
 class TestEmbeddingCodec:
     def test_roundtrip(self):
-        from prof_finder.matcher.embedding_codec import pack_embedding, unpack_embedding
         import numpy as np
+
+        from prof_finder.matcher.embedding_codec import pack_embedding, unpack_embedding
 
         vec = np.linspace(-1, 1, 1024, dtype=np.float32)
         packed = pack_embedding(vec)
@@ -204,8 +205,9 @@ class TestEmbeddingCodec:
         assert np.allclose(restored, vec)
 
     def test_rejects_wrong_length(self):
-        from prof_finder.matcher.embedding_codec import pack_embedding, unpack_embedding
         import pytest as _pytest
+
+        from prof_finder.matcher.embedding_codec import pack_embedding, unpack_embedding
 
         with _pytest.raises(ValueError):
             pack_embedding([0.0, 1.0])

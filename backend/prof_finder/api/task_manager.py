@@ -7,25 +7,24 @@ DB table (for persistence across restarts).
 """
 
 import logging
+import re
 import threading
 import time
-import re
 import uuid
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-
-logger = logging.getLogger(__name__)
+from enum import Enum
+from typing import Any, Callable, Dict, Iterator, List, Optional
+from urllib.parse import parse_qs, urlparse
 
 from ..utils.query_cache import invalidate_active_profile
 from ..utils.time import as_utc, utc_now
-from dataclasses import dataclass, field
-from enum import Enum
-from contextlib import contextmanager
-from typing import Callable, Dict, Iterator, List, Optional, Any
-from urllib.parse import urlparse, parse_qs
+
+logger = logging.getLogger(__name__)
 
 
-def _llm_provider_for_user_settings_row(user_settings) -> "LLMProvider":
-    from ..ai_workflows.provider import LLMProvider
+def _llm_provider_for_user_settings_row(user_settings) -> Any:
     from ..llm.config import llm_provider_for_user_settings
 
     return llm_provider_for_user_settings(user_settings)
@@ -178,8 +177,8 @@ def get_user_tasks(user_id: int) -> List[TaskState]:
 
 def persist_task(task: TaskState) -> None:
     """Write the current task state to the BackgroundTask DB row."""
-    from ..models.background_task import BackgroundTask
     from ..db.database import get_db
+    from ..models.background_task import BackgroundTask
 
     try:
         db = get_db()
@@ -253,9 +252,10 @@ def cleanup_old_tasks() -> None:
             del _tasks[tid]
 
     try:
+        from datetime import timedelta
+
         from ..db.database import get_db
         from ..models.background_task import BackgroundTask
-        from datetime import timedelta
 
         cutoff = now - timedelta(seconds=300)
         db = get_db()
@@ -391,21 +391,21 @@ def _parse_materials_as_resume(materials: list[dict], use_llm: bool) -> dict:
 # Background execution functions (sync — called by Huey consumer thread)
 # ---------------------------------------------------------------------------
 
-from .task_queue import register_task, enqueue_task  # noqa: E402
 from .enrichment_prefs import (  # noqa: E402
     AutoEnrichFlags,
     any_auto_enrich_substep_enabled,
     flags_from_user_settings_row,
     planned_enrichment_step_count_for_professor,
 )
+from .task_queue import enqueue_task, register_task  # noqa: E402
 
 
 @register_task("batch-crawl")
 def execute_batch_crawl(task_id: str, scholar_urls: List[str]) -> None:
     """Crawl a list of Google Scholar URLs and persist each author."""
+    from ..crawler.scholar import ScholarCrawler
     from ..db.database import get_db
     from ..models.schema import Professor, UserSettings
-    from ..crawler.scholar import ScholarCrawler
 
     task = get_task(task_id)
     if not task:
@@ -511,9 +511,9 @@ def execute_batch_letters(
     language: str,
 ) -> None:
     """Generate contact letters for a list of professors."""
+    from ..ai_workflows.workflows import generate_letter
     from ..db.database import get_db
     from ..models.schema import MatchRecord, Professor, UserProfile, UserSettings
-    from ..ai_workflows.workflows import generate_letter
 
     task = get_task(task_id)
     if not task:
@@ -641,9 +641,8 @@ def execute_profile_parse(
 ) -> None:
     """Parse an uploaded resume and persist it as a user profile."""
     from ..db.database import get_db
-    from ..models.schema import UserProfile
     from ..llm.config import llm_provider_for_user_settings
-    from ..models.schema import UserSettings
+    from ..models.schema import UserProfile, UserSettings
     from ..parser.smart_parser import SmartParser
 
     task = get_task(task_id)
@@ -691,7 +690,7 @@ def execute_profile_parse(
         with session_context() as session:
             has_active_profile = (
                 session.query(UserProfile)
-                .filter(UserProfile.user_id == task.user_id, UserProfile.is_active == True)
+                .filter(UserProfile.user_id == task.user_id, UserProfile.is_active.is_(True))
                 .first()
                 is not None
             )
@@ -771,10 +770,8 @@ def execute_student_profile_generation(
     session_factory: Optional[Callable[[], Any]] = None,
 ) -> None:
     """Generate an academic student profile from uploaded and manual materials."""
-    from ..config import settings as app_settings
-    from ..db.database import get_db
-    from ..ai_workflows.provider import LLMProvider
     from ..ai_workflows.workflows import generate_student_profile
+    from ..db.database import get_db
     from ..models.schema import UserProfile, UserSettings
 
     task = get_task(task_id)
@@ -830,7 +827,7 @@ def execute_student_profile_generation(
         with session_context() as session:
             has_active_profile = (
                 session.query(UserProfile)
-                .filter(UserProfile.user_id == task.user_id, UserProfile.is_active == True)
+                .filter(UserProfile.user_id == task.user_id, UserProfile.is_active.is_(True))
                 .first()
                 is not None
             )
@@ -900,9 +897,9 @@ def execute_single_crawl(task_id: str, scholar_url: str) -> None:
     task.message = "正在爬取教授信息..."
     persist_task(task)
 
+    from ..crawler.scholar import ScholarCrawler
     from ..db.database import get_db
     from ..models.schema import Professor, UserSettings
-    from ..crawler.scholar import ScholarCrawler
 
     db = get_db()
 
@@ -1033,7 +1030,7 @@ def _encode_match_inputs(
     """
     import numpy as np
 
-    from ..matcher.semantic_matcher import encode_texts, encode_query_texts
+    from ..matcher.semantic_matcher import encode_query_texts, encode_texts
 
     if professor_texts:
         prof_vecs = np.asarray(encode_texts(professor_texts), dtype=np.float32)
@@ -1240,9 +1237,9 @@ def execute_single_letter(
     language: str,
 ) -> None:
     """Generate a contact letter for one professor."""
+    from ..ai_workflows.workflows import generate_letter
     from ..db.database import get_db
     from ..models.schema import MatchRecord, Professor, UserProfile, UserSettings
-    from ..ai_workflows.workflows import generate_letter
 
     task = get_task(task_id)
     if not task:
@@ -1370,9 +1367,9 @@ def execute_university_crawl(task_id: str, university_id: str) -> None:
     Runs the university-specific crawler synchronously (blocking network I/O),
     then persists each professor to the database, skipping duplicates.
     """
-    from ..db.database import get_db
-    from ..models.schema import Professor, UserSettings
     from ..crawler.universities.registry import get_crawler
+    from ..db.database import get_db
+    from ..models.schema import Professor
 
     task = get_task(task_id)
     if not task:
@@ -1543,10 +1540,10 @@ def execute_batch_dblp_match(
 ) -> None:
     """Match professors to DBLP profiles."""
     from ..config import settings as app_settings
-    from ..db.database import get_db
-    from ..models.schema import Professor, UserSettings
     from ..crawler.dblp import DblpClient, dblp_profile_url
     from ..crawler.dblp_matcher import match_professor_dblp
+    from ..db.database import get_db
+    from ..models.schema import Professor, UserSettings
 
     task = get_task(task_id)
     if not task:
@@ -1696,9 +1693,9 @@ def execute_batch_dblp_match(
 @register_task("single-dblp-crawl")
 def execute_single_dblp_crawl(task_id: str, dblp_url: str) -> None:
     """Crawl DBLP profile and merge publications into professor record."""
+    from ..crawler.dblp import DblpClient
     from ..db.database import get_db
     from ..models.schema import Professor, UserSettings
-    from ..crawler.dblp import DblpClient
     from ..utils.publication_merge import merge_publications
 
     task = get_task(task_id)
@@ -1736,8 +1733,8 @@ def execute_single_dblp_crawl(task_id: str, dblp_url: str) -> None:
             )
             if existing:
                 professor = existing
-                from ..utils.profile_merge import apply_external_affiliation
                 from ..utils.name_locales import apply_dblp_name_update
+                from ..utils.profile_merge import apply_external_affiliation
 
                 apply_dblp_name_update(professor, author_data.get("name"))
                 apply_external_affiliation(professor, author_data.get("affiliation"))
@@ -1813,10 +1810,9 @@ def execute_single_dblp_crawl(task_id: str, dblp_url: str) -> None:
 @register_task("batch-dblp-crawl")
 def execute_batch_dblp_crawl(task_id: str, dblp_urls: List[str]) -> None:
     """Crawl multiple DBLP profile URLs."""
+    from ..crawler.dblp import DblpClient, dblp_profile_url, extract_dblp_pid_from_url
     from ..db.database import get_db
-    from ..models.schema import Professor, UserSettings
-    from ..crawler.dblp import DblpClient, extract_dblp_pid_from_url
-    from ..crawler.dblp import dblp_profile_url
+    from ..models.schema import Professor
     from ..utils.publication_merge import merge_publications
 
     task = get_task(task_id)
@@ -1901,7 +1897,7 @@ def execute_generic_university_crawl(task_id: str, config_id: int, cache_key: st
     """
     from ..config import settings as app_settings
     from ..db.database import get_db
-    from ..models.schema import Professor, UserSettings, UniversityCrawlerConfig, University
+    from ..models.schema import Professor, University, UniversityCrawlerConfig, UserSettings
 
     task = get_task(task_id)
     if not task:
@@ -2150,17 +2146,16 @@ def _enrich_professor_core(
     """Fill top-N publication abstracts, English summaries, research profile. Returns professor name."""
     from sqlalchemy.orm.attributes import flag_modified
 
-    from ..config import settings as app_settings
-    from ..crawler.scholar import ScholarCrawler
-    from ..db.database import get_db
     from ..ai_workflows.provider import LLMProvider
     from ..ai_workflows.source_helpers import (
         build_paper_summary_from_dblp_publication,
         build_paper_summary_from_scholar_publication,
     )
     from ..ai_workflows.workflows import generate_professor_profile
+    from ..config import settings as app_settings
+    from ..crawler.scholar import ScholarCrawler
+    from ..db.database import get_db
     from ..models.schema import Professor, UserSettings
-    from .source_input_service import keep_non_scholar_paper_summaries
 
     def _prog(msg: str) -> None:
         if progress:
@@ -2185,7 +2180,6 @@ def _enrich_professor_core(
         if not professor:
             raise ValueError("教授不存在或无权限")
         has_scholar = bool(professor.google_scholar_id)
-        has_dblp = bool(professor.dblp_pid)
         publications = list(professor.publications or [])
         prof_name = professor.name
 
@@ -2487,10 +2481,8 @@ def execute_professor_source_summary(
     """Summarize selected source inputs and persist paper summaries."""
     from sqlalchemy.orm.attributes import flag_modified
 
-    from ..config import settings as app_settings
-    from ..db.database import get_db
-    from ..ai_workflows.provider import LLMProvider
     from ..ai_workflows.source_helpers import build_paper_summary_from_source
+    from ..db.database import get_db
     from ..models.schema import Professor, SourceInput, UserSettings
 
     task = get_task(task_id)
@@ -2628,10 +2620,8 @@ def execute_professor_profile_generation(
     session_factory: Optional[Callable[[], Any]] = None,
 ) -> None:
     """Generate a research profile for a single professor."""
-    from ..config import settings as app_settings
-    from ..db.database import get_db
-    from ..ai_workflows.provider import LLMProvider
     from ..ai_workflows.workflows import generate_professor_profile
+    from ..db.database import get_db
     from ..models.schema import Professor, UserSettings
 
     task = get_task(task_id)
@@ -2747,10 +2737,8 @@ def execute_batch_professor_profiles(
     session_factory: Optional[Callable[[], Any]] = None,
 ) -> None:
     """Generate research profiles for a batch of professors."""
-    from ..config import settings as app_settings
-    from ..db.database import get_db
-    from ..ai_workflows.provider import LLMProvider
     from ..ai_workflows.workflows import generate_professor_profile
+    from ..db.database import get_db
     from ..models.schema import Professor, UserSettings
 
     task = get_task(task_id)
@@ -2854,9 +2842,9 @@ def execute_professor_homepage_crawl(
 ) -> None:
     """Crawl a professor's homepage URL and merge extracted fields."""
     from ..config import settings as app_settings
+    from ..crawler.crawl4ai_engine.profile_extractor import extract_professor_profile
     from ..db.database import get_db
     from ..models.schema import Professor, UserSettings
-    from ..crawler.crawl4ai_engine.profile_extractor import extract_professor_profile
     from ..utils.profile_merge import apply_profile_merge_to_professor
 
     task = get_task(task_id)
@@ -2966,10 +2954,11 @@ def execute_fill_publications(
 ) -> None:
     """Fetch full publication details (abstracts, links) for one professor."""
     from sqlalchemy.orm.attributes import flag_modified
+
     from ..config import settings as app_settings
+    from ..crawler.scholar import ScholarCrawler
     from ..db.database import get_db
     from ..models.schema import Professor
-    from ..crawler.scholar import ScholarCrawler
 
     task = get_task(task_id)
     if not task:
@@ -3063,9 +3052,9 @@ def execute_batch_refresh(
     session_factory: Optional[Callable[[], Any]] = None,
 ) -> None:
     """Refresh multiple professors from Google Scholar in a background task."""
+    from ..crawler.scholar import ScholarCrawler
     from ..db.database import get_db
     from ..models.schema import Professor, UserSettings
-    from ..crawler.scholar import ScholarCrawler
 
     task = get_task(task_id)
     if not task:
@@ -3132,9 +3121,9 @@ def execute_batch_refresh(
                     .first()
                 )
                 if professor:
-                    from .source_input_service import keep_non_scholar_paper_summaries
                     from ..utils.name_locales import apply_scholar_name_update
                     from ..utils.publication_merge import merge_publications
+                    from .source_input_service import keep_non_scholar_paper_summaries
 
                     professor.paper_summaries = keep_non_scholar_paper_summaries(
                         professor.paper_summaries or []
@@ -3213,9 +3202,9 @@ def execute_batch_refresh_dblp(
     session_factory: Optional[Callable[[], Any]] = None,
 ) -> None:
     """Refresh DBLP publications for multiple professors."""
-    from ..db.database import get_db
-    from ..models.schema import Professor, UserSettings
     from ..crawler.dblp import DblpClient
+    from ..db.database import get_db
+    from ..models.schema import Professor
     from ..utils.publication_merge import merge_publications
     from .source_input_service import keep_paper_summaries_excluding
 
@@ -3307,10 +3296,10 @@ def execute_batch_refresh_external(
     session_factory: Optional[Callable[[], Any]] = None,
 ) -> None:
     """Refresh Scholar and/or DBLP per professor."""
+    from ..crawler.dblp import DblpClient
+    from ..crawler.scholar import ScholarCrawler
     from ..db.database import get_db
     from ..models.schema import Professor
-    from ..crawler.scholar import ScholarCrawler
-    from ..crawler.dblp import DblpClient
     from ..utils.publication_merge import merge_publications
     from .source_input_service import (
         keep_non_scholar_paper_summaries,
@@ -3354,7 +3343,6 @@ def execute_batch_refresh_external(
                     continue
                 scholar_id = professor.google_scholar_id
                 dblp_pid = professor.dblp_pid
-                prof_name = professor.name
 
             updated = False
             if scholar_id:
@@ -3444,10 +3432,8 @@ def execute_profile_chat_refinement(
     session_factory: Optional[Callable[[], Any]] = None,
 ) -> None:
     """Regenerate an academic profile incorporating chat Q&A insights."""
-    from ..config import settings as app_settings
-    from ..db.database import get_db
-    from ..ai_workflows.provider import LLMProvider
     from ..ai_workflows.workflows import refine_profile_from_chat
+    from ..db.database import get_db
     from ..models.schema import UserProfile, UserSettings
 
     task = get_task(task_id)

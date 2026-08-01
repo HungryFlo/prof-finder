@@ -1,8 +1,8 @@
 """LLM-based resume parser using configured LLM API."""
 
 import json
-import re
 import logging
+import re
 from typing import Optional
 
 from ..ai_workflows.provider import LLMProvider
@@ -10,12 +10,11 @@ from ..llm.config import llm_not_configured_message, resolve_llm_config
 from ..prompts import get_prompt
 from .base import (
     BaseParser,
-    ParsedResume,
     EducationEntry,
     ExperienceEntry,
+    ParsedResume,
     ProjectEntry,
 )
-
 
 logger = logging.getLogger(__name__)
 
