@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>在线预览 · Prof-Finder</title>
+  <meta name="description" content="Prof-Finder 交互演示：用示例数据预览信息池、画像、教授库、匹配结果与套磁信流程。" />
+  <meta name="theme-color" content="#3b82a0" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%233b82a0'/%3E%3Ctext x='16' y='21' text-anchor='middle' font-family='system-ui' font-weight='700' font-size='16' fill='white'%3EPF%3C/text%3E%3C/svg%3E" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            accent: {
+              DEFAULT: '#3b82a0',
+              light: '#5a9dbc',
+              dark: '#2d6880',
+              50: '#f0f7fa',
+              100: '#dceef5',
+              200: '#b9dcea',
+              500: '#3b82a0',
+              600: '#2d6880',
+            },
+            surface: {
+              DEFAULT: '#ffffff',
+              secondary: '#f8fafb',
+              tertiary: '#f0f4f6',
+            },
+            ink: {
+              DEFAULT: '#1a2b33',
+              secondary: '#4a6070',
+              tertiary: '#7a95a5',
+              muted: '#a0b5c0',
+            },
+          },
+          fontFamily: {
+            sans: ['"Geist"', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['"Geist Mono"', '"SF Mono"', 'Consolas', 'monospace'],
+          },
+        },
+      },
+    }
+  </script>
+  <style>
+    @import url('https://cdn.jsdelivr.net/npm/geist@1.4.1/dist/fonts/geist-sans/style.css');
+    @import url('https://cdn.jsdelivr.net/npm/geist@1.4.1/dist/fonts/geist-mono/style.css');
+
+    html, body { height: 100%; font-family: 'Geist', system-ui, sans-serif; }
+    body { margin: 0; background: #f0f4f6; color: #1a2b33; }
+
+    .dark { color-scheme: dark; }
+    .dark body { background: #0a1216; color: #d0dde3; }
+    .dark .bg-surface { background: #0d1519; }
+    .dark .bg-surface-secondary { background: #131f25; }
+    .dark .bg-surface-tertiary { background: #1a2b33; }
+    .dark .text-ink { color: #d0dde3; }
+    .dark .text-ink-secondary { color: #8fa8b8; }
+    .dark .text-ink-tertiary { color: #5a7585; }
+    .dark .text-ink-muted { color: #3d5565; }
+    .dark .border-accent\/10 { border-color: rgba(59,130,160,0.15); }
+    .dark .border-accent\/15 { border-color: rgba(59,130,160,0.2); }
+    .dark .border-accent\/20 { border-color: rgba(59,130,160,0.25); }
+    .dark .bg-accent\/8 { background: rgba(59,130,160,0.1); }
+    .dark .bg-accent\/10 { background: rgba(59,130,160,0.14); }
+    .dark .hover\:bg-accent\/8:hover { background: rgba(59,130,160,0.12); }
+    .dark .hover\:bg-surface-tertiary:hover { background: #1a2b33; }
+    .dark .shadow-panel { box-shadow: 0 1px 3px rgba(0,0,0,0.35); }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      height: calc(100dvh - 44px);
+    }
+    @media (max-width: 860px) {
+      .app-shell { grid-template-columns: 1fr; }
+      .app-sider { display: none; }
+      .app-sider.mobile-open {
+        display: flex;
+        position: fixed;
+        inset: 44px 0 0 0;
+        z-index: 40;
+        width: min(280px, 85vw);
+        box-shadow: 4px 0 24px rgba(0,0,0,0.15);
+      }
+      .mobile-backdrop {
+        display: none;
+        position: fixed;
+        inset: 44px 0 0 0;
+        background: rgba(0,0,0,0.35);
+        z-index: 35;
+      }
+      .mobile-backdrop.open { display: block; }
+    }
+
+    .nav-item.active {
+      background: rgba(59,130,160,0.1);
+      color: #2d6880;
+      font-weight: 550;
+    }
+    .dark .nav-item.active { color: #7eb8d0; }
+
+    .view { display: none; }
+    .view.active { display: block; animation: fadeIn 0.25s ease; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: none; }
+    }
+
+    .score-bar { height: 6px; border-radius: 999px; background: rgba(59,130,160,0.12); overflow: hidden; }
+    .score-bar > span { display: block; height: 100%; background: #3b82a0; border-radius: 999px; }
+
+    .modal-backdrop {
+      position: fixed; inset: 0; z-index: 50;
+      background: rgba(13, 21, 25, 0.45);
+      display: flex; align-items: center; justify-content: center;
+      padding: 16px;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .modal-backdrop.open { opacity: 1; pointer-events: auto; }
+    .modal-panel {
+      width: min(720px, 100%);
+      max-height: min(85dvh, 800px);
+      overflow: auto;
+      background: #fff;
+      border-radius: 16px;
+      border: 1px solid rgba(59,130,160,0.12);
+      box-shadow: 0 20px 50px rgba(0,0,0,0.18);
+      transform: translateY(8px);
+      transition: transform 0.2s ease;
+    }
+    .modal-backdrop.open .modal-panel { transform: none; }
+    .dark .modal-panel { background: #131f25; border-color: rgba(59,130,160,0.2); }
+
+    .toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+      z-index: 60; background: #1a2b33; color: #fff; padding: 10px 18px;
+      border-radius: 10px; font-size: 13px; opacity: 0; pointer-events: none;
+      transition: all 0.25s ease; white-space: nowrap;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .dark .toast { background: #d0dde3; color: #0d1519; }
+
+    .progress-ring { transition: width 0.4s ease; }
+    .pool-chip { cursor: grab; }
+    .pool-chip:active { cursor: grabbing; }
+
+    .letter-body {
+      white-space: pre-wrap;
+      font-size: 13.5px;
+      line-height: 1.7;
+      color: #1a2b33;
+    }
+    .dark .letter-body { color: #d0dde3; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .view.active { animation: none; }
+      * { transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Demo banner -->
+  <div class="h-11 px-4 flex items-center justify-between gap-3 bg-accent text-white text-[13px]">
+    <div class="flex items-center gap-2 min-w-0">
+      <span class="shrink-0 inline-flex items-center h-5 px-2 rounded bg-white/15 font-mono text-[11px] tracking-wide">DEMO</span>
+      <span class="truncate opacity-95">示例数据预览 · 匹配、写信等完整能力请下载本机版体验</span>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      <a href="./index.html" class="hidden sm:inline text-white/85 hover:text-white no-underline">返回首页</a>
+      <a href="https://github.com/HungryFlo/prof-finder/releases" target="_blank" rel="noopener"
+         class="inline-flex items-center gap-1.5 h-7 px-3 bg-white text-accent text-xs font-medium rounded-md no-underline hover:bg-accent-50 transition-colors">
+        下载完整版
+      </a>
+    </div>
+  </div>
+
+  <div class="mobile-backdrop" id="mobile-backdrop"></div>
+
+  <div class="app-shell">
+    <!-- Sidebar -->
+    <aside class="app-sider bg-surface border-r border-accent/10 flex flex-col" id="app-sider">
+      <div class="h-[60px] px-5 flex items-center gap-2.5 border-b border-accent/10">
+        <div class="w-7 h-7 bg-accent rounded-lg flex items-center justify-center">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </div>
+        <span class="text-[15px] font-semibold tracking-tight text-ink">Prof-Finder</span>
+      </div>
+      <nav class="flex-1 p-3 space-y-0.5" id="side-nav">
+        <button data-view="dashboard" class="nav-item active w-full flex items-center gap-2.5 h-10 px-3 rounded-lg text-sm text-ink-secondary hover:bg-accent/8 transition-colors text-left">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          工作台
+        </button>
+        <button data-view="pool" class="nav-item w-full flex items-center gap-2.5 h-10 px-3 rounded-lg text-sm text-ink-secondary hover:bg-accent/8 transition-colors text-left">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          信息池
+        </button>
+        <button data-view="profile" class="nav-item w-full flex items-center gap-2.5 h-10 px-3 rounded-lg text-sm text-ink-secondary hover:bg-accent/8 transition-colors text-left">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          学生画像
+        </button>
+        <button data-view="professors" class="nav-item w-full flex items-center gap-2.5 h-10 px-3 rounded-lg text-sm text-ink-secondary hover:bg-accent/8 transition-colors text-left">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+          教授管理
+        </button>
+        <button data-view="match" class="nav-item w-full flex items-center gap-2.5 h-10 px-3 rounded-lg text-sm text-ink-secondary hover:bg-accent/8 transition-colors text-left">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><path d="M11 18H8a2 2 0 01-2-2V9"/></svg>
+          匹配结果
+        </button>
+        <button data-view="settings" class="nav-item w-full flex items-center gap-2.5 h-10 px-3 rounded-lg text-sm text-ink-secondary hover:bg-accent/8 transition-colors text-left">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          设置
+        </button>
+      </nav>
+      <div class="p-3 border-t border-accent/10">
+        <div class="rounded-xl bg-accent/8 border border-accent/15 p-3">
+          <p class="text-xs text-ink-secondary leading-relaxed mb-2.5">想用自己的简历与真实教授库跑一遍？</p>
+          <a href="https://github.com/HungryFlo/prof-finder/releases" target="_blank" rel="noopener"
+             class="inline-flex items-center justify-center w-full h-8 bg-accent text-white text-xs font-medium rounded-lg no-underline hover:bg-accent-dark transition-colors">
+            下载便携版
+          </a>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <div class="flex flex-col min-w-0 bg-surface-secondary">
+      <header class="h-[60px] px-4 md:px-6 flex items-center justify-between gap-3 bg-surface border-b border-accent/10 shrink-0">
+        <div class="flex items-center gap-2 min-w-0">
+          <button id="mobile-menu-btn" class="md:hidden p-2 -ml-1 text-ink-secondary hover:text-ink" aria-label="打开菜单">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+          <div class="text-sm text-ink-tertiary truncate">
+            <span class="text-ink-muted">演示</span>
+            <span class="mx-1.5">/</span>
+            <span id="breadcrumb" class="text-ink">工作台</span>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="hidden sm:inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-accent/8 text-[11px] font-mono text-accent">示例账号 · demo</span>
+          <button id="theme-toggle" class="w-9 h-9 rounded-lg hover:bg-surface-tertiary text-ink-secondary flex items-center justify-center" aria-label="切换主题">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="flex-1 overflow-auto p-4 md:p-6" id="main-content">
+        <!-- ========== DASHBOARD ========== -->
+        <section class="view active" id="view-dashboard">
+          <div class="mb-6">
+            <h1 class="text-2xl font-bold tracking-tight text-ink mb-1">你好，demo</h1>
+            <p class="text-sm text-ink-secondary">从经历沉淀到导师匹配 — 下面是一条示例申请工作流。</p>
+          </div>
+
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+            <div class="bg-surface border border-accent/10 rounded-xl p-4">
+              <div class="text-xs text-ink-tertiary mb-1">信息池故事</div>
+              <div class="text-2xl font-semibold text-ink tabular-nums">4</div>
+            </div>
+            <div class="bg-surface border border-accent/10 rounded-xl p-4">
+              <div class="text-xs text-ink-tertiary mb-1">激活画像</div>
+              <div class="text-2xl font-semibold text-ink tabular-nums">1</div>
+            </div>
+            <div class="bg-surface border border-accent/10 rounded-xl p-4">
+              <div class="text-xs text-ink-tertiary mb-1">教授档案</div>
+              <div class="text-2xl font-semibold text-ink tabular-nums">6</div>
+            </div>
+            <div class="bg-surface border border-accent/10 rounded-xl p-4">
+              <div class="text-xs text-ink-tertiary mb-1">匹配结果</div>
+              <div class="text-2xl font-semibold text-ink tabular-nums">6</div>
+            </div>
+          </div>
+
+          <div class="bg-surface border border-accent/10 rounded-2xl p-5 mb-6">
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="text-sm font-semibold text-ink">五步进度</h2>
+              <span class="text-xs text-ink-tertiary">4 / 5 已完成</span>
+            </div>
+            <div class="space-y-2" id="dash-steps"></div>
+          </div>
+
+          <div class="bg-surface border border-accent/10 rounded-2xl p-5">
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="text-sm font-semibold text-ink">Top 匹配</h2>
+              <button data-goto="match" class="text-xs text-accent hover:underline">查看全部</button>
+            </div>
+            <div class="space-y-2" id="dash-matches"></div>
+          </div>
+        </section>
+
+        <!-- ========== POOL ========== -->
+        <section class="view" id="view-pool">
+          <div class="flex flex-wrap items-start justify-between gap-3 mb-5">
+            <div>
+              <h1 class="text-xl font-bold tracking-tight text-ink mb-1">信息池 · HCI 申请素材</h1>
+              <p class="text-sm text-ink-secondary">脑暴 → 聚类 → 细化 → 文书。演示中可浏览各阶段示例内容。</p>
+            </div>
+            <button data-gated="pool-ai" class="h-9 px-4 text-sm border border-accent/20 rounded-lg text-ink-secondary hover:border-accent/40 transition-colors">
+              生成文书草稿
+            </button>
+          </div>
+
+          <div class="flex gap-1 p-1 bg-surface border border-accent/10 rounded-xl mb-5 overflow-x-auto" id="pool-tabs">
+            <button data-pool-tab="brainstorm" class="pool-tab active shrink-0 h-8 px-3.5 rounded-lg text-xs font-medium bg-accent text-white">脑暴</button>
+            <button data-pool-tab="cluster" class="pool-tab shrink-0 h-8 px-3.5 rounded-lg text-xs font-medium text-ink-secondary hover:bg-accent/8">聚类</button>
+            <button data-pool-tab="refine" class="pool-tab shrink-0 h-8 px-3.5 rounded-lg text-xs font-medium text-ink-secondary hover:bg-accent/8">细化</button>
+            <button data-pool-tab="essay" class="pool-tab shrink-0 h-8 px-3.5 rounded-lg text-xs font-medium text-ink-secondary hover:bg-accent/8">文书</button>
+          </div>
+
+          <div id="pool-panels"></div>
+        </section>
+
+        <!-- ========== PROFILE ========== -->
+        <section class="view" id="view-profile">
+          <div class="flex flex-wrap items-start justify-between gap-3 mb-5">
+            <div>
+              <h1 class="text-xl font-bold tracking-tight text-ink mb-1">学生画像</h1>
+              <p class="text-sm text-ink-secondary">匹配时使用「已激活」的画像。以下为示例学术画像。</p>
+            </div>
+            <button data-gated="upload-resume" class="h-9 px-4 text-sm bg-accent text-white rounded-lg hover:bg-accent-dark transition-colors">
+              上传简历生成
+            </button>
+          </div>
+
+          <div class="bg-surface border border-accent/10 rounded-2xl p-5 md:p-6">
+            <div class="flex flex-wrap items-center gap-2 mb-4">
+              <h2 class="text-lg font-semibold text-ink">林晓 · HCI / 人机协作</h2>
+              <span class="inline-flex items-center h-6 px-2 rounded-md bg-accent/10 text-accent text-xs font-medium">已激活</span>
+              <span class="inline-flex items-center h-6 px-2 rounded-md bg-surface-tertiary text-ink-tertiary text-xs">绑定信息池</span>
+            </div>
+            <div class="flex flex-wrap gap-1.5 mb-5" id="profile-tags"></div>
+            <div class="prose-demo text-sm text-ink-secondary leading-relaxed space-y-3" id="profile-body"></div>
+            <div class="mt-6 pt-5 border-t border-accent/10 flex flex-wrap gap-2">
+              <button data-gated="profile-chat" class="h-9 px-4 text-sm border border-accent/20 rounded-lg text-ink-secondary hover:border-accent/40">AI 对话打磨</button>
+              <button data-goto="match" class="h-9 px-4 text-sm bg-accent text-white rounded-lg hover:bg-accent-dark">去看匹配结果</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ========== PROFESSORS ========== -->
+        <section class="view" id="view-professors">
+          <div class="flex flex-wrap items-start justify-between gap-3 mb-5">
+            <div>
+              <h1 class="text-xl font-bold tracking-tight text-ink mb-1">教授管理</h1>
+              <p class="text-sm text-ink-secondary">演示名单为虚构示例，完整版支持 Scholar / DBLP / 院校批量导入。</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button data-gated="import-scholar" class="h-9 px-3.5 text-sm border border-accent/20 rounded-lg text-ink-secondary hover:border-accent/40">Scholar 导入</button>
+              <button data-gated="import-dblp" class="h-9 px-3.5 text-sm border border-accent/20 rounded-lg text-ink-secondary hover:border-accent/40">DBLP 导入</button>
+              <button data-gated="import-uni" class="h-9 px-3.5 text-sm bg-accent text-white rounded-lg hover:bg-accent-dark">院校批量</button>
+            </div>
+          </div>
+
+          <div class="mb-4">
+            <input id="prof-search" type="search" placeholder="搜索姓名、单位或研究方向…"
+                   class="w-full max-w-md h-10 px-3.5 text-sm bg-surface border border-accent/15 rounded-xl outline-none focus:border-accent text-ink placeholder:text-ink-muted" />
+          </div>
+          <div class="bg-surface border border-accent/10 rounded-2xl overflow-hidden" id="prof-table"></div>
+        </section>
+
+        <!-- ========== MATCH ========== -->
+        <section class="view" id="view-match">
+          <div class="flex flex-wrap items-start justify-between gap-3 mb-5">
+            <div>
+              <h1 class="text-xl font-bold tracking-tight text-ink mb-1">匹配结果</h1>
+              <p class="text-sm text-ink-secondary">按语义相似度排序。点击教授可查看理由并预览套磁信。</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <select id="letter-lang" class="h-9 px-3 text-sm bg-surface border border-accent/20 rounded-lg text-ink-secondary outline-none">
+                <option value="zh">写信：中文</option>
+                <option value="en">Letter: English</option>
+              </select>
+              <button id="btn-export" class="h-9 px-3.5 text-sm border border-accent/20 rounded-lg text-ink-secondary hover:border-accent/40">导出 CSV</button>
+              <button id="btn-run-match" class="h-9 px-4 text-sm bg-accent text-white rounded-lg hover:bg-accent-dark">重新匹配</button>
+            </div>
+          </div>
+
+          <div id="match-progress" class="hidden mb-4 bg-surface border border-accent/15 rounded-xl p-4">
+            <div class="flex items-center justify-between text-xs text-ink-secondary mb-2">
+              <span>正在用本地嵌入模型计算相似度…</span>
+              <span id="match-progress-pct" class="font-mono text-accent">0%</span>
+            </div>
+            <div class="score-bar"><span id="match-progress-bar" class="progress-ring" style="width:0%"></span></div>
+            <p class="text-[11px] text-ink-muted mt-2">演示中为模拟进度；完整版会下载 Qwen3-Embedding（约 1.2 GB）后在本机计算。</p>
+          </div>
+
+          <div class="mb-4">
+            <input id="match-search" type="search" placeholder="筛选教授或匹配理由…"
+                   class="w-full max-w-md h-10 px-3.5 text-sm bg-surface border border-accent/15 rounded-xl outline-none focus:border-accent text-ink placeholder:text-ink-muted" />
+          </div>
+          <div class="bg-surface border border-accent/10 rounded-2xl overflow-hidden" id="match-table"></div>
+
+          <div class="mt-5 rounded-xl border border-accent/15 bg-accent/8 px-4 py-3.5 flex flex-wrap items-center justify-between gap-3">
+            <p class="text-sm text-ink-secondary">示例分数仅供界面预览。用你的画像与教授库跑真实匹配，需要本机版。</p>
+            <a href="https://github.com/HungryFlo/prof-finder/releases" target="_blank" rel="noopener"
+               class="shrink-0 inline-flex items-center gap-1.5 h-8 px-3.5 bg-accent text-white text-xs font-medium rounded-lg no-underline hover:bg-accent-dark">
+              下载体验完整匹配
+            </a>
+          </div>
+        </section>
+
+        <!-- ========== SETTINGS ========== -->
+        <section class="view" id="view-settings">
+          <div class="mb-5">
+            <h1 class="text-xl font-bold tracking-tight text-ink mb-1">设置</h1>
+            <p class="text-sm text-ink-secondary">演示页无法保存密钥；完整版在本机配置 LLM API。</p>
+          </div>
+
+          <div class="bg-surface border border-accent/10 rounded-2xl p-5 md:p-6 max-w-xl space-y-4">
+            <h2 class="text-sm font-semibold text-ink">LLM API 配置</h2>
+            <div>
+              <label class="block text-xs text-ink-tertiary mb-1.5">API 类型</label>
+              <select disabled class="w-full h-10 px-3 text-sm bg-surface-tertiary border border-accent/10 rounded-lg text-ink-secondary opacity-80">
+                <option>OpenAI 兼容</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs text-ink-tertiary mb-1.5">API Key</label>
+              <input disabled type="password" value="sk-demo-••••••••" class="w-full h-10 px-3 text-sm bg-surface-tertiary border border-accent/10 rounded-lg text-ink-muted" />
+            </div>
+            <div>
+              <label class="block text-xs text-ink-tertiary mb-1.5">Base URL</label>
+              <input disabled type="text" value="https://api.example.com/v1" class="w-full h-10 px-3 text-sm bg-surface-tertiary border border-accent/10 rounded-lg text-ink-muted" />
+            </div>
+            <div>
+              <label class="block text-xs text-ink-tertiary mb-1.5">模型名称</label>
+              <input disabled type="text" value="deepseek-chat" class="w-full h-10 px-3 text-sm bg-surface-tertiary border border-accent/10 rounded-lg text-ink-muted" />
+            </div>
+            <button data-gated="save-settings" class="h-9 px-4 text-sm bg-accent text-white rounded-lg hover:bg-accent-dark opacity-90">保存设置</button>
+            <p class="text-xs text-ink-muted leading-relaxed pt-2 border-t border-accent/10">
+              画像生成、教授科研画像、文书与套磁信都依赖你自选的 API。密钥只存在本机，不会经过本演示站。
+            </p>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- Detail modal -->
+  <div class="modal-backdrop" id="detail-modal" role="dialog" aria-modal="true">
+    <div class="modal-panel">
+      <div class="sticky top-0 z-10 flex items-center justify-between gap-3 px-5 py-4 bg-surface border-b border-accent/10">
+        <div class="min-w-0">
+          <h3 class="text-base font-semibold text-ink truncate" id="modal-name"></h3>
+          <p class="text-xs text-ink-tertiary truncate" id="modal-aff"></p>
+        </div>
+        <button id="modal-close" class="w-8 h-8 rounded-lg hover:bg-surface-tertiary text-ink-secondary flex items-center justify-center" aria-label="关闭">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="px-5 py-4 space-y-5" id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Gate modal -->
+  <div class="modal-backdrop" id="gate-modal" role="dialog" aria-modal="true">
+    <div class="modal-panel" style="width:min(440px,100%)">
+      <div class="p-6">
+        <div class="w-10 h-10 bg-accent/10 rounded-xl flex items-center justify-center mb-4">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82a0" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        </div>
+        <h3 class="text-lg font-semibold text-ink mb-2" id="gate-title">完整功能需本机版</h3>
+        <p class="text-sm text-ink-secondary leading-relaxed mb-5" id="gate-desc"></p>
+        <div class="flex flex-wrap gap-2">
+          <a href="https://github.com/HungryFlo/prof-finder/releases" target="_blank" rel="noopener"
+             class="inline-flex items-center justify-center h-10 px-5 bg-accent text-white text-sm font-medium rounded-lg no-underline hover:bg-accent-dark">
+            前往下载
+          </a>
+          <button id="gate-close" class="h-10 px-4 text-sm border border-accent/20 rounded-lg text-ink-secondary hover:border-accent/40">继续逛演示</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const RELEASES = 'https://github.com/HungryFlo/prof-finder/releases';
+    const VIEW_LABELS = {
+      dashboard: '工作台',
+      pool: '信息池',
+      profile: '学生画像',
+      professors: '教授管理',
+      match: '匹配结果',
+      settings: '设置',
+    };
+
+    const GATES = {
+      'pool-ai': {
+        title: '文书生成需要本机 LLM',
+        desc: '完整版会结合你勾选的细化经历，调用你配置的 API 生成个人陈述 / 研究计划 / 套磁片段等草稿。演示站不上传任何材料，也无法代你调用模型。',
+      },
+      'upload-resume': {
+        title: '上传简历请用完整版',
+        desc: '本机版支持 Markdown / LaTeX / 文本简历解析，可绑定信息池生成学术画像。演示中的画像为示例数据，不会收集你的文件。',
+      },
+      'profile-chat': {
+        title: 'AI 对话打磨在完整版',
+        desc: '画像详情里可以边聊边补充材料，再一键写回学术画像。演示页只展示结果形态。',
+      },
+      'import-scholar': {
+        title: 'Scholar 导入需本机爬取',
+        desc: '完整版粘贴 Google Scholar 主页即可后台抓取论文与兴趣标签。网页演示无法发起真实抓取。',
+      },
+      'import-dblp': {
+        title: 'DBLP 导入需本机版',
+        desc: '粘贴 DBLP 作者页可稳定获取 CS 论文列表，并与已有档案合并。请下载后使用。',
+      },
+      'import-uni': {
+        title: '院校批量导入需本机版',
+        desc: '可配置院系列表页，用 LLM 或 CSS 选择器批量抽取教授名单。演示名单均为虚构示例。',
+      },
+      'save-settings': {
+        title: 'API 配置只保存在本机',
+        desc: '密钥、Base URL 与模型名写入你选择的数据目录，不会经过本演示站。下载便携版后即可在「设置」中填写。',
+      },
+    };
+
+    const PROFILE = {
+      tags: ['Human-Computer Interaction', 'LLM Agents', 'Collaborative AI', 'Qualitative Methods', 'Prototype Evaluation'],
+      body: [
+        '研究兴趣集中在人机协作与大语言模型智能体的可用性：如何让智能体在复杂任务中保持可解释的中间状态，并与人类共同制定计划。',
+        '本科阶段完成过一项桌面端研究助手原型，通过半结构化访谈与任务完成率指标评估「分步可见推理」对信任度的影响；后续在课程项目中尝试将类似交互迁移到编程辅助场景。',
+        '希望在研究生阶段深入交互式 AI 系统、协作工作流与评估方法，偏好兼具系统实现与用户研究的课题组。',
+      ],
+    };
+
+    const POOL = {
+      brainstorm: [
+        '大二科研训练：做了一个「分步展示推理」的阅读助手',
+        '暑期实习：给内部知识库加了对话检索前端',
+        '练习曲：用 think-aloud 观察同学怎么用 ChatGPT 写代码',
+        '课程论文：对比两种智能体计划可视化方案',
+        '社团经历：组织过 HCI 读书会（偏弱相关）',
+      ],
+      clusters: [
+        { name: '研究助手原型', items: ['大二科研训练：分步推理阅读助手', '课程论文：计划可视化对比'] },
+        { name: '用户研究', items: ['think-aloud 观察 ChatGPT 写代码', '半结构化访谈 8 人'] },
+        { name: '独立项', items: ['暑期实习：对话检索前端'] },
+      ],
+      refined: [
+        {
+          title: '分步推理阅读助手',
+          fields: {
+            缘起: '发现同学在用 LLM 总结论文时容易「相信结论但说不清依据」。',
+            过程: '用 Electron + 本地笔记库做原型；强制模型输出可折叠的证据卡片。',
+            结果: '任务完成率从 62% 提到 81%；信任评分提升但耗时略增。',
+            洞见: '可见中间步骤比单纯提高正确率更能改善协作感。',
+          },
+        },
+        {
+          title: '编程场景 think-aloud',
+          fields: {
+            缘起: '想弄清「何时该打断用户、何时应静默补全」。',
+            过程: '招募 6 名同学完成两道编程题，录屏 + 出声思维。',
+            结果: '多数人在报错后才愿意看解释；主动弹窗易被关掉。',
+            洞见: '时机比解释长度更重要。',
+          },
+        },
+      ],
+      essays: [
+        { type: '个人陈述片段', text: '我对人机协作的兴趣，始于一次失败的论文速读：模型给了漂亮摘要，我却无法回溯任何关键论断……' },
+        { type: '套磁素材', text: '我在本科原型中验证了「分步可见推理」对信任的影响，希望在贵组关于交互式智能体的工作上继续深入。' },
+      ],
+    };
+
+    const PROFESSORS = [
+      {
+        id: 1,
+        name: 'Elena Vargas',
+        affiliation: 'Northbridge University · HCI Lab',
+        interests: ['Human-AI Collaboration', 'Interactive Agents', 'Trust in AI'],
+        summary: '关注人与智能体共同完成复杂知识工作的交互机制，近期工作涉及计划可视化与可中断协作流程。',
+        score: 91,
+        reasons: ['研究方向高度重合：人机协作 / 智能体', '方法偏好接近：原型 + 用户研究', '与画像中「可见推理」主题相关'],
+        letter: {
+          zh: `尊敬的 Vargas 教授：\n\n我是林晓，目前就读于示例大学计算机系，研究方向为人机协作与 LLM 智能体的可用性。拜读了您关于交互式智能体与信任机制的工作后，我很希望申请加入您的课题组。\n\n本科期间，我实现了一个「分步展示推理」的阅读助手原型，并通过半结构化访谈评估其对用户信任的影响。这与您关注的可中断协作流程高度相关。我希望在研究生阶段继续探索如何让智能体在复杂任务中保持可解释的中间状态。\n\n随信附上简历与简短研究计划草稿。若方便，非常希望有机会与您进一步交流。\n\n此致\n敬礼\n林晓\n\n—— 以上为演示生成的示例邮件，请勿发送。`,
+          en: `Dear Professor Vargas,\n\nMy name is Lin Xiao, an undergraduate CS student interested in human–AI collaboration and the usability of LLM agents. I have followed your work on interactive agents and trust, and I would be grateful for the chance to apply to your group.\n\nIn my undergraduate project, I built a reading assistant that exposes step-wise reasoning as collapsible evidence cards, and evaluated its effect on user trust via interviews. I hope to further study interpretable intermediate states in collaborative agent workflows.\n\nPlease find my CV and a short research statement attached. I would welcome any opportunity to discuss fit with your lab.\n\nSincerely,\nLin Xiao\n\n— Demo letter for preview only. Do not send.`,
+        },
+      },
+      {
+        id: 2,
+        name: 'Kenji Okada',
+        affiliation: 'Pacific Tech · Intelligent Interfaces',
+        interests: ['LLM Agents', 'Programming Support', 'Mixed-Initiative UI'],
+        summary: '研究编程辅助与混合主动界面，探索智能体何时主动介入、何时保持静默。',
+        score: 86,
+        reasons: ['与编程辅助兴趣重叠', '混合主动界面 ↔ think-aloud 洞见', '系统实现导向契合'],
+        letter: {
+          zh: `尊敬的 Okada 教授：\n\n我是林晓。注意到您在混合主动界面与编程辅助方面的研究，与我通过 think-aloud 观察同学使用代码助手时的发现十分契合——时机往往比解释长度更重要。\n\n我希望在研究生阶段把「分步可见推理」的经验迁移到编程协作场景，并系统评估不同介入策略。若您的课题组仍在招收对此方向感兴趣的学生，恳请考虑我的申请。\n\n此致\n敬礼\n林晓\n\n—— 演示示例，请勿发送。`,
+          en: `Dear Professor Okada,\n\nI am Lin Xiao. Your work on mixed-initiative interfaces and programming support resonates with findings from my think-aloud study of classmates using coding assistants—timing often mattered more than explanation length.\n\nI hope to extend step-wise visible reasoning into programming collaboration and evaluate intervention strategies rigorously. If you are considering students in this area, I would be grateful to be considered.\n\nSincerely,\nLin Xiao\n\n— Demo only. Do not send.`,
+        },
+      },
+      {
+        id: 3,
+        name: 'Amira Hassan',
+        affiliation: 'Lakeview College · CSCW Group',
+        interests: ['CSCW', 'Qualitative Methods', 'AI in Knowledge Work'],
+        summary: '结合定性方法研究知识工作者如何将 AI 嵌入日常协作。',
+        score: 78,
+        reasons: ['定性方法匹配', '知识工作场景相关', '协作语境互补'],
+        letter: {
+          zh: `尊敬的 Hassan 教授：\n\n我是林晓，对人如何把 AI 嵌入日常知识工作很感兴趣。您课题组在 CSCW 与定性方法上的积累，正是我希望补强的一面——我已有原型与小规模访谈经验，期待在更严谨的田野与理论框架下继续。\n\n……（演示正文已截断）\n\n—— 演示示例，请勿发送。`,
+          en: `Dear Professor Hassan,\n\nI am Lin Xiao, interested in how people embed AI into everyday knowledge work. Your group's CSCW and qualitative expertise is exactly what I hope to deepen—beyond my current prototype and small interview study.\n\n… (demo body truncated)\n\n— Demo only. Do not send.`,
+        },
+      },
+      {
+        id: 4,
+        name: 'Marcus Bell',
+        affiliation: 'Riverside Institute · NLP',
+        interests: ['NLP', 'Summarization', 'Evaluation'],
+        summary: '专注文本摘要与评估基准，偏重模型侧而非交互侧。',
+        score: 64,
+        reasons: ['摘要任务有弱相关', '评估意识可迁移', '交互侧重叠有限'],
+        letter: {
+          zh: `尊敬的 Bell 教授：\n\n……（匹配度中等，完整版会根据理由调整措辞重点。）\n\n—— 演示示例，请勿发送。`,
+          en: `Dear Professor Bell,\n\n… (moderate match; the full app would reweight talking points.)\n\n— Demo only. Do not send.`,
+        },
+      },
+      {
+        id: 5,
+        name: 'Sofia Berg',
+        affiliation: 'Crown University · Visualization',
+        interests: ['Information Visualization', 'Explainable AI', 'Dashboard Design'],
+        summary: '可视化解释模型行为，与「可见推理」有概念交叉。',
+        score: 71,
+        reasons: ['可解释性主题交叉', '可视化 ↔ 证据卡片', '用户面向评估经验'],
+        letter: {
+          zh: `尊敬的 Berg 教授：\n\n我在阅读助手原型里用可折叠证据卡片呈现推理步骤，这与您在解释性可视化上的方向有呼应……\n\n—— 演示示例，请勿发送。`,
+          en: `Dear Professor Berg,\n\nIn my reading-assistant prototype I used collapsible evidence cards for reasoning steps, which echoes your work on explanatory visualization…\n\n— Demo only. Do not send.`,
+        },
+      },
+      {
+        id: 6,
+        name: 'Wei Tang',
+        affiliation: 'Harbor Polytechnic · Software Engineering',
+        interests: ['SE4AI', 'Developer Tools', 'Empirical SE'],
+        summary: '经验软件工程与开发者工具，和编程辅助场景部分重叠。',
+        score: 69,
+        reasons: ['开发者工具场景相关', '经验研究方法可衔接', 'HCI 侧重略有差别'],
+        letter: {
+          zh: `尊敬的唐老师：\n\n……（演示占位邮件。）\n\n—— 演示示例，请勿发送。`,
+          en: `Dear Professor Tang,\n\n… (demo placeholder.)\n\n— Demo only. Do not send.`,
+        },
+      },
+    ];
+
+    // ---------- state ----------
+    let currentView = 'dashboard';
+    let letterLang = 'zh';
+    let generatedLetters = new Set(); // professor ids that "generated" in this session
+    let matching = false;
+
+    // ---------- utils ----------
+    function $(sel, root = document) { return root.querySelector(sel); }
+    function $all(sel, root = document) { return [...root.querySelectorAll(sel)]; }
+
+    function toast(msg) {
+      const el = $('#toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => el.classList.remove('show'), 2200);
+    }
+
+    function scoreColor(score) {
+      if (score >= 80) return '#3b82a0';
+      if (score >= 65) return '#c4a35a';
+      return '#7a95a5';
+    }
+
+    function closeMobileNav() {
+      $('#app-sider').classList.remove('mobile-open');
+      $('#mobile-backdrop').classList.remove('open');
+    }
+
+    // ---------- navigation ----------
+    function setView(name) {
+      currentView = name;
+      $all('.view').forEach(v => v.classList.toggle('active', v.id === `view-${name}`));
+      $all('.nav-item').forEach(btn => btn.classList.toggle('active', btn.dataset.view === name));
+      $('#breadcrumb').textContent = VIEW_LABELS[name] || name;
+      closeMobileNav();
+      history.replaceState(null, '', `#${name}`);
+    }
+
+    // ---------- dashboard ----------
+    function renderDashboard() {
+      const steps = [
+        { label: '沉淀经历', desc: '信息池：脑暴 · 聚类 · 细化 · 文书', done: true, view: 'pool' },
+        { label: '建立画像', desc: '上传简历并可绑定信息池', done: true, view: 'profile' },
+        { label: '添加教授', desc: 'Scholar / DBLP / 院校批量', done: true, view: 'professors' },
+        { label: '运行匹配', desc: '本地语义相似度排序', done: true, view: 'match' },
+        { label: '生成邮件', desc: '结合画像与信息池经历', done: generatedLetters.size > 0, view: 'match' },
+      ];
+      $('#dash-steps').innerHTML = steps.map((s, i) => `
+        <button data-goto="${s.view}" class="w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-colors ${s.done ? 'bg-accent/8 border-accent/15' : 'bg-surface-tertiary border-accent/10 opacity-70'}">
+          <div class="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${s.done ? 'bg-accent text-white' : 'bg-ink-muted/20 text-white'}">
+            ${s.done
+              ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>'
+              : `<span class="text-xs font-mono">${i + 1}</span>`}
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-medium text-ink">${s.label}</div>
+            <div class="text-xs text-ink-tertiary mt-0.5">${s.desc}</div>
+          </div>
+        </button>
+      `).join('');
+
+      const top = [...PROFESSORS].sort((a, b) => b.score - a.score).slice(0, 3);
+      $('#dash-matches').innerHTML = top.map(p => `
+        <button data-open-match="${p.id}" class="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-accent/8 transition-colors text-left">
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-medium text-ink truncate">${p.name}</div>
+            <div class="text-xs text-ink-tertiary truncate">${p.affiliation}</div>
+          </div>
+          <div class="shrink-0 flex items-center gap-2">
+            <div class="w-16 score-bar"><span style="width:${p.score}%;background:${scoreColor(p.score)}"></span></div>
+            <span class="text-sm font-mono font-medium tabular-nums" style="color:${scoreColor(p.score)}">${p.score}%</span>
+          </div>
+        </button>
+      `).join('');
+    }
+
+    // ---------- pool ----------
+    function renderPool(tab = 'brainstorm') {
+      $all('.pool-tab').forEach(b => {
+        const on = b.dataset.poolTab === tab;
+        b.classList.toggle('active', on);
+        b.classList.toggle('bg-accent', on);
+        b.classList.toggle('text-white', on);
+        b.classList.toggle('text-ink-secondary', !on);
+      });
+
+      const root = $('#pool-panels');
+      if (tab === 'brainstorm') {
+        root.innerHTML = `
+          <div class="bg-surface border border-accent/10 rounded-2xl p-5">
+            <p class="text-xs text-ink-tertiary mb-3">线索卡片（演示只读）</p>
+            <div class="flex flex-wrap gap-2">
+              ${POOL.brainstorm.map(t => `<span class="pool-chip inline-flex items-center h-8 px-3 rounded-lg bg-accent/8 border border-accent/15 text-sm text-ink">${t}</span>`).join('')}
+            </div>
+            <button data-gated="pool-ai" class="mt-4 h-9 px-3.5 text-sm border border-dashed border-accent/30 rounded-lg text-ink-tertiary">+ 添加线索</button>
+          </div>`;
+      } else if (tab === 'cluster') {
+        root.innerHTML = `
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            ${POOL.clusters.map(c => `
+              <div class="bg-surface border border-accent/10 rounded-2xl p-4">
+                <h3 class="text-sm font-semibold text-ink mb-3">${c.name}</h3>
+                <div class="space-y-2">
+                  ${c.items.map(i => `<div class="p-2.5 rounded-lg bg-surface-tertiary text-xs text-ink-secondary leading-relaxed">${i}</div>`).join('')}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          <p class="text-xs text-ink-muted mt-3">完整版支持看板拖拽归类；此处为静态示例。</p>`;
+      } else if (tab === 'refine') {
+        root.innerHTML = POOL.refined.map(r => `
+          <div class="bg-surface border border-accent/10 rounded-2xl p-5 mb-3">
+            <h3 class="text-sm font-semibold text-ink mb-3">${r.title}</h3>
+            <dl class="space-y-2.5">
+              ${Object.entries(r.fields).map(([k, v]) => `
+                <div>
+                  <dt class="text-[11px] font-mono uppercase tracking-wide text-accent mb-0.5">${k}</dt>
+                  <dd class="text-sm text-ink-secondary leading-relaxed m-0">${v}</dd>
+                </div>
+              `).join('')}
+            </dl>
+          </div>
+        `).join('');
+      } else {
+        root.innerHTML = `
+          <div class="space-y-3">
+            ${POOL.essays.map(e => `
+              <div class="bg-surface border border-accent/10 rounded-2xl p-5">
+                <span class="inline-flex h-6 px-2 rounded-md bg-accent/10 text-accent text-xs font-medium mb-2">${e.type}</span>
+                <p class="text-sm text-ink-secondary leading-relaxed">${e.text}</p>
+              </div>
+            `).join('')}
+          </div>
+          <div class="mt-4 flex flex-wrap gap-2">
+            <button data-gated="pool-ai" class="h-9 px-4 text-sm bg-accent text-white rounded-lg">用 LLM 重新生成</button>
+            <button data-goto="profile" class="h-9 px-4 text-sm border border-accent/20 rounded-lg text-ink-secondary">应用到画像</button>
+          </div>`;
+      }
+    }
+
+    // ---------- profile ----------
+    function renderProfile() {
+      $('#profile-tags').innerHTML = PROFILE.tags.map(t =>
+        `<span class="inline-flex h-7 px-2.5 rounded-md bg-surface-tertiary text-xs text-ink-secondary">${t}</span>`
+      ).join('');
+      $('#profile-body').innerHTML = PROFILE.body.map(p => `<p>${p}</p>`).join('');
+    }
+
+    // ---------- professors ----------
+    function renderProfessors(query = '') {
+      const q = query.trim().toLowerCase();
+      const list = PROFESSORS.filter(p => {
+        if (!q) return true;
+        const blob = [p.name, p.affiliation, ...p.interests].join(' ').toLowerCase();
+        return blob.includes(q);
+      });
+      $('#prof-table').innerHTML = `
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-accent/10 text-left text-xs text-ink-tertiary">
+                <th class="px-4 py-3 font-medium">姓名</th>
+                <th class="px-4 py-3 font-medium hidden md:table-cell">单位</th>
+                <th class="px-4 py-3 font-medium">研究方向</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map(p => `
+                <tr class="border-b border-accent/10 last:border-0 hover:bg-accent/8 cursor-pointer" data-open-match="${p.id}">
+                  <td class="px-4 py-3 font-medium text-ink whitespace-nowrap">${p.name}</td>
+                  <td class="px-4 py-3 text-ink-secondary hidden md:table-cell">${p.affiliation}</td>
+                  <td class="px-4 py-3">
+                    <div class="flex flex-wrap gap-1">
+                      ${p.interests.slice(0, 3).map(i => `<span class="inline-flex h-6 px-2 rounded bg-surface-tertiary text-[11px] text-ink-tertiary">${i}</span>`).join('')}
+                    </div>
+                  </td>
+                </tr>
+              `).join('') || `<tr><td colspan="3" class="px-4 py-8 text-center text-ink-muted">无匹配结果</td></tr>`}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    // ---------- match ----------
+    function renderMatch(query = '') {
+      const q = query.trim().toLowerCase();
+      const list = [...PROFESSORS]
+        .sort((a, b) => b.score - a.score)
+        .filter(p => {
+          if (!q) return true;
+          const blob = [p.name, p.affiliation, ...p.reasons].join(' ').toLowerCase();
+          return blob.includes(q);
+        });
+
+      $('#match-table').innerHTML = `
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-accent/10 text-left text-xs text-ink-tertiary">
+                <th class="px-4 py-3 font-medium w-14">#</th>
+                <th class="px-4 py-3 font-medium">教授</th>
+                <th class="px-4 py-3 font-medium hidden lg:table-cell">单位</th>
+                <th class="px-4 py-3 font-medium w-36">匹配度</th>
+                <th class="px-4 py-3 font-medium hidden md:table-cell">理由</th>
+                <th class="px-4 py-3 font-medium w-24">邮件</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map((p, idx) => `
+                <tr class="border-b border-accent/10 last:border-0 hover:bg-accent/8 cursor-pointer" data-open-match="${p.id}">
+                  <td class="px-4 py-3 text-ink-tertiary font-mono text-xs">${idx + 1}</td>
+                  <td class="px-4 py-3">
+                    <div class="font-medium text-accent">${p.name}</div>
+                    <div class="text-xs text-ink-muted lg:hidden mt-0.5">${p.affiliation}</div>
+                  </td>
+                  <td class="px-4 py-3 text-ink-secondary hidden lg:table-cell">${p.affiliation}</td>
+                  <td class="px-4 py-3">
+                    <div class="flex items-center gap-2">
+                      <div class="flex-1 score-bar"><span style="width:${p.score}%;background:${scoreColor(p.score)}"></span></div>
+                      <span class="font-mono text-xs font-medium tabular-nums" style="color:${scoreColor(p.score)}">${p.score}%</span>
+                    </div>
+                  </td>
+                  <td class="px-4 py-3 hidden md:table-cell">
+                    <div class="flex flex-wrap gap-1">
+                      ${p.reasons.slice(0, 2).map(r => `<span class="inline-flex max-w-[180px] truncate h-6 px-2 rounded bg-accent/8 text-[11px] text-accent" title="${r}">${r}</span>`).join('')}
+                    </div>
+                  </td>
+                  <td class="px-4 py-3">
+                    <span class="text-xs ${generatedLetters.has(p.id) ? 'text-accent' : 'text-ink-muted'}">
+                      ${generatedLetters.has(p.id) ? '已生成' : '未生成'}
+                    </span>
+                  </td>
+                </tr>
+              `).join('') || `<tr><td colspan="6" class="px-4 py-8 text-center text-ink-muted">无匹配结果</td></tr>`}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    function openMatchDetail(id) {
+      const p = PROFESSORS.find(x => x.id === id);
+      if (!p) return;
+      $('#modal-name').textContent = p.name;
+      $('#modal-aff').textContent = p.affiliation;
+
+      const hasLetter = generatedLetters.has(p.id);
+      const letter = p.letter[letterLang] || p.letter.zh;
+
+      $('#modal-body').innerHTML = `
+        <div>
+          <div class="flex items-center gap-3 mb-3">
+            <div class="text-2xl font-semibold font-mono tabular-nums" style="color:${scoreColor(p.score)}">${p.score}%</div>
+            <div class="flex-1 score-bar h-2"><span style="width:${p.score}%;background:${scoreColor(p.score)}"></span></div>
+          </div>
+          <div class="flex flex-wrap gap-1.5 mb-3">
+            ${p.interests.map(i => `<span class="h-6 px-2 rounded-md bg-surface-tertiary text-[11px] text-ink-secondary inline-flex items-center">${i}</span>`).join('')}
+          </div>
+          <p class="text-sm text-ink-secondary leading-relaxed">${p.summary}</p>
+        </div>
+        <div>
+          <h4 class="text-xs font-mono uppercase tracking-wide text-accent mb-2">匹配理由</h4>
+          <ul class="space-y-1.5 m-0 pl-0 list-none">
+            ${p.reasons.map(r => `<li class="flex gap-2 text-sm text-ink-secondary"><span class="text-accent">▸</span><span>${r}</span></li>`).join('')}
+          </ul>
+        </div>
+        <div class="border-t border-accent/10 pt-4">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h4 class="text-sm font-semibold text-ink">套磁信预览</h4>
+            <div class="flex gap-2">
+              ${hasLetter ? `
+                <button id="btn-copy-letter" class="h-8 px-3 text-xs border border-accent/20 rounded-lg text-ink-secondary hover:border-accent/40">复制</button>
+              ` : ''}
+              <button id="btn-gen-letter" class="h-8 px-3 text-xs bg-accent text-white rounded-lg hover:bg-accent-dark">
+                ${hasLetter ? '重新生成（演示）' : '生成邮件（演示）'}
+              </button>
+            </div>
+          </div>
+          <div id="letter-area" class="rounded-xl bg-surface-secondary border border-accent/10 p-4 min-h-[120px]">
+            ${hasLetter
+              ? `<div class="letter-body">${escapeHtml(letter)}</div>
+                 <p class="text-[11px] text-ink-muted mt-3 pt-3 border-t border-accent/10">演示信基于虚构画像与示例理由；完整版会调用你的 LLM，并结合真实信息池细节。</p>`
+              : `<p class="text-sm text-ink-muted">尚未生成。点击上方按钮查看示例信（无需 API）。</p>`}
+          </div>
+        </div>`;
+
+      $('#detail-modal').classList.add('open');
+
+      $('#btn-gen-letter')?.addEventListener('click', () => simulateGenerateLetter(p));
+      $('#btn-copy-letter')?.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(p.letter[letterLang] || p.letter.zh);
+          toast('已复制到剪贴板');
+        } catch {
+          toast('复制失败，请手动选择文本');
+        }
+      });
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function simulateGenerateLetter(p) {
+      const area = $('#letter-area');
+      const btn = $('#btn-gen-letter');
+      if (!area || !btn) return;
+      btn.disabled = true;
+      btn.textContent = '生成中…';
+      area.innerHTML = `
+        <div class="flex items-center gap-2 text-sm text-ink-secondary">
+          <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+          正在根据画像与匹配理由起草（演示模拟）…
+        </div>`;
+
+      setTimeout(() => {
+        generatedLetters.add(p.id);
+        openMatchDetail(p.id);
+        renderMatch($('#match-search').value);
+        renderDashboard();
+        toast('示例邮件已生成');
+      }, 1100);
+    }
+
+    function closeDetail() {
+      $('#detail-modal').classList.remove('open');
+    }
+
+    // ---------- gates ----------
+    function openGate(key) {
+      const g = GATES[key];
+      if (!g) return;
+      $('#gate-title').textContent = g.title;
+      $('#gate-desc').textContent = g.desc;
+      $('#gate-modal').classList.add('open');
+    }
+    function closeGate() {
+      $('#gate-modal').classList.remove('open');
+    }
+
+    // ---------- match run ----------
+    function runMatchSimulation() {
+      if (matching) return;
+      matching = true;
+      const wrap = $('#match-progress');
+      const bar = $('#match-progress-bar');
+      const pct = $('#match-progress-pct');
+      wrap.classList.remove('hidden');
+      let n = 0;
+      const timer = setInterval(() => {
+        n += 7 + Math.floor(Math.random() * 10);
+        if (n >= 100) {
+          n = 100;
+          clearInterval(timer);
+          setTimeout(() => {
+            wrap.classList.add('hidden');
+            matching = false;
+            // slight shuffle of display order feel: bump one mid score
+            toast('匹配完成（演示数据未改变）');
+            renderMatch($('#match-search').value);
+          }, 400);
+        }
+        bar.style.width = n + '%';
+        pct.textContent = n + '%';
+      }, 180);
+    }
+
+    function exportCsv() {
+      const rows = [
+        ['排名', '教授', '单位', '匹配度', '理由', '邮件状态'],
+        ...[...PROFESSORS].sort((a, b) => b.score - a.score).map((p, i) => [
+          i + 1,
+          p.name,
+          p.affiliation,
+          p.score,
+          p.reasons.join('; '),
+          generatedLetters.has(p.id) ? '已生成' : '未生成',
+        ]),
+      ];
+      const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'prof-finder-demo-matches.csv';
+      a.click();
+      toast('已导出演示 CSV');
+    }
+
+    // ---------- theme ----------
+    function initTheme() {
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.classList.add('dark');
+      }
+      $('#theme-toggle').addEventListener('click', () => {
+        document.documentElement.classList.toggle('dark');
+      });
+    }
+
+    // ---------- events ----------
+    function bindEvents() {
+      $all('.nav-item').forEach(btn => {
+        btn.addEventListener('click', () => setView(btn.dataset.view));
+      });
+
+      document.addEventListener('click', (e) => {
+        const goto = e.target.closest('[data-goto]');
+        if (goto) { setView(goto.dataset.goto); return; }
+
+        const open = e.target.closest('[data-open-match]');
+        if (open) { openMatchDetail(Number(open.dataset.openMatch)); return; }
+
+        const gated = e.target.closest('[data-gated]');
+        if (gated) { openGate(gated.dataset.gated); return; }
+
+        const poolTab = e.target.closest('.pool-tab');
+        if (poolTab) { renderPool(poolTab.dataset.poolTab); return; }
+      });
+
+      $('#modal-close').addEventListener('click', closeDetail);
+      $('#detail-modal').addEventListener('click', (e) => { if (e.target === $('#detail-modal')) closeDetail(); });
+      $('#gate-close').addEventListener('click', closeGate);
+      $('#gate-modal').addEventListener('click', (e) => { if (e.target === $('#gate-modal')) closeGate(); });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { closeDetail(); closeGate(); closeMobileNav(); }
+      });
+
+      $('#prof-search').addEventListener('input', (e) => renderProfessors(e.target.value));
+      $('#match-search').addEventListener('input', (e) => renderMatch(e.target.value));
+      $('#letter-lang').addEventListener('change', (e) => {
+        letterLang = e.target.value;
+        toast(letterLang === 'zh' ? '已切换为中文信' : 'Switched to English letter');
+      });
+      $('#btn-run-match').addEventListener('click', runMatchSimulation);
+      $('#btn-export').addEventListener('click', exportCsv);
+
+      $('#mobile-menu-btn').addEventListener('click', () => {
+        $('#app-sider').classList.toggle('mobile-open');
+        $('#mobile-backdrop').classList.toggle('open');
+      });
+      $('#mobile-backdrop').addEventListener('click', closeMobileNav);
+    }
+
+    // ---------- boot ----------
+    function applyHashRoute() {
+      const hash = (location.hash || '').replace('#', '');
+      if (VIEW_LABELS[hash]) setView(hash);
+    }
+
+    function boot() {
+      initTheme();
+      renderDashboard();
+      renderPool('brainstorm');
+      renderProfile();
+      renderProfessors();
+      renderMatch();
+      bindEvents();
+      applyHashRoute();
+      window.addEventListener('hashchange', applyHashRoute);
+    }
+
+    boot();
+  </script>
+</body>
+</html>
