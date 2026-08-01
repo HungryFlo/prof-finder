@@ -2,14 +2,14 @@
 
 **Your Ideal Professor Awaits.** 帮助大学生寻找未来 PhD/MPhil 导师的智能匹配系统。
 
-Prof-Finder 是一款**在本机运行**的研究生导师匹配助手：简历、教授名单与匹配结果保存在你的电脑上，不上传云端。流程为 **沉淀经历 → 建立画像 → 添加教授 → 智能匹配 → 生成套磁信**（与应用内工作台五步一致）。
+Prof-Finder 是一款**在本机运行**的研究生导师匹配助手：简历、教授名单与匹配结果保存在你的电脑上，不上传云端。流程为 **沉淀经历 → 建立画像 → 添加教授 → 运行匹配 → 生成邮件**（与应用内工作台五步一致）。
 
 ## 功能特点
 
-- **信息池**：脑暴、聚类、细化学术相关经历，取材生成文书片段并可绑定到画像
-- **智能简历解析**：Markdown / LaTeX，LLM 语义理解；支持画像 AI 对话打磨
-- **教授信息获取**：Google Scholar、DBLP、院校爬虫、外部档案关联、手动录入
-- **语义匹配**：Qwen3 嵌入 + 科研画像文本
+- **信息池**：脑暴、手动聚类、细化学术相关经历，取材生成文书片段并可绑定到画像
+- **学生画像**：上传 Markdown / LaTeX / 文本材料，LLM 生成学术画像；支持 AI 对话打磨
+- **教授信息获取**：Google Scholar / DBLP 链接、可配置院校名单爬取（LLM 或 CSS）、手动录入；已有教授可更新外部档案（Scholar / DBLP）
+- **语义匹配**：本机 Qwen3-Embedding + 师生科研画像文本（Web）
 - **邮件生成**：可配置 LLM API（OpenAI 兼容或 Anthropic），结合画像与信息池经历生成个性化联络信
 - **多用户**：本地 SQLite，每用户独立数据
 - **Web 界面**：Vue 3 + TypeScript + Naive UI + vue-i18n
@@ -43,7 +43,8 @@ Prof-Finder 便携版**无需安装程序、不写注册表、不往系统目录
 | [用户使用指南（中文）](docs/user-guide.zh.md) | 完整操作流程、API Key、FAQ |
 | [User Guide (English)](docs/user-guide.en.md) | English user documentation |
 | [开发者文档](docs/development.zh.md) | 源码安装、配置、CLI、测试与打包 |
-| [OpenSpec 规格](openspec/) | 功能需求与变更归档 |
+| [前端与后台任务](docs/frontend-and-tasks.zh.md) | 前端架构与 Huey / SSE 任务系统设计 |
+| [知乎宣传稿](docs/zhihu-promo.zh.md) | 面向申请者与开发者的产品介绍 |
 
 ## 参与开发
 

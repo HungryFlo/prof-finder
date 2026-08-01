@@ -10,7 +10,7 @@
 **Prof-Finder** 是一款在本机运行的研究生导师智能匹配助手，帮助大学生寻找未来 PhD/MPhil 导师。核心用户流程与应用内工作台五步一致：
 
 ```
-沉淀经历 → 建立画像 → 添加教授 → 智能匹配 → 生成套磁信
+沉淀经历 → 建立画像 → 添加教授 → 运行匹配 → 生成邮件
 ```
 
 ### 技术栈一览
@@ -80,7 +80,7 @@ prof-finder/
 | 组件 | 路径 | 说明 |
 |------|------|------|
 | 认证路由 | `backend/prof_finder/api/routes/auth.py` | 注册、登录、刷新 Token、改密 |
-| JWT 工具 | `backend/prof_finder/api/auth.py` | 密码哈希（bcrypt）、Token 签发与校验 |
+| JWT 工具 | `backend/prof_finder/api/auth.py` | 密码哈希（SHA-256 + 随机 salt）、Token 签发与校验 |
 | 依赖注入 | `backend/prof_finder/api/deps.py` | `get_current_user`、`get_admin_user` |
 | 首次配置 | `backend/prof_finder/api/routes/setup.py` | 便携版存储路径选择与校验 |
 | 设置 API | `backend/prof_finder/api/routes/settings.py` | 读写用户 LLM 与爬虫配置 |
@@ -341,15 +341,15 @@ prof-finder/
 
 #### 院校爬虫
 
-- **内置爬虫**：西安交通大学 CS（`xjtu_cs`）、SE（`xjtu_se`）等
-- **通用爬虫配置**：用户可自定义列表页 URL、CSS 选择器或 LLM 提取模式
-- **大学实体管理**：`University` 表支持校名变体（中英文缩写）
+- **Web UI**：通用院校名单爬取——用户填写院系列表页 URL，选择 **LLM 抽取**或 **CSS 选择器**（`generic-university-crawl`）
+- **后端内置爬虫**（注册表仍保留，供 API / 开发调用）：西安交通大学 CS（`xjtu-cs`）、SE（`xjtu-se`）
+- **大学实体管理**：`University` 表支持校名变体（中英文缩写），可在爬虫配置中关联以辅助 Scholar / DBLP 匹配
 - **Crawl4AI 引擎**：Playwright 驱动，支持中文院校页面的 Tab 点击与 AJAX 加载
 
 #### 数据富化（Enrichment）
 
-- 保存教授后自动触发：论文详情补全、论文摘要、科研画像生成
-- 院校来源教授自动匹配 Google Scholar
+- 保存教授后可按用户设置自动触发：论文详情补全、论文摘要、科研画像生成
+- 院校来源教授可匹配 Google Scholar / DBLP；列表支持「更新外部档案」
 - 个人主页爬取与信息提取
 - 用户可在设置中开关各项自动富化
 
@@ -384,7 +384,8 @@ prof-finder/
 
 ### 5.5 前端对应
 
-- 教授列表页「院校爬取」「爬虫配置」相关 UI
+- 教授列表页「院校官网批量添加」：配置列表 URL + LLM/CSS 抽取（`ProfessorListView.vue`）
+- 批量「更新外部档案」、详情页 Scholar / DBLP 关联与同步
 - API：`frontend/src/api/universities.ts`、`frontend/src/api/professors.ts`
 
 ### 5.6 测试覆盖
@@ -395,10 +396,10 @@ prof-finder/
 
 ### 5.7 汇报要点
 
-1. 对比内置爬虫与通用配置爬虫的适用场景
+1. 说明 Web 主路径为通用配置爬虫；内置 XJTU 爬虫仍在后端注册表中
 2. 演示 Crawl4AI 对中文院校 Tab 页面的处理（`_TAB_CLICK_JS`）
 3. 说明 CSS 模式 vs LLM 提取模式的取舍
-4. 展示教授从「院校名单」→「Scholar 匹配」→「自动富化」的完整链路
+4. 展示教授从「院校名单」→「Scholar / DBLP 匹配」→「自动富化」的完整链路
 
 ---
 
@@ -452,7 +453,7 @@ Prof-Finder 的核心算法模块：将学生科研画像与教授科研画像�
 ### 6.6 前端对应
 
 - 匹配结果页：`frontend/src/views/match/MatchResultsView.vue`
-- 仪表盘第三步「智能匹配」：`DashboardView.vue`
+- 仪表盘第四步「运行匹配」：`DashboardView.vue`
 - API：`frontend/src/api/match.ts`
 
 ### 6.7 测试覆盖
@@ -462,10 +463,11 @@ Prof-Finder 的核心算法模块：将学生科研画像与教授科研画像�
 
 ### 6.8 汇报要点
 
-1. 解释为何选择 Qwen3-Embedding 而非纯关键词匹配
+1. 解释为何选择 Qwen3-Embedding 而非纯关键词匹配（Web 路径）
 2. 展示匹配分数分布与 `match_reasons` 示例
 3. 说明模型下载与离线使用的机制（ModelScope + 本地缓存）
 4. 介绍 `research_profile` 对匹配质量的影响
+5. 注明 CLI `prof-finder match` 当前仍走 `KeywordMatcher`，与 Web 语义匹配不同
 
 ---
 
@@ -530,8 +532,8 @@ Prof-Finder 的核心算法模块：将学生科研画像与教授科研画像�
 
 ### 7.6 前端对应
 
-- 匹配结果页中的「生成套磁信」「批量生成」按钮
-- 仪表盘第五步「生成套磁信」
+- 匹配结果页中的「生成邮件」/「重新生成」（单封；批量接口存在但 Web 未接）
+- 仪表盘第五步「生成邮件」
 - API：`frontend/src/api/letters.ts`
 
 ### 7.7 测试覆盖
@@ -571,8 +573,8 @@ Prof-Finder 的核心算法模块：将学生科研画像与教授科研画像�
 - **Consumer**：uvicorn 进程内 daemon 线程，默认 2 个 Worker
 - **任务注册表**：`@register_task` 装饰器，20+ 种任务类型
 - **进度推送**：内存 dict + SSE；持久化在 `background_tasks` 表
-- **任务恢复**：重启后自动重新入队 `pending` / `running` 任务
-- **任务取消**：通过 Huey revoke 机制
+- **任务恢复**：重启后 `pending` 重新入队；原 `running` 标为 `interrupted`，由用户继续或放弃
+- **任务取消**：协作式 `cancel_requested` + Huey revoke；中断任务可 discard
 
 #### CLI
 
@@ -747,8 +749,8 @@ flowchart TB
 4. **模块三**（科研画像）— 画像生成
 5. **模块四**（Scholar/DBLP）— 添加教授（学术源）
 6. **模块五**（院校爬虫）— 添加教授（院校源）+ 富化
-7. **模块六**（语义匹配）— 智能匹配
-8. **模块七**（套磁信）— 生成套磁信（可结合信息池细化经历）
+7. **模块六**（语义匹配）— 运行匹配
+8. **模块七**（套磁信）— 生成邮件（可结合信息池细化经历）
 
 ---
 

@@ -2,13 +2,13 @@
 
 [← 返回 README](../README.md) · [开发者文档](./development.zh.md)
 
-本文档从**架构与设计决策**角度，说明 Prof-Finder Web 前端的组织方式，以及后端后台任务系统的运行机制。功能规格以 [`openspec/specs/`](../openspec/specs/) 为准；本文侧重「为什么这样设计」与「各层如何协作」。
+本文档从**架构与设计决策**角度，说明 Prof-Finder Web 前端的组织方式，以及后端后台任务系统的运行机制。行为以仓库代码为准；本文侧重「为什么这样设计」与「各层如何协作」。
 
 ---
 
 ## 总览
 
-Prof-Finder 是一款本地优先的研究生导师匹配助手。用户通过 Web 界面完成「沉淀经历 → 建立画像 → 添加教授 → 智能匹配 → 生成套磁信」五步流程。其中大量操作（爬取、LLM 生成、语义匹配）耗时较长，因此系统采用**异步任务 + SSE 实时进度**的模式，前后端通过统一的任务协议解耦。
+Prof-Finder 是一款本地优先的研究生导师匹配助手。用户通过 Web 界面完成「沉淀经历 → 建立画像 → 添加教授 → 运行匹配 → 生成邮件」五步流程。其中大量操作（爬取、LLM 生成、语义匹配）耗时较长，因此系统采用**异步任务 + SSE 实时进度**的模式，前后端通过统一的任务协议解耦。
 
 ```mermaid
 flowchart LR
@@ -184,13 +184,13 @@ frontend/src/
 2. 响应 { task_id, total?, message }
 3. taskStore.addTask(taskId, taskType, name, total, onComplete?)
 4. Store 打开 EventSource → GET /api/tasks/{id}/progress?token=...
-5. 接收事件：progress | complete | failed | cancelled
+5. 接收事件：progress | complete | failed | cancelled | interrupted
 6. 完成时：Toast 通知 + 可选 onComplete 回调刷新列表
 ```
 
 **SSE 鉴权**：`EventSource` 无法设置请求头，故将 JWT 放在 query `?token=` 中（后端 `get_current_user_sse` 同时支持 Header 与 query）。
 
-**页面刷新恢复**：`MainLayout` 挂载时调用 `taskStore.restoreFromServer()`，从 `GET /api/tasks` 拉取 `pending`/`running`/`failed` 任务并重新订阅 SSE。
+**页面刷新恢复**：`MainLayout` 挂载时调用 `taskStore.restoreFromServer()`，从 `GET /api/tasks` 拉取 `pending` / `running` / `failed` / `interrupted` 等未结束任务并重新订阅 SSE；中断任务可在面板中「继续」或「放弃」。
 
 **登出清理**：`taskStore.reset()` 关闭所有 EventSource 连接。
 
@@ -315,10 +315,10 @@ flowchart TB
 1. **单机本地部署**：无需 Redis、独立 Worker 进程或消息中间件。
 2. **HTTP 快速返回**：路由只做校验与入队，耗时逻辑在后台线程执行。
 3. **可观测**：SSE 推送进度；刷新页面后可恢复订阅。
-4. **可恢复**：进程重启后，未完成任务重新入队（不恢复执行到一半的中间状态）。
+4. **可恢复**：进程重启后，`pending` 任务重新入队；崩溃时仍为 `running` 的任务标为 `interrupted`，由用户显式「继续」（从已持久化的 `current` 接上）或「放弃」，避免静默从头重跑造成重复写入。
 5. **与 FastAPI 事件循环解耦**：阻塞 I/O（爬虫、LLM）不占用 asyncio 主线程。
 
-**演进**：早期使用 `asyncio.create_task()` + 内存字典，SSE 断开可能导致生成器被取消。2026 年迁移至 **Huey + SqliteHuey**（见 `openspec/changes/archive/2026-06-04-migrate-to-huey-task-queue/`），执行与 SSE 推送彻底分离。
+**演进**：早期使用 `asyncio.create_task()` + 内存字典，SSE 断开可能导致生成器被取消。现已迁移至 **Huey + SqliteHuey**，执行与 SSE 推送彻底分离。
 
 ### 2.2 整体架构
 
@@ -384,6 +384,8 @@ flowchart TB
 PENDING → RUNNING → COMPLETED
                   → FAILED
                   → CANCELLED
+RUNNING（进程异常退出）→ INTERRUPTED →（用户 resume）PENDING/RUNNING
+                                      →（用户 discard）CANCELLED
 ```
 
 #### TaskState 字段（内存 + DB 镜像）
@@ -552,16 +554,15 @@ data: {"status": "completed", "success_count": 18, "failed_count": 2, "results":
 
 ### 2.11 启动时任务恢复（Rehydration）
 
-`main.py` 生命周期中 `_rehydrate_tasks()`：
+`main.py` 生命周期中 `_rehydrate_tasks()`（以 `background_tasks` 表为准，并先 `flush_queue()` 清掉 Huey 队列中的陈旧作业）：
 
-1. 从 DB 加载 `status IN ('pending', 'running')` 的记录
-2. 重建内存 `TaskState`
-3. 若 `cancel_requested` → 标记 `CANCELLED`
-4. 若有 `enqueue_args` 或 `enqueue_kwargs` → 重置为 `PENDING`、`current=0`，重新 `enqueue_task()`
-5. 若无 enqueue 参数（迁移前旧任务）→ 标记 `FAILED` 并附迁移说明
-6. 调用 `start_consumer()` 启动 Consumer
+1. 从 DB 加载 `status IN ('pending', 'running')` 的记录，重建内存 `TaskState`
+2. 若 `cancel_requested`（含父任务取消级联）→ 标记 `CANCELLED`
+3. 若原状态为 `pending` 且带有 `enqueue_args` / `enqueue_kwargs` → 重新 `enqueue_task()`
+4. 若原状态为 `running` → 标记 `INTERRUPTED`，保留已持久化的 `current` / `results`，**不**自动重跑；用户通过 `POST /api/tasks/{id}/resume` 从进度继续，或 cancel/discard 放弃
+5. 调用 `start_consumer()` 启动 Consumer
 
-**注意**：不恢复执行到一半的中间进度；重启等于用相同参数重新跑一遍。
+**注意**：中断任务的「继续」会按 executor 约定从 `current` 接上，而不是无脑从 0 全量重跑。
 
 ### 2.12 任务管理 API
 
@@ -571,9 +572,10 @@ data: {"status": "completed", "success_count": 18, "failed_count": 2, "results":
 |------|------|------|
 | `POST` | `/batch-crawl` | 批量 Scholar 爬取 |
 | `POST` | `/batch-dblp-crawl` | 批量 DBLP |
-| `POST` | `/batch-letters` | 批量套磁信 |
+| `POST` | `/batch-letters` | 批量套磁信（API 可用；Web 匹配页目前为单封生成） |
 | `GET` | `/{task_id}/progress` | SSE 进度流 |
-| `POST` | `/{task_id}/cancel` | 取消 |
+| `POST` | `/{task_id}/cancel` | 取消运行中任务，或放弃已中断任务 |
+| `POST` | `/{task_id}/resume` | 继续已中断任务 |
 | `GET` | `` | 任务列表 |
 | `POST` | `/{task_id}/retry` | 重试失败任务 |
 
@@ -637,17 +639,18 @@ sequenceDiagram
 
 ---
 
-## 五、相关规格与测试
+## 五、相关代码与测试
 
-| 文档 | 路径 |
+| 主题 | 路径 |
 |------|------|
-| 异步任务规格 | `openspec/specs/async-tasks/spec.md` |
-| 任务面板规格 | `openspec/specs/task-panel/spec.md` |
-| Web 前端规格 | `openspec/specs/web-frontend/spec.md` |
-| 数据模型（background_tasks） | `openspec/specs/data-model/spec.md` |
-| Huey 迁移设计 | `openspec/changes/archive/2026-06-04-migrate-to-huey-task-queue/design.md` |
+| 任务队列 | `backend/prof_finder/api/task_queue.py` |
+| 任务状态与 executor | `backend/prof_finder/api/task_manager.py` |
+| 任务 API / SSE | `backend/prof_finder/api/routes/tasks.py` |
+| 启动恢复 | `backend/prof_finder/api/main.py`（`_rehydrate_tasks`） |
+| 前端任务 store | `frontend/src/stores/tasks.ts` |
+| 任务面板 UI | `frontend/src/components/TaskPanel.vue` |
 
-**测试**：`backend/tests/test_task_queue.py` 覆盖注册、入队、取消、链式任务、Consumer 生命周期与 rehydration。
+**测试**：`backend/tests/test_task_queue.py` 等覆盖注册、入队、取消、链式任务、Consumer 生命周期与 rehydration。
 
 ---
 
@@ -658,7 +661,7 @@ sequenceDiagram
 | 前端状态 | Pinia 仅 auth/tasks/settings | 页面间共享复杂状态需显式设计 |
 | UI 库 | Naive + shadcn 双栈 | 两套样式约定，AI 区独立维护 |
 | 任务队列 | Huey SqliteHuey | 吞吐量受单机与 2 worker 限制 |
-| 任务状态 | 内存 + DB 双写 | 重启丢失进行中细粒度进度 |
+| 任务状态 | 内存 + DB 双写 | 崩溃时 running → interrupted，细粒度需用户 resume |
 | 取消 | 协作式 | 无法强制终止阻塞中的单次 LLM 调用 |
 | 重试 | 手动 API | 无指数退避自动恢复 |
 | SSE | 500ms 轮询 | 非推送级实时，但实现简单可靠 |

@@ -85,7 +85,7 @@ prof-finder profile upload cv.tex --no-llm
 prof-finder professor add --scholar "https://scholar.google.com/citations?user=xxx"
 prof-finder professor search "Andrew Ng"
 
-# 匹配
+# 匹配（CLI 当前为关键词匹配；Web「运行匹配」使用 Qwen3 语义嵌入）
 prof-finder match run
 prof-finder match show --top 10
 
@@ -94,6 +94,8 @@ prof-finder letter generate <professor_id>
 prof-finder letter batch --top 5
 ```
 
+> **说明**：日常申请流程以 Web UI / API 为准。CLI 便于脚本化调试，部分能力（尤其匹配算法）与 Web 路径不完全等同。
+
 ## 项目结构
 
 ```
@@ -101,8 +103,8 @@ prof-finder/
 ├── backend/prof_finder/   # API、CLI、爬虫、匹配、LLM 等
 ├── backend/tests/
 ├── frontend/src/
-├── openspec/              # 规格与变更归档
-├── scripts/               # 构建、ModelScope 检测等
+├── packaging/             # PyInstaller 规格等
+├── scripts/               # 构建、ModelScope 检测、第三方声明生成等
 └── docs/                  # 用户与开发文档
 ```
 
@@ -137,9 +139,13 @@ python scripts/build_portable.py
 后台任务使用 **Huey**（`SqliteHuey`），consumer 在 uvicorn 进程内以 daemon 线程运行，无需 Redis。
 
 - 进度：内存 dict + SSE；持久化：`background_tasks` 表
-- 重启后恢复 `pending` / `running` 任务
+- 启动恢复（`_rehydrate_tasks`）：
+  - 仍为 `pending` 的任务重新入队；
+  - 崩溃时处于 `running` 的任务标为 `interrupted`，由用户在任务面板选择「继续」或「放弃」（避免静默从头重跑导致重复写入）。
 - 队列库默认 `data/huey_tasks.db`（`HUEY_DB_PATH`）
 - Worker 数默认 2（`HUEY_CONSUMER_WORKERS`）
+
+设计细节见 [前端与后台任务](./frontend-and-tasks.zh.md)。
 
 ## 许可证与第三方声明
 
@@ -148,6 +154,8 @@ python scripts/build_portable.py
 - 更新依赖后请执行：`python scripts/generate_third_party_notices.py`（需 `poetry install --with dev` 与 `frontend/node_modules`）
 - 便携包构建会自动复制 `LICENSE` 与 `THIRD_PARTY_NOTICES.md` 到发行目录
 
-## 规格说明
+## 文档与规格
 
-功能规格与变更历史见 [`openspec/`](../openspec/) 目录；协作流程见 [`openspec/AGENTS.md`](../openspec/AGENTS.md)。
+- 用户流程：[用户使用指南](./user-guide.zh.md)
+- 架构与任务系统：[前端与后台任务](./frontend-and-tasks.zh.md)
+- 行为以仓库代码与上述文档为准（仓库中当前无独立 `openspec/` 目录）。
