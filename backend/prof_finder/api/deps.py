@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..db.database import get_db, Database
 from ..models.schema import User
-from .auth import verify_access_token
+from .auth import verify_access_token, verify_stream_token
 from .errors import ErrorCode, raise_api_error
 
 # HTTP Bearer token scheme
@@ -127,7 +127,8 @@ def get_current_user_sse(
             headers=auth_headers,
         )
 
-    payload = verify_access_token(raw_token)
+    # Prefer short-lived stream tickets in the query string; still accept access JWTs.
+    payload = verify_stream_token(raw_token) or verify_access_token(raw_token)
     if not payload:
         raise_api_error(
             status.HTTP_401_UNAUTHORIZED,

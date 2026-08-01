@@ -991,6 +991,26 @@ class PaginatedResponse(BaseModel):
     pages: int
 
 
+class DashboardStats(BaseModel):
+    """Counts shown on the home dashboard."""
+
+    profile_count: int
+    professor_count: int
+    match_count: int
+    letter_count: int
+
+
+class DashboardResponse(BaseModel):
+    """Aggregated dashboard payload."""
+
+    stats: DashboardStats
+    active_profile: Optional["ProfileResponse"] = None
+    recent_profiles: List[ProfileSummaryResponse] = Field(default_factory=list)
+    recent_professors: List[ProfessorListResponse] = Field(default_factory=list)
+    top_matches: List[MatchResultResponse] = Field(default_factory=list)
+    recent_letters: List[LetterResponse] = Field(default_factory=list)
+
+
 class MessageResponse(BaseModel):
     """Simple message response."""
 

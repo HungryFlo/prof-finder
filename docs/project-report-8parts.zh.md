@@ -29,7 +29,7 @@
 
 ```
 prof-finder/
-├── backend/prof_finder/     # API、CLI、爬虫、匹配、LLM、任务队列
+├── backend/prof_finder/     # API、爬虫、匹配、LLM、任务队列
 │   ├── api/                 # FastAPI 路由与任务管理
 │   ├── parser/              # 简历解析
 │   ├── crawler/             # 教授信息采集
@@ -57,7 +57,7 @@ prof-finder/
 | 五 | 教授信息采集（院校爬虫与富化） | 院校名单爬取、Crawl4AI、Scholar 匹配与数据增强 |
 | 六 | 语义匹配引擎 | Qwen3 嵌入向量、师生相似度计算、匹配结果管理 |
 | 七 | LLM 工作流与套磁信生成 | 论文摘要、教授科研画像、个性化联络信 |
-| 八 | Web 前端与后台任务系统 | Vue 界面、Huey 任务队列、SSE 进度、CLI |
+| 八 | Web 前端与后台任务系统 | Vue 界面、Huey 任务队列、SSE 进度 |
 
 ---
 
@@ -138,7 +138,6 @@ prof-finder/
 - **智能解析策略**：优先 LLM 语义理解，失败时回退正则解析器（`SmartParser`）
 - **结构化输出**：姓名、教育经历、科研经历、项目、技能等 JSON 字段
 - **原始材料管理**：ArXiv 等外部来源的录入与状态跟踪（`SourceInput` 模型）
-- **CLI 支持**：`prof-finder profile upload resume.md`
 
 ### 2.3 技术实现
 
@@ -152,7 +151,6 @@ prof-finder/
 | 材料 API | `backend/prof_finder/api/routes/source_inputs.py` | 外部材料 CRUD |
 | 材料服务 | `backend/prof_finder/api/source_input_service.py` | 材料与教授关联逻辑 |
 | 画像 API（解析部分） | `backend/prof_finder/api/routes/profiles.py` | 文件上传与 `profile-parse` 任务 |
-| CLI | `backend/prof_finder/cli/profile.py` | 命令行上传简历 |
 
 ### 2.4 解析流程
 
@@ -261,7 +259,6 @@ prof-finder/
 
 - 通过 Scholar ID 或 URL 导入教授基本信息
 - 获取 h-index、总引用、研究方向、论文列表（默认前 20 篇）
-- 教授搜索：`prof-finder professor search "Andrew Ng"`
 - 可配置代理（`scholarly_proxy`）应对访问限制
 
 #### DBLP
@@ -417,7 +414,6 @@ Prof-Finder 的核心算法模块：将学生科研画像与教授科研画像�
 - **匹配理由生成**：基于关键词与字段重叠提取可读理由
 - **模型管理**：检查本地模型、后台下载任务
 - **结果持久化**：`MatchRecord` 表，支持排序、分页、重新匹配
-- **CLI**：`prof-finder match run`、`prof-finder match show --top 10`
 
 ### 6.3 技术实现
 
@@ -467,7 +463,7 @@ Prof-Finder 的核心算法模块：将学生科研画像与教授科研画像�
 2. 展示匹配分数分布与 `match_reasons` 示例
 3. 说明模型下载与离线使用的机制（ModelScope + 本地缓存）
 4. 介绍 `research_profile` 对匹配质量的影响
-5. 注明 CLI `prof-finder match` 当前仍走 `KeywordMatcher`，与 Web 语义匹配不同
+5. Web「运行匹配」使用 Qwen3 语义嵌入
 
 ---
 
@@ -554,7 +550,7 @@ Prof-Finder 的核心算法模块：将学生科研画像与教授科研画像�
 
 ### 8.1 模块定位
 
-为用户提供完整的 Web 操作界面，并在后端通过 Huey 任务队列支撑所有耗时操作（爬取、匹配、生成）的异步执行与实时进度反馈。同时提供 CLI 作为开发者/高级用户的备用入口。
+为用户提供完整的 Web 操作界面，并在后端通过 Huey 任务队列支撑所有耗时操作（爬取、匹配、生成）的异步执行与实时进度反馈。
 
 ### 8.2 核心功能
 
@@ -576,11 +572,6 @@ Prof-Finder 的核心算法模块：将学生科研画像与教授科研画像�
 - **任务恢复**：重启后 `pending` 重新入队；原 `running` 标为 `interrupted`，由用户继续或放弃
 - **任务取消**：协作式 `cancel_requested` + Huey revoke；中断任务可 discard
 
-#### CLI
-
-```bash
-prof-finder profile upload / professor add / match run / letter generate
-```
 
 #### 便携版构建
 
@@ -596,7 +587,6 @@ prof-finder profile upload / professor add / match run / letter generate
 | 任务管理 | `backend/prof_finder/api/task_manager.py` | 任务状态、执行器、持久化 |
 | 任务 API | `backend/prof_finder/api/routes/tasks.py` | 查询、SSE、取消 |
 | 后台任务模型 | `backend/prof_finder/models/background_task.py` | 任务持久化 |
-| CLI 入口 | `backend/prof_finder/cli/main.py` | Typer 命令组 |
 | 前端入口 | `frontend/src/main.ts` | Vue 应用初始化 |
 | 主布局 | `frontend/src/layouts/MainLayout.vue` | 侧边栏 + 内容区 |
 | 任务状态 | `frontend/src/stores/tasks.ts` | 全局任务面板 |
@@ -648,7 +638,7 @@ batch-refresh, batch-refresh-dblp, batch-refresh-external
 1. 演示仪表盘五步引导与任务进度面板的联动
 2. 说明 Huey 选型理由（本地部署、无外部依赖）
 3. 展示 SSE 进度推送的用户体验
-4. 介绍 CLI 与 Web 的功能对应关系
+4. 介绍 Web 主路径与任务进度反馈
 5. 简述便携版构建流程与 GitHub Release 自动化
 
 ---
@@ -696,7 +686,6 @@ flowchart TB
     subgraph M8["模块八：前端与任务"]
         Web[Vue 前端]
         Huey[Huey 任务队列]
-        CLI[CLI]
     end
 
     Auth --> DB
@@ -717,7 +706,6 @@ flowchart TB
     Huey --> Crawler
     Huey --> Match
     Huey --> Letter
-    CLI --> DB
 ```
 
 ---

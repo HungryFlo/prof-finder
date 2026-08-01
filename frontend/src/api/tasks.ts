@@ -63,11 +63,16 @@ export const tasksApi = {
     return response.data
   },
 
+  async createStreamTicket(): Promise<string> {
+    const response = await client.post<{ token: string }>('/tasks/stream-ticket')
+    return response.data.token
+  },
+
   /**
-   * Build an SSE URL for a task, appending the JWT token as a query parameter
-   * because the browser's native EventSource API does not support custom headers.
+   * Multiplexed SSE URL for all of the current user's tasks.
+   * Uses a short-lived stream ticket instead of the access JWT.
    */
-  getProgressUrl(taskId: string, token: string): string {
-    return `/api/tasks/${taskId}/progress?token=${encodeURIComponent(token)}`
+  getStreamUrl(streamToken: string): string {
+    return `/api/tasks/stream?token=${encodeURIComponent(streamToken)}`
   },
 }

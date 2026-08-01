@@ -171,8 +171,6 @@ Web 匹配走 `SemanticMatcher`：
 - **双语与主题**：vue-i18n 中英；明暗色；匹配页可选写信语言。  
 - **多用户本地隔离**：JWT；业务表按 `user_id` 过滤；任务与 SSE 校验归属。  
 - **便携分发**：GitHub Actions 打 Windows / macOS 包；模型不打进安装包，首次按需下载。  
-- **CLI**：Typer 提供 profile / professor / match / letter 等入口，适合脚本化与调试（与 Web 路径能力不完全等同，以 API/UI 为主路径）。
-
 ## 9. 刻意没做什么
 
 - 不做默认的云端多租户匹配订阅——本地优先是产品原则。  

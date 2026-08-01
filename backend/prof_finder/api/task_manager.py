@@ -234,7 +234,7 @@ _last_cleanup_ts: float = 0.0
 
 
 def cleanup_old_tasks() -> None:
-    """Remove completed / cancelled tasks older than 5 minutes from memory."""
+    """Remove terminal tasks older than 5 minutes from memory and the DB."""
     global _last_cleanup_ts
     now_ts = time.time()
     if now_ts - _last_cleanup_ts < 60:
@@ -251,6 +251,22 @@ def cleanup_old_tasks() -> None:
         ]
         for tid in stale:
             del _tasks[tid]
+
+    try:
+        from ..db.database import get_db
+        from ..models.background_task import BackgroundTask
+        from datetime import timedelta
+
+        cutoff = now - timedelta(seconds=300)
+        db = get_db()
+        with db.session() as session:
+            session.query(BackgroundTask).filter(
+                BackgroundTask.status.in_(["completed", "cancelled", "failed"]),
+                BackgroundTask.created_at < cutoff,
+            ).delete(synchronize_session=False)
+    except Exception:
+        # Cleanup must never break request handlers.
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -1009,19 +1025,21 @@ _MATCH_WRITE_BATCH = 25
 def _encode_match_inputs(
     professor_texts: list[str],
     profile_text: str,
-) -> tuple[list[list[float]], list[float]]:
+):
     """Load the model and encode match inputs.
 
     Uses asymmetric encoding: professors are encoded as documents, profile as a query.
-    Returns (professor_embeddings, profile_embedding).
+    Returns (professor_embeddings ndarray (N, D) or empty, profile_embedding (D,)).
     """
+    import numpy as np
+
     from ..matcher.semantic_matcher import encode_texts, encode_query_texts
 
-    prof_vecs = []
     if professor_texts:
-        vecs = encode_texts(professor_texts)
-        prof_vecs = [v.tolist() for v in vecs]
-    profile_vec = encode_query_texts([profile_text])[0].tolist()
+        prof_vecs = np.asarray(encode_texts(professor_texts), dtype=np.float32)
+    else:
+        prof_vecs = np.empty((0, 0), dtype=np.float32)
+    profile_vec = np.asarray(encode_query_texts([profile_text])[0], dtype=np.float32)
     return prof_vecs, profile_vec
 
 
@@ -1066,13 +1084,17 @@ def execute_match(task_id: str, profile_id: int) -> None:
 
     Model loading and encoding run synchronously in the consumer thread.
     """
+    import numpy as np
+    from sqlalchemy.orm import load_only
+
     from ..db.database import get_db
-    from ..models.schema import UserProfile, Professor
+    from ..matcher.embedding_codec import pack_embedding, unpack_embedding
     from ..matcher.semantic_matcher import (
         SemanticMatcher,
         build_professor_text,
         build_profile_text,
     )
+    from ..models.schema import Professor, UserProfile, UserSettings
 
     task = get_task(task_id)
     if not task:
@@ -1093,7 +1115,34 @@ def execute_match(task_id: str, profile_id: int) -> None:
                 persist_task(task)
                 return
 
-            professors = session.query(Professor).filter(Professor.user_id == task.user_id).all()
+            user_settings = (
+                session.query(UserSettings)
+                .filter(UserSettings.user_id == task.user_id)
+                .first()
+            )
+            match_reason_lang = (
+                user_settings.profile_language
+                if user_settings and user_settings.profile_language in ("zh", "en")
+                else "zh"
+            )
+
+            professors = (
+                session.query(Professor)
+                .options(
+                    load_only(
+                        Professor.id,
+                        Professor.name,
+                        Professor.affiliation,
+                        Professor.research_interests,
+                        Professor.paper_summaries,
+                        Professor.research_profile,
+                        Professor.research_profile_analysis,
+                        Professor.embedding,
+                    )
+                )
+                .filter(Professor.user_id == task.user_id)
+                .all()
+            )
             if not professors:
                 task.status = TaskStatus.FAILED
                 task.error_message = "请先添加教授"
@@ -1116,17 +1165,14 @@ def execute_match(task_id: str, profile_id: int) -> None:
                     "name": p.name,
                     "affiliation": p.affiliation or "",
                     "research_interests": p.research_interests or [],
-                    "publications": p.publications or [],
                     "paper_summaries": p.paper_summaries or [],
                     "research_profile": p.research_profile,
                     "research_profile_analysis": p.research_profile_analysis or {},
-                    # Discard stale vectors from an older model (e.g. SPECTER).
-                    "embedding": p.embedding if p.embedding and len(p.embedding) == 1024 else None,
+                    "embedding": unpack_embedding(p.embedding),
                 }
                 for p in professors
             ]
 
-        match_reason_lang = "en"
         profile_text = build_profile_text(profile_data)
         missing = [row for row in professor_rows if row["embedding"] is None]
         professor_texts = [build_professor_text(row) for row in missing]
@@ -1137,40 +1183,41 @@ def execute_match(task_id: str, profile_id: int) -> None:
 
         if missing:
             for row, vec in zip(missing, prof_vecs):
-                row["embedding"] = vec
+                row["embedding"] = np.asarray(vec, dtype=np.float32)
             with db.session() as session:
                 for row in missing:
                     session.query(Professor).filter(Professor.id == row["id"]).update(
-                        {"embedding": row["embedding"]}, synchronize_session=False
+                        {"embedding": pack_embedding(row["embedding"])},
+                        synchronize_session=False,
                     )
 
         matcher = SemanticMatcher()
         task.message = "正在语义匹配..."
+        task.total = len(professor_rows)
 
+        start = max(0, task.current)
         pending: list[tuple[int, float, list[str]]] = []
-        for i, row in enumerate(professor_rows):
-            if i < task.current:
-                continue
+        for batch_start in range(start, len(professor_rows), _MATCH_WRITE_BATCH):
             if task.cancel_requested:
                 break
 
-            task.current = i + 1
-            task.message = f"正在匹配 {row['name']}..."
-
-            score, reasons = matcher.match(
-                profile_data,
-                row,
-                professor_embedding=row["embedding"],
-                profile_embedding=profile_vec,
-                language=match_reason_lang,
+            batch_end = min(batch_start + _MATCH_WRITE_BATCH, len(professor_rows))
+            batch_rows = professor_rows[batch_start:batch_end]
+            matrix = np.stack(
+                [np.asarray(row["embedding"], dtype=np.float32) for row in batch_rows]
             )
-            pending.append((row["id"], score, reasons))
-            task.success_count += 1
+            scored = matcher.score_batch(
+                profile_vec, matrix, batch_rows, language=match_reason_lang
+            )
+            for row, (score, reasons) in zip(batch_rows, scored):
+                pending.append((row["id"], score, reasons))
+                task.success_count += 1
 
-            if len(pending) >= _MATCH_WRITE_BATCH:
-                _persist_match_records(db, profile_id, pending)
-                pending.clear()
-                persist_task(task)
+            task.current = batch_end
+            task.message = f"正在匹配 ({task.current}/{task.total})..."
+            _persist_match_records(db, profile_id, pending)
+            pending.clear()
+            persist_task(task)
 
         _persist_match_records(db, profile_id, pending)
 

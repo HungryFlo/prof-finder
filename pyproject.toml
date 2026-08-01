@@ -9,7 +9,6 @@ packages = [{include = "prof_finder", from = "backend"}]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<4.0"
-typer = {extras = ["all"], version = "^0.9.0"}
 sqlalchemy = "^2.0.0"
 python-dotenv = "^1.0.0"
 openai = "^1.0.0"
@@ -18,7 +17,6 @@ requests = "^2.31.0"
 beautifulsoup4 = "^4.12.0"
 markdown-it-py = "^3.0.0"
 pylatexenc = "^2.10"
-rich = "^13.0.0"
 scholarly = "^1.7.0"
 # scholarly 1.7.x calls httpx.Client(proxies=...), a kwarg removed in httpx 0.28;
 # pin below that until scholarly upstream fixes it.
@@ -49,7 +47,6 @@ mypy = "^1.5.0"
 pip-licenses = "^5.0.0"
 
 [tool.poetry.scripts]
-prof-finder = "prof_finder.cli.main:app"
 prof-finder-launcher = "prof_finder.launcher:main"
 
 [build-system]

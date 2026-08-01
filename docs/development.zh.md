@@ -74,33 +74,11 @@ JWT_SECRET_KEY=your_stable_secret_here
 - 爬取 Google Scholar、院校网站、DBLP 等须遵守各平台 ToS、版权与 robots 规则，合理设置 `REQUEST_DELAY`。
 - AI 生成内容仅供参考，发送前须人工审阅。
 
-## CLI
-
-```bash
-# 上传简历
-prof-finder profile upload resume.md --title "NLP方向申请"
-prof-finder profile upload cv.tex --no-llm
-
-# 添加教授
-prof-finder professor add --scholar "https://scholar.google.com/citations?user=xxx"
-prof-finder professor search "Andrew Ng"
-
-# 匹配（CLI 当前为关键词匹配；Web「运行匹配」使用 Qwen3 语义嵌入）
-prof-finder match run
-prof-finder match show --top 10
-
-# 邮件
-prof-finder letter generate <professor_id>
-prof-finder letter batch --top 5
-```
-
-> **说明**：日常申请流程以 Web UI / API 为准。CLI 便于脚本化调试，部分能力（尤其匹配算法）与 Web 路径不完全等同。
-
 ## 项目结构
 
 ```
 prof-finder/
-├── backend/prof_finder/   # API、CLI、爬虫、匹配、LLM 等
+├── backend/prof_finder/   # API、爬虫、匹配、LLM、任务队列等
 ├── backend/tests/
 ├── frontend/src/
 ├── packaging/             # PyInstaller 规格等

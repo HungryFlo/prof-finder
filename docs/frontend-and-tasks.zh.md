@@ -581,9 +581,9 @@ data: {"status": "completed", "success_count": 18, "failed_count": 2, "results":
 
 其他业务路由（`professors`、`profiles`、`match`、`letters`）在操作耗时逻辑时同样调用 `create_task` + `enqueue_task`，返回 `TaskStartResponse`。
 
-### 2.13 CLI 例外
+### 2.13 任务进度 SSE
 
-`backend/prof_finder/cli/professor.py` 中 `execute_professor_enrichment()` 可被 **直接同步调用**（阻塞 CLI），仍通过 `create_task` 记录状态，但绕过 Huey 队列。
+前端通过单一多路复用连接 `GET /api/tasks/stream` 订阅当前用户全部任务进度（先用 `POST /api/tasks/stream-ticket` 获取短时 stream token）。单任务 `GET /api/tasks/{id}/progress` 仍保留以兼容旧客户端。
 
 ---
 

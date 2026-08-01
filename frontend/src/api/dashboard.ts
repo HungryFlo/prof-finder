@@ -1,7 +1,4 @@
-import { profilesApi } from './profiles'
-import { professorsApi } from './professors'
-import { matchApi } from './match'
-import { lettersApi } from './letters'
+import client from './client'
 import type { Profile, ProfileSummary, ProfessorListItem, MatchResult, Letter } from '@/types'
 
 export interface DashboardStats {
@@ -20,31 +17,36 @@ export interface DashboardData {
   recentLetters: Letter[]
 }
 
+interface DashboardApiResponse {
+  stats: {
+    profile_count: number
+    professor_count: number
+    match_count: number
+    letter_count: number
+  }
+  active_profile: Profile | null
+  recent_profiles: ProfileSummary[]
+  recent_professors: ProfessorListItem[]
+  top_matches: MatchResult[]
+  recent_letters: Letter[]
+}
+
 export const dashboardApi = {
   async getData(): Promise<DashboardData> {
-    // Every call asks for counts plus the five newest rows; the active profile
-    // is the only record fetched in full, since its card renders detail fields.
-    const [profilesRes, activeProfile, professorsRes, topMatchesRes, recentLettersRes] =
-      await Promise.all([
-        profilesApi.listSummary({ page: 1, page_size: 5 }),
-        profilesApi.getActive(),
-        professorsApi.list({ page: 1, page_size: 5 }),
-        matchApi.getResults({ page: 1, page_size: 5 }),
-        lettersApi.list({ page: 1, page_size: 5 }),
-      ])
-
+    const response = await client.get<DashboardApiResponse>('/dashboard')
+    const body = response.data
     return {
       stats: {
-        profileCount: profilesRes.total,
-        professorCount: professorsRes.total,
-        matchCount: topMatchesRes.total,
-        letterCount: recentLettersRes.total,
+        profileCount: body.stats.profile_count,
+        professorCount: body.stats.professor_count,
+        matchCount: body.stats.match_count,
+        letterCount: body.stats.letter_count,
       },
-      activeProfile,
-      recentProfiles: profilesRes.items,
-      recentProfessors: professorsRes.items,
-      topMatches: topMatchesRes.items,
-      recentLetters: recentLettersRes.items,
+      activeProfile: body.active_profile,
+      recentProfiles: body.recent_profiles,
+      recentProfessors: body.recent_professors,
+      topMatches: body.top_matches,
+      recentLetters: body.recent_letters,
     }
   },
 }

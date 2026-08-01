@@ -226,8 +226,8 @@ class SemanticMatcher:
         self,
         profile: dict,
         professor: dict,
-        professor_embedding: Optional[list[float]] = None,
-        profile_embedding: Optional[list[float]] = None,
+        professor_embedding: Optional[list[float] | np.ndarray] = None,
+        profile_embedding: Optional[list[float] | np.ndarray] = None,
         language: str = "zh",
     ) -> tuple[float, list[str]]:
         """Compute semantic match score.
@@ -246,22 +246,63 @@ class SemanticMatcher:
             (score in [0, 100], human-readable reasons).
         """
         if profile_embedding is not None:
-            profile_vec = np.array(profile_embedding, dtype=np.float32)
+            profile_vec = np.asarray(profile_embedding, dtype=np.float32)
         else:
-            profile_vec = np.array(encode_query_text(build_profile_text(profile)), dtype=np.float32)
+            profile_vec = np.asarray(
+                encode_query_text(build_profile_text(profile)), dtype=np.float32
+            )
 
         if professor_embedding is not None:
-            prof_vec = np.array(professor_embedding, dtype=np.float32)
+            prof_vec = np.asarray(professor_embedding, dtype=np.float32)
         else:
-            prof_vec = np.array(encode_text(build_professor_text(professor)), dtype=np.float32)
+            prof_vec = np.asarray(encode_text(build_professor_text(professor)), dtype=np.float32)
 
-        # Both vectors are L2-normalised, so dot product == cosine similarity.
         similarity = float(np.dot(profile_vec, prof_vec))
-        score = (similarity + 1.0) / 2.0 * 100.0
-        score = max(0.0, min(100.0, round(score, 2)))
-
+        score = self._similarity_to_score(similarity)
         reasons = self._build_reasons(similarity, professor, language=language)
         return score, reasons
+
+    def score_batch(
+        self,
+        profile_embedding: list[float] | np.ndarray,
+        professor_embeddings: np.ndarray,
+        professors: list[dict],
+        language: str = "zh",
+    ) -> list[tuple[float, list[str]]]:
+        """Score many professors against one profile with a single matmul.
+
+        Args:
+            profile_embedding: L2-normalised profile vector shape ``(D,)``.
+            professor_embeddings: L2-normalised matrix shape ``(N, D)``.
+            professors: Parallel list of professor dicts (for reason text only).
+            language: ``zh`` or ``en`` for match_reasons wording.
+
+        Returns:
+            List of ``(score, reasons)`` aligned with ``professors``.
+        """
+        if len(professors) != professor_embeddings.shape[0]:
+            raise ValueError("professors and professor_embeddings length mismatch")
+        if professor_embeddings.size == 0:
+            return []
+
+        profile_vec = np.asarray(profile_embedding, dtype=np.float32).reshape(-1)
+        matrix = np.asarray(professor_embeddings, dtype=np.float32)
+        similarities = matrix @ profile_vec
+        results: list[tuple[float, list[str]]] = []
+        for i, similarity in enumerate(similarities):
+            sim = float(similarity)
+            results.append(
+                (
+                    self._similarity_to_score(sim),
+                    self._build_reasons(sim, professors[i], language=language),
+                )
+            )
+        return results
+
+    @staticmethod
+    def _similarity_to_score(similarity: float) -> float:
+        score = (similarity + 1.0) / 2.0 * 100.0
+        return max(0.0, min(100.0, round(score, 2)))
 
     # ------------------------------------------------------------------
     # Internal helpers

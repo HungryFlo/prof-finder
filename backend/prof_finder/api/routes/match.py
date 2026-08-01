@@ -6,7 +6,6 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ...models.schema import User, UserProfile, Professor, MatchRecord
-from ...matcher.keyword_matcher import KeywordMatcher
 from ...utils.query_cache import get_active_profile
 from ..deps import get_db_session, get_current_user
 from ..schemas import (

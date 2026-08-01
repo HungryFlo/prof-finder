@@ -172,3 +172,41 @@ def test_batch_size_is_configurable(monkeypatch):
 
     monkeypatch.setattr(settings, "embedding_batch_size", 16)
     assert semantic_matcher._batch_size() == 16
+
+
+class TestScoreBatch:
+    def test_matches_single_score_path(self):
+        import numpy as np
+
+        profile = unit([1.0, 0.0, 0.0])
+        professors = [
+            {"research_interests": ["a"]},
+            {"research_interests": ["b"]},
+        ]
+        matrix = np.stack([unit([1.0, 0.0, 0.0]), unit([0.0, 1.0, 0.0])])
+        batch = SemanticMatcher().score_batch(profile, matrix, professors, language="en")
+        assert batch[0][0] == pytest.approx(100.0)
+        assert batch[1][0] == pytest.approx(50.0)
+        assert any("Strong semantic match" in reason for reason in batch[0][1])
+
+
+class TestEmbeddingCodec:
+    def test_roundtrip(self):
+        from prof_finder.matcher.embedding_codec import pack_embedding, unpack_embedding
+        import numpy as np
+
+        vec = np.linspace(-1, 1, 1024, dtype=np.float32)
+        packed = pack_embedding(vec)
+        assert isinstance(packed, bytes)
+        assert len(packed) == 4096
+        restored = unpack_embedding(packed)
+        assert restored is not None
+        assert np.allclose(restored, vec)
+
+    def test_rejects_wrong_length(self):
+        from prof_finder.matcher.embedding_codec import pack_embedding, unpack_embedding
+        import pytest as _pytest
+
+        with _pytest.raises(ValueError):
+            pack_embedding([0.0, 1.0])
+        assert unpack_embedding(b"short") is None

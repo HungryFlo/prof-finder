@@ -76,8 +76,37 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def needs_rehash(hashed_password: str) -> bool:
-    """Report whether a stored hash uses the legacy scheme and should be upgraded."""
-    return bool(hashed_password) and not hashed_password.startswith(_BCRYPT_PREFIX)
+    """Report whether a stored hash should be upgraded (legacy scheme or old cost)."""
+    if not hashed_password:
+        return False
+    if not hashed_password.startswith(_BCRYPT_PREFIX):
+        return True
+    # bcrypt hashes look like $2b$12$... — compare cost factor.
+    try:
+        parts = hashed_password.split("$")
+        cost = int(parts[2])
+        return cost != _BCRYPT_ROUNDS
+    except (IndexError, ValueError):
+        return True
+
+
+def create_stream_token(user_id: int, expires_delta: Optional[timedelta] = None) -> str:
+    """Create a short-lived JWT for EventSource / SSE query-string auth."""
+    to_encode = {"sub": str(user_id), "type": "stream"}
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=30)
+    to_encode["exp"] = expire
+    return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+def verify_stream_token(token: str) -> Optional[dict]:
+    """Verify a stream token and return its payload."""
+    payload = decode_token(token)
+    if payload and payload.get("type") == "stream":
+        return payload
+    return None
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

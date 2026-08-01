@@ -31,11 +31,122 @@ from ..task_manager import (
     cleanup_old_tasks,
     enqueue_task,
     persist_task,
+    _tasks,
+    _tasks_lock,
 )
 from ..task_queue import huey
 from ..errors import ErrorCode, raise_api_error
 
 router = APIRouter(prefix="/tasks", tags=["异步任务"])
+
+
+# ---------------------------------------------------------------------------
+# Multiplexed SSE stream (one connection per browser tab)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/stream-ticket")
+def create_task_stream_ticket(
+    current_user: User = Depends(get_current_user),
+):
+    """Issue a short-lived token for EventSource auth (avoids putting access JWT in URLs)."""
+    from ..auth import create_stream_token
+
+    return {"token": create_stream_token(current_user.id)}
+
+
+@router.get("/stream")
+async def stream_user_tasks(
+    current_user: User = Depends(get_current_user_sse),
+):
+    """Stream progress for all of the current user's in-memory tasks over one SSE connection."""
+
+    async def event_generator():
+        seen_terminal: set[str] = set()
+        while True:
+            with _tasks_lock:
+                tasks = [t for t in _tasks.values() if t.user_id == current_user.id]
+            alive = False
+            for task in tasks:
+                if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING):
+                    alive = True
+                    yield {
+                        "event": "progress",
+                        "data": json.dumps(
+                            {
+                                "task_id": task.task_id,
+                                "current": task.current,
+                                "total": task.total,
+                                "status": task.status.value,
+                                "message": task.message,
+                                "cancel_requested": task.cancel_requested,
+                            }
+                        ),
+                    }
+                elif (
+                    task.status
+                    in (
+                        TaskStatus.COMPLETED,
+                        TaskStatus.FAILED,
+                        TaskStatus.CANCELLED,
+                        TaskStatus.INTERRUPTED,
+                    )
+                    and task.task_id not in seen_terminal
+                ):
+                    seen_terminal.add(task.task_id)
+                    if task.status == TaskStatus.COMPLETED:
+                        event = "complete"
+                        payload = {
+                            "task_id": task.task_id,
+                            "status": task.status.value,
+                            "current": task.current,
+                            "total": task.total,
+                            "message": task.message,
+                            "success_count": task.success_count,
+                            "failed_count": task.failed_count,
+                            "results": task.results,
+                        }
+                    elif task.status == TaskStatus.FAILED:
+                        event = "failed"
+                        payload = {
+                            "task_id": task.task_id,
+                            "status": task.status.value,
+                            "current": task.current,
+                            "total": task.total,
+                            "message": task.message,
+                            "error_message": task.error_message,
+                        }
+                    elif task.status == TaskStatus.CANCELLED:
+                        event = "cancelled"
+                        payload = {
+                            "task_id": task.task_id,
+                            "status": task.status.value,
+                            "current": task.current,
+                            "total": task.total,
+                            "message": task.message,
+                            "completed_count": task.success_count,
+                        }
+                    else:
+                        event = "interrupted"
+                        payload = {
+                            "task_id": task.task_id,
+                            "status": task.status.value,
+                            "current": task.current,
+                            "total": task.total,
+                            "message": task.message,
+                        }
+                    yield {"event": event, "data": json.dumps(payload)}
+
+            if not alive and not any(
+                t.status in (TaskStatus.PENDING, TaskStatus.RUNNING)
+                for t in get_user_tasks(current_user.id)
+            ):
+                # Keep the stream open briefly so newly added tasks can reuse it;
+                # client closes when idle. Heartbeat prevents proxy timeouts.
+                yield {"event": "heartbeat", "data": "{}"}
+            await asyncio.sleep(0.5)
+
+    return EventSourceResponse(event_generator())
 
 
 # ---------------------------------------------------------------------------

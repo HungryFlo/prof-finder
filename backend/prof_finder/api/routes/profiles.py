@@ -116,10 +116,24 @@ def list_profile_summaries(
     Feeds list and picker UIs, which only need identifying columns rather than
     every profile's full analysis payload.
     """
+    from sqlalchemy.orm import load_only
+
     query = session.query(UserProfile).filter(UserProfile.user_id == current_user.id)
     total = query.count()
     items = (
-        query.order_by(UserProfile.updated_at.desc())
+        query.options(
+            load_only(
+                UserProfile.id,
+                UserProfile.title,
+                UserProfile.name,
+                UserProfile.is_active,
+                UserProfile.source_format,
+                UserProfile.experience_pool_id,
+                UserProfile.created_at,
+                UserProfile.updated_at,
+            )
+        )
+        .order_by(UserProfile.updated_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()

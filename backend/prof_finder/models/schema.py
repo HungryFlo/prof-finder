@@ -13,6 +13,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     JSON,
+    LargeBinary,
     UniqueConstraint,
 )
 from sqlalchemy.orm import declarative_base, relationship
@@ -27,7 +28,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(100), unique=True, nullable=False, index=True)
-    password_hash = Column(String(255), nullable=True)  # Nullable for legacy CLI users
+    password_hash = Column(String(255), nullable=True)
     is_admin = Column(Boolean, default=False)
     must_change_password = Column(Boolean, default=False)
     created_at = Column(DateTime, default=utc_now)
@@ -378,8 +379,8 @@ class Professor(Base):
     total_citations = Column(Integer)
     manual_notes = Column(Text)
 
-    # Semantic embedding (list[float], Qwen3-Embedding-0.6B 1024-dim, nullable)
-    embedding = Column(JSON, nullable=True)
+    # Semantic embedding (float32 BLOB, Qwen3-Embedding-0.6B 1024-dim, nullable)
+    embedding = Column(LargeBinary, nullable=True)
 
     # Generated professor research profile
     research_profile = Column(Text)

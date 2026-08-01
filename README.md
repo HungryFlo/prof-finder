@@ -42,7 +42,7 @@ Prof-Finder 便携版**无需安装程序、不写注册表、不往系统目录
 |------|------|
 | [用户使用指南（中文）](docs/user-guide.zh.md) | 完整操作流程、API Key、FAQ |
 | [User Guide (English)](docs/user-guide.en.md) | English user documentation |
-| [开发者文档](docs/development.zh.md) | 源码安装、配置、CLI、测试与打包 |
+| [开发者文档](docs/development.zh.md) | 源码安装、配置、测试与打包 |
 | [前端与后台任务](docs/frontend-and-tasks.zh.md) | 前端架构与 Huey / SSE 任务系统设计 |
 | [知乎宣传稿](docs/zhihu-promo.zh.md) | 面向申请者与开发者的产品介绍 |
 
@@ -64,7 +64,7 @@ Prof-Finder 建立在众多优秀的开源项目之上，特此感谢（排名�
 
 **Web 与界面** — [Vue.js](https://vuejs.org/)、[Vite](https://vite.dev/)、[Naive UI](https://www.naiveui.com/)、[Tailwind CSS](https://tailwindcss.com/)、[Reka UI](https://reka-ui.com/) / [shadcn-vue](https://www.shadcn-vue.com/)、[Pinia](https://pinia.vuejs.org/)、[Vue Router](https://router.vuejs.org/)、[vue-i18n](https://vue-i18n.intlify.dev/)、[Axios](https://axios-http.com/)
 
-**后端与数据** — [FastAPI](https://fastapi.tiangolo.com/)、[Uvicorn](https://www.uvicorn.org/)、[SQLAlchemy](https://www.sqlalchemy.org/)、[Typer](https://typer.tiangolo.com/)、[Huey](https://huey.readthedocs.io/)、[Pydantic](https://docs.pydantic.dev/)（经 FastAPI 使用）
+**后端与数据** — [FastAPI](https://fastapi.tiangolo.com/)、[Uvicorn](https://www.uvicorn.org/)、[SQLAlchemy](https://www.sqlalchemy.org/)、[Huey](https://huey.readthedocs.io/)、[Pydantic](https://docs.pydantic.dev/)（经 FastAPI 使用）
 
 **AI、嵌入与解析** — [sentence-transformers](https://www.sbert.net/)、[Hugging Face](https://huggingface.co/) 生态、[ModelScope](https://www.modelscope.cn/)（模型分发）、[Qwen](https://github.com/QwenLM)（[Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B)）、[OpenAI Python SDK](https://github.com/openai/openai-python)（OpenAI 兼容 API）、[Anthropic SDK](https://github.com/anthropics/anthropic-sdk-python)、[markdown-it-py](https://github.com/executablebooks/markdown-it-py)、[pylatexenc](https://github.com/phfaist/pylatexenc)
 

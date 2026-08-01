@@ -75,6 +75,77 @@ class Database:
         Base.metadata.create_all(bind=self.engine)
         self._migrate()
 
+    @staticmethod
+    def _migrate_embeddings_to_blob(conn) -> None:
+        """Rewrite legacy JSON list embeddings as float32 BLOBs."""
+        import json
+
+        import numpy as np
+
+        from ..matcher.embedding_codec import EMBEDDING_DIM, pack_embedding
+
+        table = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='professors'")
+        ).fetchone()
+        if not table:
+            return
+
+        rows = conn.execute(
+            text("SELECT id, embedding FROM professors WHERE embedding IS NOT NULL")
+        ).fetchall()
+        changed = False
+        for professor_id, raw in rows:
+            if isinstance(raw, (bytes, memoryview, bytearray)):
+                data = bytes(raw)
+                if len(data) == EMBEDDING_DIM * 4:
+                    continue
+                try:
+                    parsed = json.loads(data.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                    conn.execute(
+                        text("UPDATE professors SET embedding = NULL WHERE id = :id"),
+                        {"id": professor_id},
+                    )
+                    changed = True
+                    continue
+            elif isinstance(raw, str):
+                try:
+                    parsed = json.loads(raw)
+                except (json.JSONDecodeError, ValueError):
+                    conn.execute(
+                        text("UPDATE professors SET embedding = NULL WHERE id = :id"),
+                        {"id": professor_id},
+                    )
+                    changed = True
+                    continue
+            elif isinstance(raw, list):
+                parsed = raw
+            else:
+                conn.execute(
+                    text("UPDATE professors SET embedding = NULL WHERE id = :id"),
+                    {"id": professor_id},
+                )
+                changed = True
+                continue
+
+            if not isinstance(parsed, list) or len(parsed) != EMBEDDING_DIM:
+                conn.execute(
+                    text("UPDATE professors SET embedding = NULL WHERE id = :id"),
+                    {"id": professor_id},
+                )
+                changed = True
+                continue
+
+            blob = pack_embedding(np.asarray(parsed, dtype=np.float32))
+            conn.execute(
+                text("UPDATE professors SET embedding = :blob WHERE id = :id"),
+                {"blob": blob, "id": professor_id},
+            )
+            changed = True
+
+        if changed:
+            conn.commit()
+
     def _migrate(self) -> None:
         """Apply incremental schema changes that create_all cannot handle."""
         with self.engine.connect() as conn:
@@ -116,7 +187,7 @@ class Database:
             result = conn.execute(text("PRAGMA table_info(professors)"))
             existing_columns = {row[1] for row in result}
             if "embedding" not in existing_columns:
-                conn.execute(text("ALTER TABLE professors ADD COLUMN embedding JSON"))
+                conn.execute(text("ALTER TABLE professors ADD COLUMN embedding BLOB"))
                 conn.commit()
             if "manual_notes" not in existing_columns:
                 conn.execute(text("ALTER TABLE professors ADD COLUMN manual_notes TEXT"))
@@ -124,6 +195,9 @@ class Database:
             if "paper_summaries" not in existing_columns:
                 conn.execute(text("ALTER TABLE professors ADD COLUMN paper_summaries JSON"))
                 conn.commit()
+
+            # Convert legacy JSON list embeddings to float32 BLOBs (4096 bytes).
+            self._migrate_embeddings_to_blob(conn)
 
             prof_research_additions = {
                 "research_profile": "TEXT",

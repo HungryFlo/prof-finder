@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { tasksApi } from '@/api/tasks'
-import { useAuthStore } from '@/stores/auth'
 import { i18n } from '@/i18n'
 import type { TaskType, TaskStatus, TaskResult } from '@/types'
 
@@ -18,7 +17,6 @@ export interface TaskEntry {
   total: number
   message: string
   errorMessage: string
-  eventSource?: EventSource
 }
 
 export interface TaskLifecycleEvent {
@@ -52,7 +50,10 @@ export const useTaskStore = defineStore('tasks', () => {
   const activeTasks = ref<Map<string, TaskEntry>>(new Map())
   const taskEvents = ref<TaskLifecycleEvent[]>([])
   const taskTypeCompleteHandlers = new Map<TaskType, Set<() => void>>()
+  const onCompleteHandlers = new Map<string, () => void>()
   let nextEventId = 1
+  let sharedEventSource: EventSource | null = null
+  let connectingPromise: Promise<void> | null = null
 
   // ---------------------------------------------------------------------------
   // Computed
@@ -225,121 +226,157 @@ export const useTaskStore = defineStore('tasks', () => {
     }
   }
 
-  function _connectSSE(taskId: string, onComplete?: () => void): void {
-    const authStore = useAuthStore()
-    const token = authStore.accessToken ?? ''
-    const url = tasksApi.getProgressUrl(taskId, token)
+  function _taskIdFromEvent(data: { task_id?: string }): string | null {
+    return typeof data.task_id === 'string' ? data.task_id : null
+  }
 
-    const es = new EventSource(url)
-
-    es.addEventListener('progress', (e: MessageEvent) => {
-      const entry = activeTasks.value.get(taskId)
-      if (!entry) return
-      try {
-        const data = JSON.parse(e.data)
-        entry.current = data.current ?? entry.current
-        entry.total = data.total ?? entry.total
-        if (data.cancel_requested) {
-          entry.status = 'cancelling'
-          entry.message = data.message ?? entry.message
-        } else if (entry.status !== 'cancelling') {
-          entry.status = data.status ?? entry.status
-          entry.message = data.message ?? entry.message
-        }
-      } catch {
-        // malformed event — ignore
-      }
-    })
-
-    es.addEventListener('complete', (e: MessageEvent) => {
-      const entry = activeTasks.value.get(taskId)
-      if (entry) {
-        let result: TaskResult | undefined
-        try {
-          result = JSON.parse(e.data)
-        } catch {
-          result = undefined
-        }
-        // Fill progress bar so it never shows empty after completion
-        if (result?.current != null) entry.current = result.current
-        if (result?.total != null) entry.total = result.total
-        entry.status = 'completed'
-        entry.message = _completionMessage(entry, result)
-        _pushTaskEvent(entry, 'completed', entry.message)
-        _invokeTaskTypeHandlers(entry.taskType)
-      }
-      es.close()
-      onComplete?.()
-    })
-
-    es.addEventListener('cancelled', (e: MessageEvent) => {
-      const entry = activeTasks.value.get(taskId)
-      if (entry) {
-        let data: { current?: number; total?: number; message?: string; completed_count?: number } = {}
-        try {
-          data = JSON.parse(e.data)
-        } catch {
-          data = {}
-        }
-        entry.current = data.current ?? data.completed_count ?? entry.current
-        entry.total = data.total ?? entry.total
-        entry.status = 'cancelled'
-        entry.message = _cancelledMessage(entry.current, entry.total, data.message)
-        _pushTaskEvent(entry, 'cancelled', entry.message)
-      }
-      es.close()
-    })
-
-    es.addEventListener('interrupted', (e: MessageEvent) => {
-      const entry = activeTasks.value.get(taskId)
-      if (entry) {
-        let data: { current?: number; total?: number; message?: string } = {}
-        try {
-          data = JSON.parse(e.data)
-        } catch {
-          data = {}
-        }
-        entry.current = data.current ?? entry.current
-        entry.total = data.total ?? entry.total
-        entry.status = 'interrupted'
-        entry.message = data.message ?? t('task.interruptedMessage')
-        _pushTaskEvent(entry, 'interrupted', entry.message)
-      }
-      es.close()
-    })
-
-    es.addEventListener('failed', (e: MessageEvent) => {
-      const entry = activeTasks.value.get(taskId)
-      if (!entry) return
-      entry.status = 'failed'
-      try {
-        const data = JSON.parse(e.data)
-        entry.errorMessage = data.error_message ?? ''
-      } catch {
-        entry.errorMessage = ''
-      }
-      _pushTaskEvent(
-        entry,
-        'failed',
-        t('task.taskFailed'),
-        entry.errorMessage || undefined,
-      )
-      es.close()
-    })
-
-    es.onerror = () => {
-      const entry = activeTasks.value.get(taskId)
-      if (entry && entry.status !== 'completed' && entry.status !== 'failed') {
-        entry.status = 'failed'
-        entry.errorMessage = t('task.taskFailed')
-        _pushTaskEvent(entry, 'failed', t('task.taskFailed'), entry.errorMessage)
-      }
-      es.close()
+  async function _ensureStream(): Promise<void> {
+    if (sharedEventSource && sharedEventSource.readyState !== EventSource.CLOSED) {
+      return
+    }
+    if (connectingPromise) {
+      return connectingPromise
     }
 
-    // Store EventSource reference so it can be closed on manual removal
-    const entry = activeTasks.value.get(taskId)
-    if (entry) entry.eventSource = es
+    connectingPromise = (async () => {
+      const streamToken = await tasksApi.createStreamTicket()
+      const es = new EventSource(tasksApi.getStreamUrl(streamToken))
+
+      es.addEventListener('progress', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data)
+          const taskId = _taskIdFromEvent(data)
+          if (!taskId) return
+          const entry = activeTasks.value.get(taskId)
+          if (!entry) return
+          entry.current = data.current ?? entry.current
+          entry.total = data.total ?? entry.total
+          if (data.cancel_requested) {
+            entry.status = 'cancelling'
+            entry.message = data.message ?? entry.message
+          } else if (entry.status !== 'cancelling') {
+            entry.status = data.status ?? entry.status
+            entry.message = data.message ?? entry.message
+          }
+        } catch {
+          // malformed event — ignore
+        }
+      })
+
+      es.addEventListener('complete', (e: MessageEvent) => {
+        try {
+          const result = JSON.parse(e.data) as TaskResult & { task_id?: string }
+          const taskId = _taskIdFromEvent(result)
+          if (!taskId) return
+          const entry = activeTasks.value.get(taskId)
+          if (!entry) return
+          if (result.current != null) entry.current = result.current
+          if (result.total != null) entry.total = result.total
+          entry.status = 'completed'
+          entry.message = _completionMessage(entry, result)
+          _pushTaskEvent(entry, 'completed', entry.message)
+          _invokeTaskTypeHandlers(entry.taskType)
+          const cb = onCompleteHandlers.get(taskId)
+          onCompleteHandlers.delete(taskId)
+          cb?.()
+        } catch {
+          // ignore
+        }
+      })
+
+      es.addEventListener('cancelled', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data) as {
+            task_id?: string
+            current?: number
+            total?: number
+            message?: string
+            completed_count?: number
+          }
+          const taskId = _taskIdFromEvent(data)
+          if (!taskId) return
+          const entry = activeTasks.value.get(taskId)
+          if (!entry) return
+          entry.current = data.current ?? data.completed_count ?? entry.current
+          entry.total = data.total ?? entry.total
+          entry.status = 'cancelled'
+          entry.message = _cancelledMessage(entry.current, entry.total, data.message)
+          _pushTaskEvent(entry, 'cancelled', entry.message)
+          onCompleteHandlers.delete(taskId)
+        } catch {
+          // ignore
+        }
+      })
+
+      es.addEventListener('interrupted', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data) as {
+            task_id?: string
+            current?: number
+            total?: number
+            message?: string
+          }
+          const taskId = _taskIdFromEvent(data)
+          if (!taskId) return
+          const entry = activeTasks.value.get(taskId)
+          if (!entry) return
+          entry.current = data.current ?? entry.current
+          entry.total = data.total ?? entry.total
+          entry.status = 'interrupted'
+          entry.message = data.message ?? t('task.interruptedMessage')
+          _pushTaskEvent(entry, 'interrupted', entry.message)
+          onCompleteHandlers.delete(taskId)
+        } catch {
+          // ignore
+        }
+      })
+
+      es.addEventListener('failed', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data) as { task_id?: string; error_message?: string }
+          const taskId = _taskIdFromEvent(data)
+          if (!taskId) return
+          const entry = activeTasks.value.get(taskId)
+          if (!entry) return
+          entry.status = 'failed'
+          entry.errorMessage = data.error_message ?? ''
+          _pushTaskEvent(
+            entry,
+            'failed',
+            t('task.taskFailed'),
+            entry.errorMessage || undefined,
+          )
+          onCompleteHandlers.delete(taskId)
+        } catch {
+          // ignore
+        }
+      })
+
+      es.onerror = () => {
+        // Multiplexed stream dropped — close and reconnect on next ensure.
+        es.close()
+        if (sharedEventSource === es) {
+          sharedEventSource = null
+        }
+        const hasActive = Array.from(activeTasks.value.values()).some(
+          (entry) =>
+            entry.status === 'pending' ||
+            entry.status === 'running' ||
+            entry.status === 'cancelling',
+        )
+        if (hasActive) {
+          void _ensureStream()
+        }
+      }
+
+      sharedEventSource = es
+    })()
+
+    try {
+      await connectingPromise
+    } finally {
+      connectingPromise = null
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -347,13 +384,7 @@ export const useTaskStore = defineStore('tasks', () => {
   // ---------------------------------------------------------------------------
 
   /**
-   * Register a new task and open an SSE connection to track its progress.
-   *
-   * @param taskId   - ID returned by the API when the task was started.
-   * @param taskType - Task type string from the API.
-   * @param taskName - Human-readable task name.
-   * @param total    - Total items to process (used for progress bar).
-   * @param onComplete - Optional callback invoked once the task succeeds.
+   * Register a new task and ensure the shared SSE stream is connected.
    */
   function addTask(
     taskId: string,
@@ -364,18 +395,14 @@ export const useTaskStore = defineStore('tasks', () => {
   ): void {
     const entry = _buildEntry(taskId, taskType, taskName, total)
     activeTasks.value.set(taskId, entry)
-    _connectSSE(taskId, onComplete)
+    if (onComplete) {
+      onCompleteHandlers.set(taskId, onComplete)
+    }
+    void _ensureStream()
   }
 
-  /**
-   * Manually remove a task (e.g. after dismissing a failed task).
-   * Also closes the associated EventSource if still open.
-   */
   function removeTask(taskId: string): void {
-    const entry = activeTasks.value.get(taskId)
-    if (entry?.eventSource) {
-      entry.eventSource.close()
-    }
+    onCompleteHandlers.delete(taskId)
     activeTasks.value.delete(taskId)
   }
 
@@ -386,7 +413,6 @@ export const useTaskStore = defineStore('tasks', () => {
     const previousStatus = entry.status
     const previousMessage = entry.message
     if (entry.status === 'interrupted') {
-      // Discarding an interrupted task — cancel endpoint finalizes immediately.
       entry.status = 'cancelling'
       entry.message = t('task.discardingMessage')
     } else {
@@ -421,8 +447,7 @@ export const useTaskStore = defineStore('tasks', () => {
 
     try {
       await tasksApi.resume(taskId)
-      entry.eventSource?.close()
-      _connectSSE(taskId)
+      await _ensureStream()
     } catch (error) {
       entry.status = 'interrupted'
       entry.message = previousMessage
@@ -434,20 +459,17 @@ export const useTaskStore = defineStore('tasks', () => {
     const entry = activeTasks.value.get(taskId)
     if (!entry || entry.status !== 'failed') return
 
-    entry.eventSource?.close()
     activeTasks.value.delete(taskId)
+    onCompleteHandlers.delete(taskId)
 
     const result = await tasksApi.retry(taskId)
     addTask(result.task_id, entry.taskType, entry.taskName, entry.total)
   }
 
-  /**
-   * Remove all tasks that have reached a dismissible terminal status.
-   */
   function clearCompleted(): void {
     for (const [id, entry] of activeTasks.value) {
       if (entry.status === 'completed' || entry.status === 'cancelled') {
-        entry.eventSource?.close()
+        onCompleteHandlers.delete(id)
         activeTasks.value.delete(id)
       }
     }
@@ -459,9 +481,6 @@ export const useTaskStore = defineStore('tasks', () => {
     return events
   }
 
-  /**
-   * Subscribe to newly spawned backend tasks (e.g. batch-dblp-match after university crawl).
-   */
   async function discoverChainedTasks(): Promise<void> {
     try {
       const tasks = await tasksApi.listTasks()
@@ -475,13 +494,10 @@ export const useTaskStore = defineStore('tasks', () => {
     }
   }
 
-  /**
-   * Call GET /api/tasks on startup to recover tasks that are still running
-   * on the backend after a page refresh.
-   */
   async function restoreFromServer(): Promise<void> {
     try {
       const tasks = await tasksApi.listTasks()
+      let needsStream = false
       for (const t of tasks) {
         if (activeTasks.value.has(t.task_id)) continue
 
@@ -494,24 +510,23 @@ export const useTaskStore = defineStore('tasks', () => {
         entry.errorMessage = t.error_message
         activeTasks.value.set(t.task_id, entry)
 
-        // For running/pending tasks, reconnect SSE; interrupted/failed need no SSE
         if (t.status === 'running' || t.status === 'pending') {
-          _connectSSE(t.task_id)
+          needsStream = true
         }
+      }
+      if (needsStream) {
+        await _ensureStream()
       }
     } catch {
       // Server may be unavailable; fail silently
     }
   }
 
-  /**
-   * Close all SSE connections and clear the task store.
-   * Called on logout so the next user sees a clean slate.
-   */
   function reset(): void {
-    for (const [, entry] of activeTasks.value) {
-      entry.eventSource?.close()
-    }
+    sharedEventSource?.close()
+    sharedEventSource = null
+    connectingPromise = null
+    onCompleteHandlers.clear()
     activeTasks.value.clear()
     taskEvents.value = []
     taskTypeCompleteHandlers.clear()

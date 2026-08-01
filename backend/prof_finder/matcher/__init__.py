@@ -1,5 +1,5 @@
-"""Matching algorithms for Prof-Finder."""
+"""Matching algorithms for professor-student pairing."""
 
-from .keyword_matcher import KeywordMatcher
+from .semantic_matcher import SemanticMatcher
 
-__all__ = ["KeywordMatcher"]
+__all__ = ["SemanticMatcher"]

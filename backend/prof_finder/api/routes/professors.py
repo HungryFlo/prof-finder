@@ -6,8 +6,8 @@ import json
 import time
 from typing import List, Optional
 from fastapi import APIRouter, Depends, status, Query
-from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy import func, or_
+from sqlalchemy.orm import Session, defer
 from sqlalchemy.orm.attributes import flag_modified
 
 from ...models.schema import User, Professor, SourceInput, UserSettings, University, UniversityCrawlerConfig
@@ -78,7 +78,22 @@ _PROFESSOR_SORT_COLUMNS = {
 }
 
 
-def get_professor_list_response(professor: Professor) -> dict:
+_PROFESSOR_LIST_DEFER = (
+    Professor.publications,
+    Professor.embedding,
+    Professor.paper_summaries,
+    Professor.research_profile,
+    Professor.research_profile_analysis,
+    Professor.research_profile_sources,
+    Professor.research_profile_evidence,
+    Professor.research_profile_conflicts,
+    Professor.scholar_candidates,
+    Professor.dblp_candidates,
+    Professor.manual_notes,
+)
+
+
+def get_professor_list_response(professor: Professor, publication_count: int) -> dict:
     """Convert Professor to list response format."""
     return {
         "id": professor.id,
@@ -86,7 +101,7 @@ def get_professor_list_response(professor: Professor) -> dict:
         "affiliation": professor.affiliation,
         "research_interests": professor.research_interests or [],
         "h_index": professor.h_index,
-        "publication_count": len(professor.publications or []),
+        "publication_count": publication_count,
         "source": professor.source,
         "enrichment_status": professor.enrichment_status,
         "google_scholar_id": professor.google_scholar_id,
@@ -130,10 +145,12 @@ def list_professors(
     # Apply sorting
     order_col = _PROFESSOR_SORT_COLUMNS.get(sort_by, Professor.created_at)
     order_func = order_col.asc if sort_order == "asc" else order_col.desc
+    publication_count = func.coalesce(func.json_array_length(Professor.publications), 0)
 
-    # Apply pagination
-    professors = (
-        query
+    # Apply pagination — defer heavy JSON/BLOB columns; count pubs in SQL.
+    rows = (
+        query.options(*(defer(col) for col in _PROFESSOR_LIST_DEFER))
+        .add_columns(publication_count)
         .order_by(order_func())
         .offset((page - 1) * page_size)
         .limit(page_size)
@@ -144,7 +161,7 @@ def list_professors(
     pages = (total + page_size - 1) // page_size if total > 0 else 1
 
     return PaginatedResponse(
-        items=[get_professor_list_response(p) for p in professors],
+        items=[get_professor_list_response(p, int(pub_count or 0)) for p, pub_count in rows],
         total=total,
         page=page,
         page_size=page_size,
