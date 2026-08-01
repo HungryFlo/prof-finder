@@ -195,7 +195,7 @@ def list_professor_name_collisions(
 
 
 @router.post("", response_model=ProfessorResponse, status_code=status.HTTP_201_CREATED)
-async def create_professor(
+def create_professor(
     data: ProfessorCreate,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
@@ -255,7 +255,7 @@ async def create_professor(
 
 
 @router.post("/scholar", response_model=TaskStartResponse)
-async def add_professor_by_scholar(
+def add_professor_by_scholar(
     data: ProfessorScholarAdd,
     current_user: User = Depends(get_current_user),
 ):
@@ -320,7 +320,7 @@ async def search_dblp(
 
 
 @router.post("/dblp", response_model=TaskStartResponse)
-async def add_professor_by_dblp(
+def add_professor_by_dblp(
     data: ProfessorDblpAdd,
     current_user: User = Depends(get_current_user),
 ):
@@ -358,7 +358,7 @@ def list_university_crawlers(
 
 
 @router.post("/crawl-university", response_model=TaskStartResponse)
-async def crawl_university(
+def crawl_university(
     data: UniversityCrawlRequest,
     current_user: User = Depends(get_current_user),
 ):
@@ -676,7 +676,7 @@ async def test_crawler_config(
 
 
 @router.post("/crawl-configured", response_model=TaskStartResponse)
-async def crawl_with_config(
+def crawl_with_config(
     data: CrawlerConfiguredCrawlRequest,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
@@ -984,7 +984,7 @@ def apply_professor_edits(
 
 
 @router.post("/{professor_id}/summarize-sources", response_model=TaskStartResponse)
-async def summarize_professor_sources(
+def summarize_professor_sources(
     professor_id: int,
     data: ProfessorSourceSummaryRequest,
     current_user: User = Depends(get_current_user),
@@ -1034,7 +1034,7 @@ async def summarize_professor_sources(
 
 
 @router.post("/{professor_id}/generate-profile", response_model=TaskStartResponse)
-async def generate_professor_profile(
+def generate_professor_profile(
     professor_id: int,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
@@ -1071,7 +1071,7 @@ async def generate_professor_profile(
 
 
 @router.post("/{professor_id}/crawl-homepage", response_model=TaskStartResponse)
-async def crawl_professor_homepage(
+def crawl_professor_homepage(
     professor_id: int,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
@@ -1108,7 +1108,7 @@ async def crawl_professor_homepage(
 
 
 @router.post("/{professor_id}/fill-publications", response_model=TaskStartResponse)
-async def fill_publications(
+def fill_publications(
     professor_id: int,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
@@ -1161,7 +1161,7 @@ async def fill_publications(
 
 
 @router.post("/batch-generate-profiles", response_model=TaskStartResponse)
-async def batch_generate_professor_profiles(
+def batch_generate_professor_profiles(
     data: BatchDeleteRequest,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
@@ -1204,7 +1204,7 @@ async def batch_generate_professor_profiles(
 
 
 @router.post("/batch-refresh", response_model=TaskStartResponse)
-async def batch_refresh_professors(
+def batch_refresh_professors(
     data: BatchDeleteRequest,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
@@ -1610,7 +1610,7 @@ async def refresh_professor_dblp(
 
 
 @router.post("/batch-refresh-dblp", response_model=TaskStartResponse)
-async def batch_refresh_dblp(
+def batch_refresh_dblp(
     data: BatchDeleteRequest,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
@@ -1641,7 +1641,7 @@ async def batch_refresh_dblp(
 
 
 @router.post("/batch-refresh-external", response_model=TaskStartResponse)
-async def batch_refresh_external(
+def batch_refresh_external(
     data: BatchDeleteRequest,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),

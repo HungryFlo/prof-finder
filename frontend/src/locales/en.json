@@ -336,7 +336,7 @@
     "googleScholar": "Google Scholar",
     "fetchListFailed": "Failed to load professor list",
     "fetchUniversityFailed": "Failed to load university list",
-    "selectUniversity": "Select a target university",
+    "selectUniversity": "Select a linked university (optional)",
     "crawlTaskStarted": "Crawl task started",
     "startTaskFailed": "Failed to start task",
     "enterScholarUrl": "Enter a Google Scholar URL",
@@ -356,7 +356,7 @@
     "confirmBatchDeleteProfessor": "Delete {count} selected professor(s)?",
     "univModalTitle": "Add from university website",
     "univModalPositive": "Start crawl",
-    "univModalIntro": "Choose a university. The system will crawl its faculty listing and import professors in the background. Track progress from the task panel.",
+    "univModalIntro": "Enter a faculty list page URL and extract professors with LLM or CSS selectors. The crawl runs in the background — track progress from the top-bar task panel.",
     "noUniversityCrawler": "No university crawlers are configured",
     "scholarModalTitle": "Add via Google Scholar",
     "scholarFormLabel": "Google Scholar URL",
@@ -642,6 +642,7 @@
     "idColumn": "ID"
   },
   "dashboard": {
+    "loadFailed": "Failed to load dashboard data",
     "welcome": "Welcome back, {username}",
     "subtitle": "From experience capture to supervisor matching",
     "flowTitle": "Your Progress",
@@ -714,7 +715,8 @@
     "errorStatus": "Status",
     "copyDetail": "Copy details",
     "copySuccess": "Copied",
-    "noErrorDetail": "(No raw detail)"
+    "noErrorDetail": "(No raw detail)",
+    "retry": "Retry"
   },
   "task": {
     "title": "Task Progress",
@@ -820,7 +822,7 @@
     "step1Title": "Build a profile",
     "step1Desc": "Upload materials under Student Profiles and optionally bind one experience pool; refine further with AI chat. Activate at least one profile.",
     "step2Title": "Add professors",
-    "step2Desc": "Add supervisors via Google Scholar, DBLP, external profile linking, university batch crawl, or manual entry.",
+    "step2Desc": "In Professors, add via Google Scholar, DBLP, university faculty-list crawl (list URL + LLM/CSS extraction), or manual entry. Refresh external Scholar/DBLP profiles for existing rows.",
     "step3Title": "Run matching",
     "step3Desc": "On Match Results, download Qwen3-Embedding-0.6B on first use (~1.2 GB from ModelScope), then run matching to get ranked recommendations.",
     "step4Title": "Generate letters",
@@ -855,7 +857,7 @@
     "settingsApiKeyHint": "Resume parsing, experience-pool drafts, professor profiles, paper summaries, contact letters, and profile AI chat require LLM API configuration in Settings.",
     "settingsApiKeyLink": "View setup steps",
     "profileLlmRequiresApiKey": "LLM auto-extraction requires LLM API configuration (including model name) in Settings first.",
-    "scholarModalIntro": "Paste the professor's Google Scholar profile URL. The system will crawl publications and research interests in the background. Track progress in the task panel.",
+    "scholarModalIntro": "Paste the professor's Google Scholar profile URL. The system will crawl publications and research interests in the background. Track progress in the top-bar task panel.",
     "manualModalIntro": "Enter basic professor information manually. Matching accuracy may be lower with minimal data — consider adding a Scholar / DBLP link or paper sources later.",
     "matchPrerequisitesHint": "Before running a match, ensure: one student profile is active, at least one professor is added, and the embedding model is downloaded on first use (~1.2 GB from ModelScope; requires access to www.modelscope.cn).",
     "bannerSeeHelp": "See Help in the top-right corner for detailed steps."

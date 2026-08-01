@@ -57,6 +57,18 @@ export interface Profile {
   updated_at: string
 }
 
+/** Profile list item as returned by `/profiles/summary`. */
+export interface ProfileSummary {
+  id: number
+  title: string
+  name?: string
+  is_active: boolean
+  source_format?: string
+  experience_pool_id?: number | null
+  created_at: string
+  updated_at: string
+}
+
 export interface ProfileCreate {
   title: string
   name?: string

@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
+from ..utils.query_cache import invalidate_active_profile
 from ..utils.time import as_utc, utc_now
 from dataclasses import dataclass, field
 from enum import Enum
@@ -224,8 +225,9 @@ def persist_task(task: TaskState) -> None:
                     )
                 )
     except Exception:
-        import logging
-        logging.getLogger(__name__).debug("persist_task failed", exc_info=True)
+        # Losing this write means progress and crash-recovery state silently drift
+        # from reality, so it is reported rather than debug-logged.
+        logger.warning("Failed to persist task %s state", task.task_id, exc_info=True)
 
 
 _last_cleanup_ts: float = 0.0
@@ -455,6 +457,9 @@ def execute_batch_crawl(task_id: str, scholar_urls: List[str]) -> None:
         except Exception as e:
             task.failed_count += 1
             task.results.append({"url": url, "success": False, "error": str(e)})
+
+        # Checkpoint each URL so an interrupted run resumes where it stopped.
+        persist_task(task)
 
     _finalize(task)
 
@@ -708,6 +713,9 @@ def execute_profile_parse(
             profile_title = profile.title
             is_active = profile.is_active
 
+        if is_active:
+            invalidate_active_profile(task.user_id)
+
         task.success_count = 1
         task.current = 1
         task.message = f"画像解析完成：{profile_title}"
@@ -835,6 +843,9 @@ def execute_student_profile_generation(
             profile_id = profile.id
             profile_title = profile.title
             is_active = profile.is_active
+
+        if is_active:
+            invalidate_active_profile(task.user_id)
 
         task.success_count = 1
         task.current = 3
@@ -992,11 +1003,14 @@ def execute_single_crawl(task_id: str, scholar_url: str) -> None:
         persist_task(task)
 
 
-def _run_encoding_in_thread(
+_MATCH_WRITE_BATCH = 25
+
+
+def _encode_match_inputs(
     professor_texts: list[str],
     profile_text: str,
 ) -> tuple[list[list[float]], list[float]]:
-    """Run model load + encode in a worker thread to avoid blocking the event loop.
+    """Load the model and encode match inputs.
 
     Uses asymmetric encoding: professors are encoded as documents, profile as a query.
     Returns (professor_embeddings, profile_embedding).
@@ -1011,6 +1025,41 @@ def _run_encoding_in_thread(
     return prof_vecs, profile_vec
 
 
+def _persist_match_records(
+    db, profile_id: int, entries: list[tuple[int, float, list[str]]]
+) -> None:
+    """Upsert a batch of match records in one short transaction."""
+    from ..models.schema import MatchRecord
+
+    if not entries:
+        return
+    professor_ids = [professor_id for professor_id, _, _ in entries]
+    with db.session() as session:
+        existing = {
+            record.professor_id: record
+            for record in session.query(MatchRecord)
+            .filter(
+                MatchRecord.user_profile_id == profile_id,
+                MatchRecord.professor_id.in_(professor_ids),
+            )
+            .all()
+        }
+        for professor_id, score, reasons in entries:
+            record = existing.get(professor_id)
+            if record:
+                record.score = score
+                record.match_reasons = reasons
+            else:
+                session.add(
+                    MatchRecord(
+                        user_profile_id=profile_id,
+                        professor_id=professor_id,
+                        score=score,
+                        match_reasons=reasons,
+                    )
+                )
+
+
 @register_task("match")
 def execute_match(task_id: str, profile_id: int) -> None:
     """Run semantic matching against all professors using Qwen3-Embedding-0.6B embeddings.
@@ -1018,7 +1067,7 @@ def execute_match(task_id: str, profile_id: int) -> None:
     Model loading and encoding run synchronously in the consumer thread.
     """
     from ..db.database import get_db
-    from ..models.schema import UserProfile, Professor, MatchRecord
+    from ..models.schema import UserProfile, Professor
     from ..matcher.semantic_matcher import (
         SemanticMatcher,
         build_professor_text,
@@ -1034,6 +1083,8 @@ def execute_match(task_id: str, profile_id: int) -> None:
     db = get_db()
 
     try:
+        # Read everything the match needs, then release the transaction: model
+        # loading and encoding take minutes and must not hold the SQLite write lock.
         with db.session() as session:
             active_profile = session.query(UserProfile).filter(UserProfile.id == profile_id).first()
             if not active_profile:
@@ -1049,13 +1100,6 @@ def execute_match(task_id: str, profile_id: int) -> None:
                 persist_task(task)
                 return
 
-            existing_records: dict[int, MatchRecord] = {
-                r.professor_id: r
-                for r in session.query(MatchRecord)
-                .filter(MatchRecord.user_profile_id == profile_id)
-                .all()
-            }
-
             profile_data = {
                 "name": active_profile.name,
                 "education": active_profile.education or [],
@@ -1066,80 +1110,69 @@ def execute_match(task_id: str, profile_id: int) -> None:
                 "profile_analysis": active_profile.profile_analysis or {},
             }
 
-            match_reason_lang = "en"
-
-            # Invalidate stale embeddings with wrong dimension (e.g. from old SPECTER model).
-            for p in professors:
-                if p.embedding and len(p.embedding) != 1024:
-                    p.embedding = None
-
-            missing = [p for p in professors if not p.embedding]
-            professor_texts = [
-                build_professor_text(
-                    {
-                        "research_interests": p.research_interests or [],
-                        "publications": p.publications or [],
-                        "paper_summaries": p.paper_summaries or [],
-                        "affiliation": p.affiliation or "",
-                        "research_profile": p.research_profile,
-                        "research_profile_analysis": p.research_profile_analysis or {},
-                    }
-                )
-                for p in missing
-            ]
-            profile_text = build_profile_text(profile_data)
-
-            task.message = "正在计算语义向量（首次需从 ModelScope 下载模型）..."
-            persist_task(task)
-            prof_vecs, profile_vec = _run_encoding_in_thread(professor_texts, profile_text)
-
-            for prof, vec in zip(missing, prof_vecs):
-                prof.embedding = vec
-            if missing:
-                session.flush()
-
-            matcher = SemanticMatcher()
-            task.message = "正在语义匹配..."
-
-            for i, professor in enumerate(professors):
-                if i < task.current:
-                    continue
-                if task.cancel_requested:
-                    break
-
-                task.current = i + 1
-                task.message = f"正在匹配 {professor.name}..."
-
-                prof_data = {
-                    "name": professor.name,
-                    "affiliation": professor.affiliation,
-                    "research_interests": professor.research_interests or [],
-                    "publications": professor.publications or [],
-                    "paper_summaries": professor.paper_summaries or [],
-                    "research_profile": professor.research_profile,
-                    "research_profile_analysis": professor.research_profile_analysis or {},
+            professor_rows = [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "affiliation": p.affiliation or "",
+                    "research_interests": p.research_interests or [],
+                    "publications": p.publications or [],
+                    "paper_summaries": p.paper_summaries or [],
+                    "research_profile": p.research_profile,
+                    "research_profile_analysis": p.research_profile_analysis or {},
+                    # Discard stale vectors from an older model (e.g. SPECTER).
+                    "embedding": p.embedding if p.embedding and len(p.embedding) == 1024 else None,
                 }
-                score, reasons = matcher.match(
-                    profile_data,
-                    prof_data,
-                    professor_embedding=professor.embedding,
-                    profile_embedding=profile_vec,
-                    language=match_reason_lang,
-                )
-                existing = existing_records.get(professor.id)
-                if existing:
-                    existing.score = score
-                    existing.match_reasons = reasons
-                else:
-                    session.add(
-                        MatchRecord(
-                            user_profile_id=profile_id,
-                            professor_id=professor.id,
-                            score=score,
-                            match_reasons=reasons,
-                        )
+                for p in professors
+            ]
+
+        match_reason_lang = "en"
+        profile_text = build_profile_text(profile_data)
+        missing = [row for row in professor_rows if row["embedding"] is None]
+        professor_texts = [build_professor_text(row) for row in missing]
+
+        task.message = "正在计算语义向量（首次需从 ModelScope 下载模型）..."
+        persist_task(task)
+        prof_vecs, profile_vec = _encode_match_inputs(professor_texts, profile_text)
+
+        if missing:
+            for row, vec in zip(missing, prof_vecs):
+                row["embedding"] = vec
+            with db.session() as session:
+                for row in missing:
+                    session.query(Professor).filter(Professor.id == row["id"]).update(
+                        {"embedding": row["embedding"]}, synchronize_session=False
                     )
-                task.success_count += 1
+
+        matcher = SemanticMatcher()
+        task.message = "正在语义匹配..."
+
+        pending: list[tuple[int, float, list[str]]] = []
+        for i, row in enumerate(professor_rows):
+            if i < task.current:
+                continue
+            if task.cancel_requested:
+                break
+
+            task.current = i + 1
+            task.message = f"正在匹配 {row['name']}..."
+
+            score, reasons = matcher.match(
+                profile_data,
+                row,
+                professor_embedding=row["embedding"],
+                profile_embedding=profile_vec,
+                language=match_reason_lang,
+            )
+            pending.append((row["id"], score, reasons))
+            task.success_count += 1
+
+            if len(pending) >= _MATCH_WRITE_BATCH:
+                _persist_match_records(db, profile_id, pending)
+                pending.clear()
+                persist_task(task)
+
+        _persist_match_records(db, profile_id, pending)
 
         if not task.cancel_requested:
             task.message = f"匹配完成，共 {task.success_count} 位教授"

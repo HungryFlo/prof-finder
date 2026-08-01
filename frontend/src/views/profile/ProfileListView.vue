@@ -16,6 +16,7 @@ import {
   NUpload,
   NSwitch,
   NSelect,
+  NPagination,
   useMessage,
   useDialog,
 } from 'naive-ui'
@@ -25,7 +26,7 @@ import { useApiError } from '@/composables/useApiError'
 import { profilesApi } from '@/api/profiles'
 import { poolsApi } from '@/api/pools'
 import { useTaskStore } from '@/stores/tasks'
-import type { ExperiencePool, Profile } from '@/types'
+import type { ExperiencePool, ProfileSummary } from '@/types'
 
 const router = useRouter()
 const message = useMessage()
@@ -38,9 +39,13 @@ const { formatDateTime } = useFormatDate()
 
 // State
 const loading = ref(false)
-const profiles = ref<Profile[]>([])
+const profiles = ref<ProfileSummary[]>([])
 const selectedRowKeys = ref<number[]>([])
 const pools = ref<ExperiencePool[]>([])
+const currentPage = ref(1)
+const pageSize = ref(20)
+const pageCount = ref(1)
+const totalProfiles = ref(0)
 
 // Upload modal state
 const showUploadModal = ref(false)
@@ -68,7 +73,7 @@ function sourceFormatLabel(format: string | undefined | null): string {
 }
 
 // Table columns (reactive to locale)
-const columns = computed<DataTableColumns<Profile>>(() => [
+const columns = computed<DataTableColumns<ProfileSummary>>(() => [
   {
     type: 'selection',
   },
@@ -154,12 +159,29 @@ const columns = computed<DataTableColumns<Profile>>(() => [
 async function fetchProfiles() {
   loading.value = true
   try {
-    profiles.value = await profilesApi.list()
+    const response = await profilesApi.listSummary({
+      page: currentPage.value,
+      page_size: pageSize.value,
+    })
+    profiles.value = response.items
+    totalProfiles.value = response.total
+    pageCount.value = response.pages
   } catch (error: unknown) {
     handleApiError(error, t('profile.fetchListFailed'))
   } finally {
     loading.value = false
   }
+}
+
+function handlePageChange(page: number) {
+  currentPage.value = page
+  fetchProfiles()
+}
+
+function handlePageSizeChange(size: number) {
+  pageSize.value = size
+  currentPage.value = 1
+  fetchProfiles()
 }
 
 // Handle activate
@@ -310,13 +332,26 @@ onMounted(() => {
       </template>
 
       <n-data-table
+        remote
         :columns="columns"
         :data="profiles"
         :loading="loading"
-        :row-key="(row: Profile) => row.id"
+        :row-key="(row: ProfileSummary) => row.id"
         v-model:checked-row-keys="selectedRowKeys"
         :scroll-x="1280"
       />
+
+      <n-space v-if="totalProfiles > pageSize" justify="end" style="margin-top: 16px">
+        <n-pagination
+          :page="currentPage"
+          :page-count="pageCount"
+          :page-size="pageSize"
+          show-size-picker
+          :page-sizes="[10, 20, 50]"
+          @update:page="handlePageChange"
+          @update:page-size="handlePageSizeChange"
+        />
+      </n-space>
     </n-card>
 
     <!-- Upload Modal -->

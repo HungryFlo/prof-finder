@@ -5,13 +5,36 @@ from pathlib import Path
 from contextlib import contextmanager
 from typing import Generator, Optional
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
 
 from ..config import settings
 from ..models.schema import Base, User, University  # noqa: ensure create_all picks up table
 from ..models.background_task import BackgroundTask  # noqa: ensure create_all picks up table
 from ..models.schema import UniversityCrawlerConfig  # noqa: ensure create_all picks up table
+
+_BUSY_TIMEOUT_SECONDS = 30
+
+
+def _enable_sqlite_concurrency(engine: Engine) -> None:
+    """Configure SQLite so API requests and Huey workers can share the database.
+
+    The default rollback journal makes readers and the writer block each other,
+    which surfaces as ``database is locked`` while a long crawl or match task
+    holds a write transaction. WAL lets readers proceed during writes, and the
+    busy timeout makes competing writers wait instead of failing immediately.
+    """
+
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_SECONDS * 1000}")
+        finally:
+            cursor.close()
 
 
 class Database:
@@ -33,8 +56,9 @@ class Database:
         self.engine = create_engine(
             f"sqlite:///{self.db_path}",
             echo=False,  # Set to True for SQL debugging
-            connect_args={"check_same_thread": False},
+            connect_args={"check_same_thread": False, "timeout": _BUSY_TIMEOUT_SECONDS},
         )
+        _enable_sqlite_concurrency(self.engine)
         
         # Create session factory
         self.SessionLocal = sessionmaker(

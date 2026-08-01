@@ -8,12 +8,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, Query, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
 from ...models.schema import User, UserProfile
 from ...models.schema import ExperiencePool
+from ...utils.query_cache import get_active_profile, invalidate_active_profile
 from ..deps import get_db_session, get_current_user, get_current_user_sse
 from ..schemas import (
     ProfileCreate,
@@ -22,6 +23,8 @@ from ..schemas import (
     ProfileChatRequest,
     ProfileChatResponse,
     ProfileChatRefineRequest,
+    ProfileSummaryListResponse,
+    ProfileSummaryResponse,
     TaskStartResponse,
     BatchDeleteRequest,
     MessageResponse,
@@ -100,6 +103,45 @@ def list_profiles(
     return profiles
 
 
+# Declared before "/{profile_id}" so the literal paths win the route match.
+@router.get("/summary", response_model=ProfileSummaryListResponse)
+def list_profile_summaries(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """List profiles without their generated-content fields.
+
+    Feeds list and picker UIs, which only need identifying columns rather than
+    every profile's full analysis payload.
+    """
+    query = session.query(UserProfile).filter(UserProfile.user_id == current_user.id)
+    total = query.count()
+    items = (
+        query.order_by(UserProfile.updated_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return ProfileSummaryListResponse(
+        items=[ProfileSummaryResponse.model_validate(p) for p in items],
+        total=total,
+        page=page,
+        page_size=page_size,
+        pages=max(1, (total + page_size - 1) // page_size),
+    )
+
+
+@router.get("/active", response_model=Optional[ProfileResponse])
+def get_active_profile_route(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+):
+    """Return the active profile, or null when none is active."""
+    return get_active_profile(session, current_user.id)
+
+
 @router.post("", response_model=ProfileResponse, status_code=status.HTTP_201_CREATED)
 def create_profile(
     data: ProfileCreate,
@@ -144,6 +186,7 @@ def create_profile(
     session.add(profile)
     session.flush()
     session.refresh(profile)
+    invalidate_active_profile(current_user.id)
 
     return profile
 
@@ -370,6 +413,7 @@ def delete_profile(
         raise_api_error(status.HTTP_404_NOT_FOUND, ErrorCode.PROFILE_NOT_FOUND, "画像不存在")
 
     session.delete(profile)
+    invalidate_active_profile(current_user.id)
 
     return MessageResponse(message="画像已删除")
 
@@ -408,6 +452,7 @@ def activate_profile(
     profile.is_active = True
     session.flush()
     session.refresh(profile)
+    invalidate_active_profile(current_user.id)
 
     return profile
 
@@ -433,6 +478,7 @@ def batch_delete_profiles(
         .filter(UserProfile.id.in_(data.ids), UserProfile.user_id == current_user.id)
         .delete(synchronize_session=False)
     )
+    invalidate_active_profile(current_user.id)
 
     return MessageResponse(message=f"已删除 {deleted_count} 份画像")
 
@@ -550,7 +596,7 @@ async def profile_chat_stream(
 
 
 @router.post("/{profile_id}/chat/refine", response_model=TaskStartResponse)
-async def profile_chat_refine(
+def profile_chat_refine(
     profile_id: int,
     data: ProfileChatRefineRequest,
     current_user: User = Depends(get_current_user),

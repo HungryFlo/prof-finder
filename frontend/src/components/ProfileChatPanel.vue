@@ -66,6 +66,8 @@ watch(
       await sendMessage(t('chat.startPrompt'))
     }
   },
+  // The panel is mounted lazily on first open, so it is already visible here.
+  { immediate: true },
 )
 
 async function sendMessage(text?: string) {

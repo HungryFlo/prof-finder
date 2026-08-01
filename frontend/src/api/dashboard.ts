@@ -2,8 +2,7 @@ import { profilesApi } from './profiles'
 import { professorsApi } from './professors'
 import { matchApi } from './match'
 import { lettersApi } from './letters'
-import type { Profile, ProfessorListItem, MatchResult, Letter } from '@/types'
-import { parseApiDateTime } from '@/utils/datetime'
+import type { Profile, ProfileSummary, ProfessorListItem, MatchResult, Letter } from '@/types'
 
 export interface DashboardStats {
   profileCount: number
@@ -15,7 +14,7 @@ export interface DashboardStats {
 export interface DashboardData {
   stats: DashboardStats
   activeProfile: Profile | null
-  recentProfiles: Profile[]
+  recentProfiles: ProfileSummary[]
   recentProfessors: ProfessorListItem[]
   topMatches: MatchResult[]
   recentLetters: Letter[]
@@ -23,33 +22,26 @@ export interface DashboardData {
 
 export const dashboardApi = {
   async getData(): Promise<DashboardData> {
-    const [profiles, professorsRes, topMatchesRes, recentLettersRes] =
+    // Every call asks for counts plus the five newest rows; the active profile
+    // is the only record fetched in full, since its card renders detail fields.
+    const [profilesRes, activeProfile, professorsRes, topMatchesRes, recentLettersRes] =
       await Promise.all([
-        profilesApi.list(),
+        profilesApi.listSummary({ page: 1, page_size: 5 }),
+        profilesApi.getActive(),
         professorsApi.list({ page: 1, page_size: 5 }),
         matchApi.getResults({ page: 1, page_size: 5 }),
         lettersApi.list({ page: 1, page_size: 5 }),
       ])
 
-    const recentProfiles = [...profiles]
-      .sort(
-        (a, b) =>
-          parseApiDateTime(b.updated_at).getTime() -
-          parseApiDateTime(a.updated_at).getTime()
-      )
-      .slice(0, 5)
-
-    const activeProfile = profiles.find((p) => p.is_active) ?? null
-
     return {
       stats: {
-        profileCount: profiles.length,
+        profileCount: profilesRes.total,
         professorCount: professorsRes.total,
         matchCount: topMatchesRes.total,
         letterCount: recentLettersRes.total,
       },
       activeProfile,
-      recentProfiles,
+      recentProfiles: profilesRes.items,
       recentProfessors: professorsRes.items,
       topMatches: topMatchesRes.items,
       recentLetters: recentLettersRes.items,

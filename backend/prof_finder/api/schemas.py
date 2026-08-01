@@ -206,6 +206,32 @@ class ProfileResponse(BaseModel):
         from_attributes = True
 
 
+class ProfileSummaryResponse(BaseModel):
+    """Profile list item without the large generated-content fields."""
+
+    id: int
+    title: str
+    name: Optional[str]
+    is_active: bool
+    source_format: Optional[str]
+    experience_pool_id: Optional[int] = None
+    created_at: ApiDateTime
+    updated_at: ApiDateTime
+
+    class Config:
+        from_attributes = True
+
+
+class ProfileSummaryListResponse(BaseModel):
+    """Paginated profile summaries."""
+
+    items: List[ProfileSummaryResponse]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+
 class BatchDeleteRequest(BaseModel):
     """Batch delete request."""
 

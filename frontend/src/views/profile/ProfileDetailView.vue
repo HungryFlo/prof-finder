@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject, ref, onMounted, defineAsyncComponent, computed } from 'vue'
+import { inject, ref, onMounted, defineAsyncComponent, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -39,6 +39,12 @@ const { formatDateTime } = useFormatDate()
 const loading = ref(false)
 const saving = ref(false)
 const showChat = ref(false)
+// The chat panel pulls in a large markdown/KaTeX chunk, so it is only mounted
+// once the user actually opens it, then kept alive to preserve the transcript.
+const chatMounted = ref(false)
+watch(showChat, (visible) => {
+  if (visible) chatMounted.value = true
+})
 const profile = ref<Profile | null>(null)
 const profileId = ref(0)
 const pools = ref<ExperiencePool[]>([])
@@ -363,7 +369,7 @@ onMounted(() => {
     </n-card>
 
     <ProfileChatPanel
-      v-if="profileId"
+      v-if="chatMounted && profileId"
       :profile-id="profileId"
       v-model:show="showChat"
       @profile-refreshed="refreshProfileSilent"

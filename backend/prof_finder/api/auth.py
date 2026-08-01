@@ -2,48 +2,82 @@
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import base64
 import hashlib
 import secrets
 
+import bcrypt
 from jose import JWTError, jwt
 
 from ..config import settings
 
+_BCRYPT_ROUNDS = 12
+_BCRYPT_PREFIX = "$2"
+
+
+def _prepare_secret(password: str) -> bytes:
+    """Reduce a password to a fixed-size token accepted by bcrypt.
+
+    bcrypt silently truncates input beyond 72 bytes, which a 100-character
+    password can exceed once encoded as UTF-8. Digesting first preserves the
+    full password's entropy.
+    """
+    digest = hashlib.sha256(password.encode("utf-8")).digest()
+    return base64.b64encode(digest)
+
 
 def _hash_with_salt(password: str, salt: str) -> str:
-    """Hash password with salt using SHA-256."""
+    """Hash password with salt using SHA-256 (legacy scheme)."""
     return hashlib.sha256((salt + password).encode()).hexdigest()
 
 
+def _verify_legacy(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against the pre-bcrypt 'salt$sha256' format."""
+    try:
+        salt, stored_hash = hashed_password.split("$", 1)
+    except ValueError:
+        return False
+    return secrets.compare_digest(_hash_with_salt(plain_password, salt), stored_hash)
+
+
 def hash_password(password: str) -> str:
-    """Hash a password using SHA-256 with random salt.
-    
+    """Hash a password using bcrypt.
+
     Args:
         password: Plain text password.
-        
+
     Returns:
-        Hashed password string in format 'salt$hash'.
+        Bcrypt hash string (``$2b$...``).
     """
-    salt = secrets.token_hex(16)
-    hash_value = _hash_with_salt(password, salt)
-    return f"{salt}${hash_value}"
+    return bcrypt.hashpw(_prepare_secret(password), bcrypt.gensalt(rounds=_BCRYPT_ROUNDS)).decode()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash.
-    
+    """Verify a password against its stored hash.
+
+    Accepts both bcrypt hashes and the legacy 'salt$sha256' format so that
+    databases created before the bcrypt migration keep working.
+
     Args:
         plain_password: Plain text password to verify.
         hashed_password: Hashed password to compare against.
-        
+
     Returns:
         True if password matches, False otherwise.
     """
+    if not hashed_password:
+        return False
+    if not hashed_password.startswith(_BCRYPT_PREFIX):
+        return _verify_legacy(plain_password, hashed_password)
     try:
-        salt, stored_hash = hashed_password.split("$", 1)
-        return secrets.compare_digest(_hash_with_salt(plain_password, salt), stored_hash)
+        return bcrypt.checkpw(_prepare_secret(plain_password), hashed_password.encode())
     except ValueError:
         return False
+
+
+def needs_rehash(hashed_password: str) -> bool:
+    """Report whether a stored hash uses the legacy scheme and should be upgraded."""
+    return bool(hashed_password) and not hashed_password.startswith(_BCRYPT_PREFIX)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

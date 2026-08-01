@@ -36,7 +36,7 @@ def get_model_status():
 
 
 @router.post("/download-model", response_model=TaskStartResponse)
-async def download_model(
+def download_model(
     current_user: User = Depends(get_current_user),
 ):
     """Start a background task to download the embedding model from ModelScope."""
@@ -59,7 +59,7 @@ async def download_model(
 
 
 @router.post("/run", response_model=TaskStartResponse)
-async def run_matching(
+def run_matching(
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
 ):

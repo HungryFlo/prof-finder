@@ -98,7 +98,7 @@ def list_letters(
 
 
 @router.post("/generate/{professor_id}", response_model=TaskStartResponse)
-async def generate_letter(
+def generate_letter(
     professor_id: int,
     language: Literal["zh", "en"],
     current_user: User = Depends(get_current_user),

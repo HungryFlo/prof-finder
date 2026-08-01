@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -40,6 +41,8 @@ from .task_manager import (
     persist_task,
     cleanup_old_tasks,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _rehydrate_tasks():
@@ -294,11 +297,13 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(
-        _request: Request, exc: Exception
+        request: Request, exc: Exception
     ) -> JSONResponse:
+        # The traceback can carry file paths, SQL and API keys, so it stays server-side.
+        logger.exception("Unhandled error while handling %s %s", request.method, request.url.path)
         return JSONResponse(
             status_code=500,
-            content=error_body(ErrorCode.INTERNAL_ERROR, str(exc) or "Internal server error"),
+            content=error_body(ErrorCode.INTERNAL_ERROR, "服务器内部错误，请查看应用日志了解详情"),
         )
 
 

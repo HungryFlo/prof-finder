@@ -1,10 +1,15 @@
 """Configuration management for Prof-Finder."""
 
 import os
-import secrets
 from dataclasses import dataclass
 
-from .runtime import is_configured, is_packaged, load_runtime_environment, runtime_file
+from .runtime import (
+    is_configured,
+    is_packaged,
+    load_runtime_environment,
+    resolve_persistent_jwt_secret,
+    runtime_file,
+)
 
 if not is_packaged() or is_configured():
     load_runtime_environment()
@@ -41,6 +46,9 @@ class Settings:
     # Professor auto-enrichment (Scholar publications → summaries + profile)
     professor_enrichment_max_publications: int
 
+    # Semantic matching
+    embedding_batch_size: int
+
     # Default user (for CLI)
     default_user: str
 
@@ -53,7 +61,7 @@ class Settings:
     huey_consumer_workers: int
 
     # JWT settings
-    jwt_secret_key: str
+    jwt_secret_env: str
     jwt_algorithm: str
     access_token_expire_minutes: int
     refresh_token_expire_days: int
@@ -90,16 +98,22 @@ class Settings:
             professor_enrichment_max_publications=int(
                 os.getenv("PROFESSOR_ENRICHMENT_MAX_PUBLICATIONS", "15")
             ),
+            embedding_batch_size=max(1, int(os.getenv("EMBEDDING_BATCH_SIZE", "8"))),
             huey_db_path=os.getenv("HUEY_DB_PATH", default_huey_db_path),
             huey_consumer_workers=int(os.getenv("HUEY_CONSUMER_WORKERS", "2")),
             default_user=os.getenv("DEFAULT_USER", "default"),
             admin_username=os.getenv("ADMIN_USERNAME", "root"),
             admin_password=os.getenv("ADMIN_PASSWORD", "root123"),
-            jwt_secret_key=os.getenv("JWT_SECRET_KEY", secrets.token_urlsafe(32)),
+            jwt_secret_env=_env("JWT_SECRET_KEY"),
             jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
             access_token_expire_minutes=int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")),
             refresh_token_expire_days=int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7")),
         )
+
+    @property
+    def jwt_secret_key(self) -> str:
+        """JWT signing key, resolved lazily so importing settings performs no disk writes."""
+        return self.jwt_secret_env or resolve_persistent_jwt_secret()
 
     # Backward-compatible aliases for legacy code paths
     @property

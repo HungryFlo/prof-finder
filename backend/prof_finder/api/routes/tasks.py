@@ -44,7 +44,7 @@ router = APIRouter(prefix="/tasks", tags=["异步任务"])
 
 
 @router.post("/batch-crawl", response_model=TaskStartResponse)
-async def start_batch_crawl(
+def start_batch_crawl(
     data: BatchCrawlRequest,
     current_user: User = Depends(get_current_user),
 ):
@@ -76,7 +76,7 @@ async def start_batch_crawl(
 
 
 @router.post("/batch-dblp-crawl", response_model=TaskStartResponse)
-async def start_batch_dblp_crawl(
+def start_batch_dblp_crawl(
     data: BatchDblpCrawlRequest,
     current_user: User = Depends(get_current_user),
 ):
@@ -100,7 +100,7 @@ async def start_batch_dblp_crawl(
 
 
 @router.post("/batch-letters", response_model=TaskStartResponse)
-async def start_batch_letters(
+def start_batch_letters(
     data: BatchLetterRequest,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db_session),
@@ -285,7 +285,7 @@ def _cancel_single(task: TaskState) -> None:
 
 
 @router.post("/{task_id}/cancel", response_model=TaskCancelResponse)
-async def cancel_task(
+def cancel_task(
     task_id: str,
     current_user: User = Depends(get_current_user),
 ):
@@ -326,7 +326,7 @@ async def cancel_task(
 
 
 @router.post("/{task_id}/resume", response_model=TaskStartResponse)
-async def resume_task(
+def resume_task(
     task_id: str,
     current_user: User = Depends(get_current_user),
 ):
@@ -367,7 +367,7 @@ async def resume_task(
 
 
 @router.get("", response_model=List[TaskListItemResponse])
-async def list_tasks(
+def list_tasks(
     current_user: User = Depends(get_current_user),
 ):
     """List active (PENDING/RUNNING) and failed tasks for the current user.
@@ -398,7 +398,7 @@ async def list_tasks(
 
 
 @router.post("/{task_id}/retry", response_model=TaskStartResponse)
-async def retry_task(
+def retry_task(
     task_id: str,
     current_user: User = Depends(get_current_user),
 ):

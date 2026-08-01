@@ -23,6 +23,7 @@ from ..errors import ErrorCode, raise_api_error
 from ..experience_pool_service import (
     STORY_FIELDS,
     count_pool_stats,
+    count_pool_stats_bulk,
     ensure_story_for_seed,
     format_story_text,
     get_cluster_for_pool,
@@ -55,8 +56,12 @@ from ..schemas import (
 router = APIRouter(prefix="/pools", tags=["信息池"])
 
 
-def _pool_response(session: Session, pool: ExperiencePool) -> ExperiencePoolResponse:
-    seed_count, story_count = count_pool_stats(session, pool)
+def _pool_response(
+    session: Session,
+    pool: ExperiencePool,
+    stats: Optional[tuple[int, int]] = None,
+) -> ExperiencePoolResponse:
+    seed_count, story_count = stats if stats is not None else count_pool_stats(session, pool)
     return ExperiencePoolResponse(
         id=pool.id,
         title=pool.title,
@@ -126,7 +131,8 @@ def list_pools(
         .order_by(ExperiencePool.updated_at.desc())
         .all()
     )
-    return [_pool_response(session, p) for p in pools]
+    stats = count_pool_stats_bulk(session, [p.id for p in pools])
+    return [_pool_response(session, p, stats.get(p.id)) for p in pools]
 
 
 @router.post("", response_model=ExperiencePoolResponse, status_code=status.HTTP_201_CREATED)

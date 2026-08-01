@@ -161,7 +161,17 @@ def build_profile_text(profile: dict) -> str:
 # ---------------------------------------------------------------------------
 
 _MAX_ENCODE_CHARS = 4000
-_ENCODE_BATCH_SIZE = 2
+
+
+def _batch_size() -> int:
+    """Return the encoding batch size.
+
+    Larger batches are markedly faster but raise peak memory; the default suits
+    a CPU-only laptop and can be raised via ``EMBEDDING_BATCH_SIZE``.
+    """
+    from ..config import settings
+
+    return settings.embedding_batch_size
 
 
 def _truncate_texts(texts: list[str]) -> list[str]:
@@ -177,7 +187,7 @@ def encode_texts(texts: list[str]) -> np.ndarray:
     """
     model = _get_model()
     return model.encode(
-        _truncate_texts(texts), batch_size=_ENCODE_BATCH_SIZE,
+        _truncate_texts(texts), batch_size=_batch_size(),
         normalize_embeddings=True, show_progress_bar=False,
     )
 
@@ -190,7 +200,7 @@ def encode_query_texts(texts: list[str]) -> np.ndarray:
     """
     model = _get_model()
     return model.encode(
-        _truncate_texts(texts), prompt_name="query", batch_size=_ENCODE_BATCH_SIZE,
+        _truncate_texts(texts), prompt_name="query", batch_size=_batch_size(),
         normalize_embeddings=True, show_progress_bar=False,
     )
 

@@ -1,7 +1,14 @@
 import client from './client'
 import { getLocale } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
-import type { ChatMessage, Profile, ProfileCreate, ProfileChatResponse } from '@/types'
+import type {
+  ChatMessage,
+  PaginatedResponse,
+  Profile,
+  ProfileCreate,
+  ProfileChatResponse,
+  ProfileSummary,
+} from '@/types'
 import type { TaskStartResponse } from '@/api/tasks'
 
 export interface ProfileMaterialUploadOptions {
@@ -16,6 +23,21 @@ export interface ProfileMaterialUploadOptions {
 export const profilesApi = {
   async list(): Promise<Profile[]> {
     const response = await client.get<Profile[]>('/profiles')
+    return response.data
+  },
+
+  /** Paginated list without the heavy generated-content fields. */
+  async listSummary(
+    params: { page?: number; page_size?: number } = {}
+  ): Promise<PaginatedResponse<ProfileSummary>> {
+    const response = await client.get<PaginatedResponse<ProfileSummary>>('/profiles/summary', {
+      params: { page: params.page ?? 1, page_size: params.page_size ?? 20 },
+    })
+    return response.data
+  },
+
+  async getActive(): Promise<Profile | null> {
+    const response = await client.get<Profile | null>('/profiles/active')
     return response.data
   },
 

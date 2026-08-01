@@ -5,7 +5,14 @@ from sqlalchemy.orm import Session
 
 from ...config import settings
 from ...models.schema import User, UserSettings
-from ..auth import hash_password, verify_password, create_access_token, create_refresh_token, verify_refresh_token
+from ..auth import (
+    hash_password,
+    needs_rehash,
+    verify_password,
+    create_access_token,
+    create_refresh_token,
+    verify_refresh_token,
+)
 from ..deps import get_db_session, get_current_user, get_admin_user
 from ..errors import ErrorCode, raise_api_error
 from ..schemas import (
@@ -91,6 +98,10 @@ def login(data: UserLogin, session: Session = Depends(get_db_session)):
     # Verify password
     if not verify_password(data.password, user.password_hash):
         raise_api_error(status.HTTP_401_UNAUTHORIZED, ErrorCode.INVALID_CREDENTIALS, "用户名或密码错误")
+    
+    # Upgrade hashes written before the bcrypt migration
+    if needs_rehash(user.password_hash):
+        user.password_hash = hash_password(data.password)
     
     # Create tokens
     token_data = {"sub": str(user.id), "username": user.username}

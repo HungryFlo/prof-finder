@@ -50,6 +50,7 @@ const data = ref<PaginatedResponse<ProfessorListItem>>({
 })
 const selectedRowKeys = ref<number[]>([])
 const currentPage = ref(1)
+const pageSize = ref(20)
 
 const showScholarModal = ref(false)
 const scholarLoading = ref(false)
@@ -340,7 +341,7 @@ async function fetchProfessors() {
   try {
     data.value = await professorsApi.list({
       page: currentPage.value,
-      page_size: 20,
+      page_size: pageSize.value,
       search: searchQuery.value || undefined,
       sort_by: sortBy.value || undefined,
       sort_order: sortBy.value ? sortOrder.value : undefined,
@@ -374,6 +375,12 @@ function handleFiltersChange(filterState: Record<string, (string | number)[] | s
 
 function handlePageChange(page: number) {
   currentPage.value = page
+  fetchProfessors()
+}
+
+function handlePageSizeChange(size: number) {
+  pageSize.value = size
+  currentPage.value = 1
   fetchProfessors()
 }
 
@@ -589,6 +596,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   unregisterListTaskHandlers?.()
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
 })
 </script>
 
@@ -664,10 +672,11 @@ onUnmounted(() => {
         <n-pagination
           :page="data.page"
           :page-count="data.pages"
-          :page-size="data.page_size"
+          :page-size="pageSize"
           show-size-picker
           :page-sizes="[10, 20, 50]"
           @update:page="handlePageChange"
+          @update:page-size="handlePageSizeChange"
         />
       </n-space>
     </n-card>

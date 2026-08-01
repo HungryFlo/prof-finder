@@ -17,6 +17,7 @@ DATA_DIR_ENV = "PROF_FINDER_DATA_DIR"
 MODEL_DIR_ENV = "PROF_FINDER_MODEL_DIR"
 FRONTEND_DIST_ENV = "PROF_FINDER_FRONTEND_DIST"
 INSTALL_CONFIG_NAME = "install.json"
+JWT_SECRET_FILE = "jwt_secret"
 MODEL_SUBDIR = Path("models") / "qwen3-embedding-0.6b"
 
 
@@ -182,3 +183,43 @@ def load_runtime_environment() -> None:
             encoding="utf-8",
         )
     load_dotenv(env_path, override=False)
+
+
+_jwt_secret_cache: str | None = None
+
+
+def resolve_persistent_jwt_secret() -> str:
+    """Return a JWT signing key that survives restarts.
+
+    Without a persisted key every restart invalidates all issued tokens, which
+    logs the user out. Packaged mode gets its key from ``runtime.env``; source
+    checkouts without ``JWT_SECRET_KEY`` in ``.env`` fall back to a key stored
+    beside the development database.
+    """
+    global _jwt_secret_cache
+    if _jwt_secret_cache:
+        return _jwt_secret_cache
+
+    if is_packaged() and not is_configured():
+        # Nothing is writable yet and no one can log in before setup.
+        _jwt_secret_cache = secrets.token_urlsafe(32)
+        return _jwt_secret_cache
+
+    if is_packaged():
+        secret_path = runtime_file(JWT_SECRET_FILE)
+    else:
+        state_dir = Path(__file__).resolve().parents[2] / "data"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        secret_path = state_dir / JWT_SECRET_FILE
+
+    if secret_path.is_file():
+        existing = secret_path.read_text(encoding="utf-8").strip()
+        if existing:
+            _jwt_secret_cache = existing
+            return existing
+
+    secret = secrets.token_urlsafe(32)
+    secret_path.write_text(secret + "\n", encoding="utf-8")
+    secret_path.chmod(0o600)
+    _jwt_secret_cache = secret
+    return secret

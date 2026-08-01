@@ -37,7 +37,7 @@ import type {
   ExperienceStory,
   PoolComposition,
   PoolPhase,
-  Profile,
+  ProfileSummary,
 } from '@/types'
 
 const PHASE_ORDER: PoolPhase[] = ['brainstorm', 'cluster', 'detail', 'compose']
@@ -87,7 +87,7 @@ const composeTitle = ref('')
 const composeBody = ref('')
 const editingCompositionId = ref<number | null>(null)
 const generating = ref(false)
-const profiles = ref<Profile[]>([])
+const profiles = ref<ProfileSummary[]>([])
 const applyProfileId = ref<number | null>(null)
 const showApplyModal = ref(false)
 const applyTargetCompositionId = ref<number | null>(null)
@@ -241,7 +241,9 @@ async function setPhase(next: PoolPhase) {
 
 async function loadProfiles() {
   try {
-    profiles.value = await profilesApi.list()
+    // Only id/title/is_active are needed to populate the target picker.
+    const response = await profilesApi.listSummary({ page: 1, page_size: 200 })
+    profiles.value = response.items
   } catch {
     profiles.value = []
   }

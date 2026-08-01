@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..models.schema import (
@@ -168,18 +169,53 @@ def format_pool_stories_summary(
     return text
 
 
-def count_pool_stats(session: Session, pool: ExperiencePool) -> tuple[int, int]:
-    seed_count = (
-        session.query(ExperienceSeed)
-        .filter(ExperienceSeed.pool_id == pool.id, ExperienceSeed.status == "active")
-        .count()
+def count_pool_stats_bulk(
+    session: Session, pool_ids: list[int]
+) -> dict[int, tuple[int, int]]:
+    """Return ``{pool_id: (seed_count, story_count)}`` using two aggregate queries.
+
+    Counting per pool would issue a query per pool plus one lazy load per seed.
+    """
+    if not pool_ids:
+        return {}
+
+    seed_counts = dict(
+        session.query(ExperienceSeed.pool_id, func.count(ExperienceSeed.id))
+        .filter(
+            ExperienceSeed.pool_id.in_(pool_ids),
+            ExperienceSeed.status == "active",
+        )
+        .group_by(ExperienceSeed.pool_id)
+        .all()
     )
-    story_count = 0
-    for seed in list_detail_seeds(session, pool.id):
-        story = seed.story
-        if story is not None and story_completion(story) != "empty":
-            story_count += 1
-    return seed_count, story_count
+
+    story_rows = (
+        session.query(
+            ExperienceSeed.pool_id,
+            *[getattr(ExperienceStory, field) for field in STORY_FIELDS],
+        )
+        .join(ExperienceStory, ExperienceStory.seed_id == ExperienceSeed.id)
+        .filter(
+            ExperienceSeed.pool_id.in_(pool_ids),
+            ExperienceSeed.status == "active",
+            (ExperienceSeed.cluster_id.isnot(None)) | (ExperienceSeed.standalone.is_(True)),
+        )
+        .all()
+    )
+
+    story_counts: dict[int, int] = {}
+    for pool_id, *values in story_rows:
+        if any(str(value or "").strip() for value in values):
+            story_counts[pool_id] = story_counts.get(pool_id, 0) + 1
+
+    return {
+        pool_id: (seed_counts.get(pool_id, 0), story_counts.get(pool_id, 0))
+        for pool_id in pool_ids
+    }
+
+
+def count_pool_stats(session: Session, pool: ExperiencePool) -> tuple[int, int]:
+    return count_pool_stats_bulk(session, [pool.id])[pool.id]
 
 
 def get_cluster_for_pool(

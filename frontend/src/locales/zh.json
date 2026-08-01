@@ -336,7 +336,7 @@
     "googleScholar": "Google Scholar",
     "fetchListFailed": "获取教授列表失败",
     "fetchUniversityFailed": "获取院校列表失败",
-    "selectUniversity": "请选择目标院校",
+    "selectUniversity": "请选择关联学校（可选）",
     "crawlTaskStarted": "爬取任务已启动",
     "startTaskFailed": "启动任务失败",
     "enterScholarUrl": "请输入 Google Scholar URL",
@@ -356,7 +356,7 @@
     "confirmBatchDeleteProfessor": "确定删除选中的 {count} 位教授吗？",
     "univModalTitle": "院校官网批量添加",
     "univModalPositive": "开始爬取",
-    "univModalIntro": "选择目标院校，系统将自动爬取该院系教授列表并导入。爬取过程在后台运行，可通过右下角任务面板查看进度。",
+    "univModalIntro": "填写院系教师列表页 URL，选择 LLM 或 CSS 抽取教授名单并导入。爬取在后台运行，可通过顶部栏任务进度面板查看。",
     "noUniversityCrawler": "暂无可用的院校爬虫",
     "scholarModalTitle": "通过 Google Scholar 添加",
     "scholarFormLabel": "Google Scholar URL",
@@ -642,6 +642,7 @@
     "idColumn": "ID"
   },
   "dashboard": {
+    "loadFailed": "加载首页数据失败",
     "welcome": "欢迎回来，{username}",
     "subtitle": "从经历沉淀到导师匹配",
     "flowTitle": "你的进度",
@@ -714,7 +715,8 @@
     "errorStatus": "状态码",
     "copyDetail": "复制详情",
     "copySuccess": "已复制",
-    "noErrorDetail": "（无原始详情）"
+    "noErrorDetail": "（无原始详情）",
+    "retry": "重试"
   },
   "task": {
     "title": "任务进度",
@@ -820,7 +822,7 @@
     "step1Title": "建立画像",
     "step1Desc": "在「学生画像」上传简历并可绑定一个信息池；可用 AI 对话继续打磨。确保至少激活一个画像。",
     "step2Title": "添加教授",
-    "step2Desc": "在「教授」页面通过 Google Scholar、DBLP、关联外部档案、院校批量爬取或手动添加目标导师。",
+    "step2Desc": "在「教授管理」通过 Google Scholar、DBLP、院校官网批量添加（列表页 URL + LLM/CSS 抽取）或手动添加；已有教授可更新外部档案（Scholar / DBLP）。",
     "step3Title": "运行匹配",
     "step3Desc": "在「匹配结果」下载 Qwen3 嵌入模型（首次约 1.2 GB，需访问 ModelScope），然后运行匹配获取推荐排序。",
     "step4Title": "生成邮件",
@@ -855,7 +857,7 @@
     "settingsApiKeyHint": "简历解析、信息池文书草稿、教授画像、论文摘要、套磁邮件与画像 AI 对话需要在设置中配置 LLM API。",
     "settingsApiKeyLink": "查看获取步骤",
     "profileLlmRequiresApiKey": "启用 LLM 自动提取需先在「设置」中配置 LLM API（含模型名称）。",
-    "scholarModalIntro": "粘贴教授的 Google Scholar 主页链接，系统将自动爬取论文和研究方向。爬取在后台运行，可通过任务面板查看进度。",
+    "scholarModalIntro": "粘贴教授的 Google Scholar 主页链接，系统将自动爬取论文和研究方向。爬取在后台运行，可通过顶部栏任务进度面板查看。",
     "manualModalIntro": "手动填写教授基本信息。信息较少时匹配准确度可能降低，建议后续补充 Scholar / DBLP 链接或论文来源。",
     "matchPrerequisitesHint": "运行匹配前请确保：已激活一个学生画像、至少添加一位教授；首次使用需从 ModelScope 下载嵌入模型（约 1.2 GB，需能访问 www.modelscope.cn）。",
     "bannerSeeHelp": "详细步骤请查看右上角「使用帮助」。"

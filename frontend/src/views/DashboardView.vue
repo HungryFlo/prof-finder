@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NIcon, NSpin, NButton, NTag } from 'naive-ui'
+import { NIcon, NSpin, NButton, NResult, NTag } from 'naive-ui'
 import {
   PersonOutline,
   SchoolOutline,
@@ -17,16 +17,19 @@ import {
 import { useAuthStore } from '@/stores/auth'
 import { dashboardApi, type DashboardData } from '@/api/dashboard'
 import { poolsApi } from '@/api/pools'
+import { useApiError } from '@/composables/useApiError'
 import { useFormatDate } from '@/composables/useDateLocale'
 import { useHelpDrawer } from '@/composables/useHelpDrawer'
 
 const router = useRouter()
 const { t, tm } = useI18n()
 const { formatRelativeTime } = useFormatDate()
+const { handleApiError } = useApiError()
 const authStore = useAuthStore()
 const { openHelp } = useHelpDrawer()
 
 const loading = ref(true)
+const loadFailed = ref(false)
 const data = ref<DashboardData | null>(null)
 const poolStoryCount = ref(0)
 
@@ -107,7 +110,9 @@ function scoreColor(score: number): string {
   return 'var(--muted-foreground)'
 }
 
-onMounted(async () => {
+async function loadDashboard() {
+  loading.value = true
+  loadFailed.value = false
   try {
     const [dash, pools] = await Promise.all([
       dashboardApi.getData(),
@@ -115,12 +120,15 @@ onMounted(async () => {
     ])
     data.value = dash
     poolStoryCount.value = pools.reduce((sum, p) => sum + (p.story_count || 0), 0)
-  } catch {
-    // silently handle
+  } catch (error: unknown) {
+    loadFailed.value = true
+    handleApiError(error, t('dashboard.loadFailed'))
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(loadDashboard)
 </script>
 
 <template>
@@ -136,6 +144,14 @@ onMounted(async () => {
     <!-- Loading state -->
     <div v-if="loading" class="loading-state">
       <n-spin :size="32" />
+    </div>
+
+    <div v-else-if="loadFailed" class="loading-state">
+      <n-result status="error" :title="t('dashboard.loadFailed')">
+        <template #footer>
+          <n-button type="primary" @click="loadDashboard">{{ t('common.retry') }}</n-button>
+        </template>
+      </n-result>
     </div>
 
     <template v-else>
